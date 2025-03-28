@@ -20,7 +20,6 @@
 #include "simdhash.h"
 #include "SimdHashBuffer.hpp"
 
-#include "Common.hpp"
 #include "CrackList.hpp"
 #include "HashList.hpp"
 #include "Util.hpp"

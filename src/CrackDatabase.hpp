@@ -20,7 +20,6 @@
 
 #include <DispatchQueue.hpp>
 
-#include "Common.hpp"
 #include "MappedDatabase.hpp"
 #include "Util.hpp"
 #include "Wordfile.hpp"
