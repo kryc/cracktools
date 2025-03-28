@@ -1,2 +1,2 @@
-# SimdCrack
-Password-cracking tool using SimdHash library
+# Crack Tools
+A selection of password cracking tools
