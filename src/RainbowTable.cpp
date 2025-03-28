@@ -24,8 +24,8 @@
 #include "SimdHashBuffer.hpp"
 
 #include "Chain.hpp"
-#include "SimdRainbowCrackCommon.hpp"
 #include "RainbowTable.hpp"
+#include "SmallString.hpp"
 #include "Util.hpp"
 
 void
@@ -148,7 +148,7 @@ RainbowTable::GenerateBlock(
     HybridReducer reducer(m_Min, m_Max, m_HashWidth, m_Charset);
     std::vector<SmallString> block(m_Blocksize);
 
-    SimdHashBufferFixed<MAX_LENGTH> words;
+    SimdHashBufferFixed<kSmallStringMaxLength> words;
     std::array<uint8_t, MAX_HASH_SIZE * MAX_LANES> hashes;
 
     // Calculate lower bound and add the current index
@@ -522,13 +522,13 @@ RainbowTable::ValidateConfig(
     }
 #endif
 
-    if (m_Max > MAX_LENGTH)
+    if (m_Max > kSmallStringMaxLength)
     {
         std::cerr << "Max length is above supported maximum" << std::endl;
         return false;
     }
 
-    if (m_Min > MAX_LENGTH)
+    if (m_Min > kSmallStringMaxLength)
     {
         std::cerr << "Min length is above supported maximum" << std::endl;
         return false;

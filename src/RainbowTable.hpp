@@ -23,8 +23,8 @@
 #include "simdhash.h"
 
 #include "Chain.hpp"
-#include "SimdRainbowCrackCommon.hpp"
 #include "Reduce.hpp"
+#include "SmallString.hpp"
 
 typedef enum _TableType
 {

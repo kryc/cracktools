@@ -17,7 +17,7 @@
 #include <math.h>
 #include <string>
 
-#include "Common.hpp"
+#include "SmallString.hpp"
 #include "WordGenerator.hpp"
 
 #ifdef BIGINT
@@ -455,7 +455,7 @@ public:
 private:
     size_t m_BytesRequired;
     uint8_t m_MsbMask;
-    std::array<index_t, MAX_LENGTH> m_Limits{};
+    std::array<index_t, kSmallStringMaxLength> m_Limits{};
     size_t m_ModMax;
 };
 
