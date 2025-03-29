@@ -19,7 +19,8 @@ SET(CMAKE_CXX_COMPILER clang++)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 
-set(CMAKE_CXX_FLAGS "-Wall -Werror -fno-exceptions -Wno-deprecated-declarations -Wno-ignored-optimization-argument -Wno-deprecated-declarations")
+set(CMAKE_CXX_FLAGS "-Wall -Werror -fno-exceptions -Wno-deprecated-declarations -Wno-ignored-optimization-argument -Wno-deprecated-declarations -Wno-vla-cxx-extension")
+# set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wunsafe-buffer-usage")
 set(CMAKE_CXX_FLAGS_RELEASE "-O3 -funroll-loops")
 set(CMAKE_CXX_FLAGS_DEBUG "-g -ggdb -O0 -fno-omit-frame-pointer -fsanitize=address -DDEBUG -DDEBUGINFO")
 
@@ -60,7 +61,7 @@ target_include_directories(crackdb++
                                 ./src/
                                 ./SimdHash/src/
                         )
-target_link_libraries(crackdb++ dispatchqueue crypto simdhash)
+target_link_libraries(crackdb++ dispatchqueue simdhash crypto gmp gmpxx)
 
 # SimdRainbowCrack
 set(SIMDRAINBOWCRACK_SOURCES
