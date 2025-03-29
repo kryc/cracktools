@@ -10,6 +10,7 @@
 #define Util_hpp
 
 #include <vector>
+#include <span>
 #include <string>
 #include <cstdint>
 #include <gmpxx.h>
@@ -26,6 +27,11 @@ std::string
 ToHex(
     const uint8_t* Bytes,
     const size_t Length
+);
+
+std::string
+ToHex(
+    std::span<const uint8_t> Bytes
 );
 
 bool

@@ -100,19 +100,13 @@ SimdCrack::AddHashToList(
     const uint8_t* Hash
 )
 {
-    if (m_TargetsCount == m_TargetsAllocated)
-    {
-        m_TargetsAllocated += 1024;
-        m_Targets = (uint8_t*)realloc(m_Targets, m_TargetsAllocated * m_HashWidth);
-        if (m_Targets == NULL)
-        {
-            std::cerr << "Not enough memory to allocate hash targets!" << std::endl;
-            return false;
-        }
-    }
+    // Add the hash to the end of the targetsvector
+    m_TargetsVector.insert(
+        m_TargetsVector.end(),
+        Hash,
+        Hash + m_HashWidth
+    );
 
-    uint8_t* next = m_Targets + (m_TargetsCount * m_HashWidth);
-    memcpy(next, Hash, m_HashWidth);
     m_TargetsCount++;
     m_TargetsSize += m_HashWidth;
     return true;
@@ -177,8 +171,7 @@ SimdCrack::ProcessHashList(
         }
 
         m_HashList.Initialize(
-            m_Targets,
-            m_TargetsSize,
+            m_TargetsVector,
             m_HashWidth,
             true
         );
@@ -219,8 +212,7 @@ SimdCrack::ProcessHashList(
         }
 
         m_HashList.Initialize(
-            m_Targets,
-            m_TargetsSize,
+            m_TargetsVector,
             m_HashWidth,
             true
         );
@@ -300,6 +292,7 @@ SimdCrack::GenerateBlocks(
     mpz_class index(Start);
     SimdHashBufferFixed<MAX_OPTIMIZED_BUFFER_SIZE> words;
     std::array<uint8_t, MAX_HASH_SIZE * MAX_LANES> hashes;
+    std::span<uint8_t, MAX_HASH_SIZE * MAX_LANES> hashspan(hashes);
     std::vector<std::tuple<std::string, std::string>> results;
 
     // Check if we should end
@@ -340,12 +333,12 @@ SimdCrack::GenerateBlocks(
         
         for (size_t i = 0; i < SimdLanes(); i++)
         {
-            const uint8_t* hash = &hashes[i * m_HashWidth];
+            auto hash = hashspan.subspan(i * m_HashWidth, m_HashWidth);
 
             if (m_HashList.Lookup(hash))
             {
                 results.push_back({
-                    Util::ToHex(hash, m_HashWidth),
+                    Util::ToHex(hash),
                     words.GetString(i)
                 });
             }

@@ -10,44 +10,38 @@
 #define HashList_hpp
 
 #include <filesystem>
+#include <span>
 #include <vector>
 #include <stdio.h>
-
-typedef struct __attribute__((packed)) _LookupTable
-{
-    uint32_t Offset;
-    uint32_t Count;
-} LookupTable;
-
-#define INVALID_OFFSET ((uint32_t)-1)
 
 class HashList
 {
 public:
     HashList(void) = default;
-    const bool Initialize(const std::filesystem::path Path, const size_t DigestLength, const bool Sort = false);
-    const bool Initialize(uint8_t* Base, const size_t Size, const size_t DigestLength, const bool Sort = true);
-    const bool Lookup(const uint8_t* Hash) const;
-    const bool LookupLinear(const uint8_t* Hash) const;
-    const bool LookupFast(const uint8_t* Hash) const;
-    const bool LookupBinary(const uint8_t* Hash) const;
-    void Sort(void);
-    const size_t GetCount(void) const { return m_Count; };
+    const bool Initialize(const std::filesystem::path Path, const size_t DigestLength, const bool ShouldSort = false);
+    const bool Initialize(std::span<const uint8_t> Data, const size_t DigestLength, const bool ShouldSort = true);
+    const bool Initialize(const uint8_t* Base, const size_t Size, const size_t DigestLength, const bool ShouldSort = true) {
+        return Initialize(std::span<const uint8_t>(Base, Size), DigestLength, ShouldSort);
+    }
+    const bool Lookup(std::span<const uint8_t> Hash) const;
+    const bool LookupLinear(std::span<const uint8_t> Hash) const;
+    const bool LookupFast(std::span<const uint8_t> Hash) const;
+    const bool LookupBinary(std::span<const uint8_t> Hash) const;
+    const size_t GetCount(void) const { return m_Data.size() / m_DigestLength; };
     void SetBitmaskSize(const size_t BitmaskSize) { m_BitmaskSize = BitmaskSize; };
     const size_t GetBitmaskSize(void) const { return m_BitmaskSize; };
     // Static
-    static const bool Lookup(const uint8_t* const Base, const size_t Size, const uint8_t* const Hash, const size_t HashSize);
-    static const bool LookupLinear(const uint8_t* const Base, const size_t Size, const uint8_t* const Hash, const size_t HashSize);
+    static const bool Lookup(std::span<const uint8_t> HashList, std::span<const uint8_t> Hash);
+    static const bool LookupLinear(std::span<const uint8_t> HashList, std::span<const uint8_t> Hash);
 private:
+    void Sort(void);
     const bool InitializeInternal(void);
     std::filesystem::path m_Path;
     size_t m_DigestLength;
     FILE* m_BinaryHashFileHandle;
-    uint8_t* m_Base;
-    size_t m_Size;
-    size_t m_Count;
+    std::span<const uint8_t> m_Data;
     size_t m_BitmaskSize = 16;
-    std::vector<LookupTable> m_LookupTable;
+    std::vector<std::span<const uint8_t>> m_LookupTable;
 };
 
 #endif //HashList_hpp

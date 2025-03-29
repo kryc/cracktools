@@ -42,6 +42,7 @@ CrackList::CrackLinear(
     const size_t hashWidth = GetHashWidth(m_Algorithm);
     SimdHashBufferFixed<MAX_STRING_LENGTH> words;
     std::array<uint8_t, MAX_HASH_SIZE * MAX_LANES> hashes;
+    std::span<uint8_t, MAX_HASH_SIZE * MAX_LANES> hashspan(hashes);
 
     while (!m_Exhausted)
     {
@@ -70,17 +71,18 @@ CrackList::CrackLinear(
 
             for (size_t h = 0; h < remaining; h++)
             {
-                uint8_t* const hash = &hashes[h * hashWidth];
+                auto hash = hashspan.subspan(h * hashWidth, hashWidth);
                 // In linkedin mode we need to mask
                 // the high order bytes
                 if (m_LinkedIn)
                 {
-                    *(uint16_t*)hash = 0;
+                    hash[0] = 0;
+                    hash[1] = 0;
                     hash[2] &= 0x0f;
                 }
                 if (m_HashList.Lookup(hash))
                 {
-                    auto hex = Util::ToHex(hash, m_DigestLength);
+                    auto hex = Util::ToHex(hash);
                     hex = Util::ToLower(hex);
                     m_Cracked++;
                     output << hex << m_Separator << Util::Hexlify(words.GetString(h)) << std::endl;
@@ -281,6 +283,7 @@ CrackList::CrackWorker(
     const size_t hashWidth = GetHashWidth(m_Algorithm);
     SimdHashBufferFixed<MAX_STRING_LENGTH> words;
     std::array<uint8_t, MAX_HASH_SIZE * MAX_LANES> hashes;
+    std::span<uint8_t, MAX_HASH_SIZE * MAX_LANES> hashspan(hashes);
 
     for (size_t i = 0; i < block.size(); i+=lanes)
     {
@@ -299,19 +302,24 @@ CrackList::CrackWorker(
 
         for (size_t h = 0; h < remaining; h++)
         {
-            uint8_t* const hash = &hashes[h * hashWidth];
+            auto hash = hashspan.subspan(h * hashWidth, hashWidth);
             // In linkedin mode we need to mask
             // the high order bytes
             if (m_LinkedIn)
             {
-                *(uint16_t*)hash = 0;
+                hash[0] = 0;
+                hash[1] = 0;
                 hash[2] &= 0x0f;
             }
             if (m_HashList.Lookup(hash))
             {
-                auto hex = Util::ToHex(hash, m_DigestLength);
+                auto hex = Util::ToHex(hash);
                 hex = Util::ToLower(hex);
-                cracked.push_back({std::vector<uint8_t>(hash, hash + m_DigestLength), hex, Util::Hexlify(words.GetString(h))});
+                cracked.push_back({
+                    {hash.begin(), hash.end()},
+                    hex,
+                    Util::Hexlify(words.GetString(h))
+                });
             }
         }
     }
@@ -565,7 +573,7 @@ CrackList::Crack(
             m_Hashes.insert(m_Hashes.end(), bytes.begin(), bytes.end());
         }
 
-        m_HashList.Initialize(&m_Hashes[0], m_Hashes.size(), m_DigestLength, true);
+        m_HashList.Initialize(m_Hashes, m_DigestLength, true);
     }
     else if (m_HashType == InputTypeSingle)
     {
@@ -580,7 +588,7 @@ CrackList::Crack(
         // Add the new hash to the list
         auto bytes = Util::ParseHex(m_HashFile);
         m_Hashes.insert(m_Hashes.end(), bytes.begin(), bytes.end());
-        m_HashList.Initialize(&m_Hashes[0], m_Hashes.size(), m_DigestLength, false);
+        m_HashList.Initialize(m_Hashes, m_DigestLength, false);
     }
 
     m_Count = m_HashList.GetCount();

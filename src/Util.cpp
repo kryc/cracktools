@@ -57,6 +57,14 @@ ParseHex(
 
 std::string
 ToHex(
+    std::span<const uint8_t> Bytes
+)
+{
+	return ToHex(Bytes.data(), Bytes.size());
+}
+
+std::string
+ToHex(
 	const uint8_t* Bytes,
 	const size_t Length
 )

@@ -70,9 +70,9 @@ private:
     HashAlgorithm m_Algorithm = HashAlgorithmUndefined;
     size_t m_HashWidth = SHA256_SIZE;
     FILE* m_BinaryFd = nullptr;
+    std::vector<uint8_t> m_TargetsVector;
     uint8_t* m_Targets = nullptr;
     size_t   m_TargetsSize;
-    size_t   m_TargetsAllocated = 0;
     size_t   m_TargetsCount = 0;
     std::vector<uint8_t*> m_TargetOffsets;
 	std::vector<size_t> m_TargetCounts;
