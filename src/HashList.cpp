@@ -146,6 +146,8 @@ HashList::Initialize(
     m_Size = Size;
     m_DigestLength = DigestLength;
     m_Count = m_Size / m_DigestLength;
+
+    std::cerr << "HashList::Initialize: " << m_Size << " bytes, " << m_Count << " hashes" << std::endl;
     
     if (Sort)
     {
@@ -164,7 +166,6 @@ HashList::InitializeInternal(
     if (ret != 0)
     {
         std::cerr << "Madvise not happy" << std::endl;
-        return false;
     }
 
     // Build lookup table
@@ -234,8 +235,6 @@ HashList::InitializeInternal(
             }
         } while(foundNewEntry);
 
-        std::cerr << std::endl;
-
         // Calculate the counts
         // We walk through each item, look for the next offset
         // and calculate the distance between them
@@ -269,6 +268,8 @@ HashList::InitializeInternal(
             }
         }
     }
+
+    std::cerr << std::endl;
 
     return true;
 }

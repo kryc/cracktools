@@ -114,6 +114,7 @@ SimdCrack::AddHashToList(
     uint8_t* next = m_Targets + (m_TargetsCount * m_HashWidth);
     memcpy(next, Hash, m_HashWidth);
     m_TargetsCount++;
+    m_TargetsSize += m_HashWidth;
     return true;
 }
 
@@ -340,6 +341,7 @@ SimdCrack::GenerateBlocks(
         for (size_t i = 0; i < SimdLanes(); i++)
         {
             const uint8_t* hash = &hashes[i * m_HashWidth];
+
             if (m_HashList.Lookup(hash))
             {
                 results.push_back({
