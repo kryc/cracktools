@@ -47,7 +47,6 @@ target_link_libraries(cracklist simdhash dispatchqueue crypto gmp gmpxx)
 
 # CrackDB
 set(CRACKDB_SOURCES
-    src/CrackDBCommon.cpp
     src/CrackDatabase.cpp
     src/CrackDBMain.cpp
     src/HashList.cpp
@@ -59,8 +58,9 @@ set_property(TARGET crackdb++ PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE
 target_include_directories(crackdb++
                             PUBLIC
                                 ./src/
+                                ./SimdHash/src/
                         )
-target_link_libraries(crackdb++ dispatchqueue crypto)
+target_link_libraries(crackdb++ dispatchqueue crypto simdhash)
 
 # SimdRainbowCrack
 set(SIMDRAINBOWCRACK_SOURCES

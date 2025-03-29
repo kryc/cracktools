@@ -12,7 +12,6 @@
 #include <string>
 #include <vector>
 
-#include "CrackDBCommon.hpp"
 #include "CrackDatabase.hpp"
 #include "Util.hpp"
 
@@ -192,7 +191,7 @@ int main(
             auto result = db.Lookup(positionals[1]);
             if (result.has_value())
             {
-                auto value = db.GetHex() ? AsciiOrHex(result.value()) : result.value();
+                auto value = db.GetHex() ? Util::Hexlify(result.value()) : result.value();
                 std::cout << Util::ToLower(positionals[1]) << db.GetSeparator() << value << std::endl;
             }
         }

@@ -14,7 +14,7 @@
 #include <string>
 #include <sys/mman.h>
 
-#include "CrackDBCommon.hpp"
+#include "MappedDatabase.hpp"
 #include "Util.hpp"
 #include "Wordfile.hpp"
 

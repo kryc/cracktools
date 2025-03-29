@@ -15,7 +15,8 @@
 #include <cstring>
 #include <sys/mman.h>
 
-#include "CrackDBCommon.hpp"
+#include "simdhash.h"
+
 #include "CrackDatabase.hpp"
 #include "Util.hpp"
 
@@ -238,7 +239,7 @@ CrackDatabase::Build(
         for (auto algorithm : Algorithms)
         {
             // Do the hash
-            DoHash(algorithm, (uint8_t*)&line[0], line.size(), digest);
+            SimdHashSingle(algorithm, line.size(), (uint8_t*)&line[0], digest);
 
             // Copy the hash into the next record
             memcpy(record.Hash, digest, sizeof(record.Hash));
@@ -274,7 +275,7 @@ CrackDatabase::DatabaseFile(
     const HashAlgorithm Algorithm
 ) const
 {
-    std::string basename = HashAlgorithmToString(Algorithm) + ".db";
+    std::string basename = std::string(HashAlgorithmToString(Algorithm)) + ".db";
     return m_Path / basename;
 }
 
@@ -343,7 +344,7 @@ CrackDatabase::CheckResult(
             for (auto& word : words)
             {
                 // Check the hash
-                DoHash(Algorithm, (uint8_t*)&word[0], word.size(), temp);
+                SimdHashSingle(Algorithm, word.size(), (uint8_t*)&word[0], temp);
                 if (memcmp(temp, &Target[0], TargetSize) == 0)
                 {
                     return std::string(&word[0], word.size());
@@ -365,7 +366,7 @@ CrackDatabase::CheckResult(
             for (auto& word : words)
             {
                 // Check the hash
-                DoHash(Algorithm, (uint8_t*)&word[0], word.size(), temp);
+                SimdHashSingle(Algorithm, word.size(), (uint8_t*)&word[0], temp);
                 if (memcmp(temp, &Target[0], TargetSize) == 0)
                 {
                     return std::string(&word[0], word.size());
@@ -523,7 +524,7 @@ CrackDatabase::Lookup(
     const std::vector<uint8_t>& Hash
 ) const
 {
-    const HashAlgorithm algorithm = DetectHashAlgorithm(Hash);
+    const HashAlgorithm algorithm = DetectHashAlgorithm(Hash.size());
 
     if (algorithm == HashAlgorithmUndefined)
     {
@@ -541,7 +542,7 @@ CrackDatabase::OutputResult(
     std::ostream& Stream
 ) const
 {
-    auto formatted = m_Hex ? AsciiOrHex(Value) : Value;
+    auto formatted = m_Hex ? Util::Hexlify(Value) : Value;
     if (m_PasswordsOnly)
     {
         Stream << formatted << std::endl;
@@ -698,9 +699,9 @@ CrackDatabase::OpenDatabaseFilesForLookup(
     void
 )
 {
-    for (size_t i = 0; i < HashAlgoritmCount; i++)
+    for (size_t i = 0; i < SimdHashAlgorithmCount; i++)
     {
-        auto algorithm = HashAlgorithms[i];
+        auto algorithm = SimdHashAlgorithms[i];
         if (HasAlgorithm(algorithm))
         {
             m_DatabaseCache[algorithm] = std::make_shared<const MappedDatabase>(algorithm, DatabaseFile(algorithm));
@@ -776,6 +777,6 @@ CrackDatabase::Test(
 )
 {
     std::vector<uint8_t> digest(GetDigestLength(Algorithm));
-    DoHash(Algorithm, (uint8_t*)&Value[0], Value.size(), &digest[0]);
+    SimdHashSingle(Algorithm, Value.size(), (uint8_t*)&Value[0], &digest[0]);
     return Lookup(Algorithm, &digest[0], digest.size());
 }
