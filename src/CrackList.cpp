@@ -9,6 +9,7 @@
 #include <assert.h>
 
 #include <algorithm>
+#include <format>
 #include <filesystem>
 #include <iostream>
 #include <string>
@@ -185,29 +186,32 @@ CrackList::ThreadPulse(
         const size_t hashcount = m_HashList.GetCount();
         double percent = ((double)m_Cracked / hashcount) * 100.f;
 
-        char statusbuf[m_TerminalWidth];
-        statusbuf[sizeof(statusbuf) - 1] = '\0';
-        fprintf(stderr, "%s", "\r");
-        fflush(stderr);
-        memset(statusbuf, ' ', m_TerminalWidth - 1);
-        size_t wordsProcessed = m_WordsProcessed;
-        int count = snprintf(
-            statusbuf, m_TerminalWidth,
-            "H/s:%.1lf%s C:%zu/%zu (%.1lf%%) T:%zu C:\"%s\" L:\"%s\"",
-                hashesPerSec,
-                hps_ch.c_str(),
-                m_Cracked,
-                hashcount,
-                percent,
-                wordsProcessed,
-                printable_cracked.c_str(),
-                printable_last.c_str()
+        std::string status = std::format(
+            "H/s:{:.1f}{} C:{}/{} ({:.1f}%) T:{} C:\"{}\" L:\"{}\"",
+            hashesPerSec,
+            hps_ch,
+            m_Cracked,
+            hashcount,
+            percent,
+            m_WordsProcessed.load(),
+            printable_cracked,
+            printable_last
         );
-        if (count < m_TerminalWidth - 1)
+
+        if (status.size() > m_TerminalWidth)
         {
-            statusbuf[count] = ' ';
+            status = status.substr(0, m_TerminalWidth);
         }
-        fprintf(stderr, "%s", statusbuf);
+        else
+        {
+            // Pad with spaces to m_TerminalWidth
+            if (status.size() < m_TerminalWidth)
+            {
+                status.append(m_TerminalWidth - status.size(), ' ');
+            }
+        }
+
+        std::cerr << "\r" << status << std::flush;
     }
 }
 

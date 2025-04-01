@@ -14,6 +14,8 @@
 #include <vector>
 #include <stdio.h>
 
+#include "UnsafeBuffer.hpp"
+
 class HashList
 {
 public:
@@ -21,7 +23,7 @@ public:
     const bool Initialize(const std::filesystem::path Path, const size_t DigestLength, const bool ShouldSort = false);
     const bool Initialize(std::span<const uint8_t> Data, const size_t DigestLength, const bool ShouldSort = true);
     const bool Initialize(const uint8_t* Base, const size_t Size, const size_t DigestLength, const bool ShouldSort = true) {
-        return Initialize(std::span<const uint8_t>(Base, Size), DigestLength, ShouldSort);
+        return Initialize(cracktools::UnsafeSpan<const uint8_t>(Base, Size), DigestLength, ShouldSort);
     }
     const bool Lookup(std::span<const uint8_t> Hash) const;
     const bool LookupLinear(std::span<const uint8_t> Hash) const;
