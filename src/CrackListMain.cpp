@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "CrackList.hpp"
+#include "UnsafeBuffer.hpp"
 #include "Util.hpp"
 #include "simdhash.h"
 
@@ -36,24 +37,29 @@ int main(
 
     CrackList cracklist;
 
+    std::cerr << "CrackList Hash Cracker" << std::endl;
+
+    // Parse the command line arguments
+    auto args = cracktools::ParseArgv(argv, argc);
+
     for (int i = 1; i < argc; i++)
     {
-        std::string arg = argv[i];
+        std::string arg = args[i];
 
         if (arg == "--out" || arg == "--outfile" || arg == "-o")
         {
             ARGCHECK();
-            cracklist.SetOutFile(argv[++i]);
+            cracklist.SetOutFile(args[++i]);
         }
         else if (arg == "--threads" || arg == "-t")
         {
             ARGCHECK();
-            cracklist.SetThreads(atoi(argv[++i]));
+            cracklist.SetThreads(atoi(args[++i].c_str()));
         }
         else if (arg == "--blocksize")
         {
             ARGCHECK();
-            cracklist.SetBlockSize(atoi(argv[++i]));
+            cracklist.SetBlockSize(atoi(args[++i].c_str()));
         }
         else if (arg == "--sha1" || arg == "--ntlm" || arg == "--md5" || arg == "--md4")
         {
@@ -77,7 +83,7 @@ int main(
         else if (arg == "--bitmask" || arg == "--masksize" || arg == "-m")
         {
             ARGCHECK();
-            cracklist.SetBitmaskSize(atoi(argv[++i]));
+            cracklist.SetBitmaskSize(atoi(args[++i].c_str()));
         }
         else if (arg == "--autohex" || arg == "-a")
         {
@@ -102,7 +108,7 @@ int main(
         else if (arg == "--terminal-width" || arg == "-w")
         {
             ARGCHECK();
-            cracklist.SetTerminalWidth(atoi(argv[++i]));
+            cracklist.SetTerminalWidth(atoi(args[++i].c_str()));
         }
         else if (cracklist.GetHashFile() == "")
         {
@@ -114,7 +120,7 @@ int main(
         }
         else
         {
-            std::cerr << "Unrecognised positional argument: " << argv[i] << std::endl;
+            std::cerr << "Unrecognised positional argument: " << args[i] << std::endl;
         }
     }
 

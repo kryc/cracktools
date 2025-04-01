@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "CrackDatabase.hpp"
+#include "UnsafeBuffer.hpp"
 #include "Util.hpp"
 
 #define ARGCHECK() \
@@ -39,9 +40,12 @@ int main(
     std::vector<HashAlgorithm> hashes;
     bool quiet = false;
 
+    // Parse the command line arguments
+    auto args = cracktools::ParseArgv(argv, argc);
+
     for (int i = 2; i < argc; i++)
     {
-        std::string arg = argv[i];
+        std::string arg = args[i];
 
         if (arg == "--md5")
         {
@@ -66,22 +70,22 @@ int main(
         else if (arg == "--min")
         {
             ARGCHECK();
-            db.SetMin(atoi(argv[++i]));
+            db.SetMin(atoi(args[++i].c_str()));
         }
         else if (arg == "--max")
         {
             ARGCHECK();
-            db.SetMax(atoi(argv[++i]));
+            db.SetMax(atoi(args[++i].c_str()));
         }
         else if (arg == "-o" || arg == "--output" || arg == "--out")
         {
             ARGCHECK();
-            db.SetOutput(argv[++i]);
+            db.SetOutput(args[++i]);
         }
         else if (arg == "-u" || arg == "--uncrackable")
         {
             ARGCHECK();
-            db.SetUncrackable(argv[++i]);
+            db.SetUncrackable(args[++i]);
         }
         else if (arg == "-p" || arg == "--passwords" || arg == "--password")
         {
@@ -90,17 +94,17 @@ int main(
         else if (arg == "-s" || arg == "--separator")
         {
             ARGCHECK();
-            db.SetSeparator(argv[++i]);
+            db.SetSeparator(args[++i]);
         }
         else if (arg == "-t" || arg == "--threads")
         {
             ARGCHECK();
-            db.SetThreads(atoi(argv[++i]));
+            db.SetThreads(atoi(args[++i].c_str()));
         }
         else if (arg == "-b" || arg == "--blocksize")
         {
             ARGCHECK();
-            db.SetBlockSize(atoi(argv[++i]));
+            db.SetBlockSize(atoi(args[++i].c_str()));
         }
         else if (arg == "--nohex")
         {

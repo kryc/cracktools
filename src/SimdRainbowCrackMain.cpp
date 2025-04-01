@@ -13,6 +13,7 @@
 #include "simdhash.h"
 
 #include "RainbowTable.hpp"
+#include "UnsafeBuffer.hpp"
 
 #define ARGCHECK() \
     if (argc <= i) \
@@ -43,8 +44,8 @@ VerifyAndLoad(
 
 int
 main(
-    int argc,
-    char* argv[]
+    const int argc,
+    const char* argv[]
 )
 {
     RainbowTable rainbow;
@@ -59,6 +60,9 @@ main(
     size_t avx = SimdLanes() * 32;
     std::cout << "SimdRainbowCrack (AVX-" << avx << ")" << std::endl;
 
+    // Parse the command line arguments
+    auto args = cracktools::ParseArgv(argv, argc);
+
     action = argv[1];
 
     // Set the default charset
@@ -66,52 +70,52 @@ main(
 
     for (int i = 2; i < argc; i++)
 	{
-		std::string arg = argv[i];
+		std::string arg = args[i];
         if (arg == "--min")
         {
             ARGCHECK();
-            rainbow.SetMin(std::atoi(argv[++i]));
+            rainbow.SetMin(std::atoi(args[++i].c_str()));
         }
         else if (arg == "--max")
         {
             ARGCHECK();
-            rainbow.SetMax(std::atoi(argv[++i]));
+            rainbow.SetMax(std::atoi(args[++i].c_str()));
         }
         else if (arg == "--chars")
         {
             ARGCHECK();
-            rainbow.SetMin(std::atoi(argv[++i]));
-            rainbow.SetMax(std::atoi(argv[i]));
+            rainbow.SetMin(std::atoi(args[++i].c_str()));
+            rainbow.SetMax(std::atoi(args[i].c_str()));
         }
         else if (arg == "--charset")
         {
             ARGCHECK();
-            rainbow.SetCharset(argv[++i]);
+            rainbow.SetCharset(args[++i]);
         }
         else if (arg == "--length")
         {
             ARGCHECK();
-            rainbow.SetLength(std::atoi(argv[++i]));
+            rainbow.SetLength(std::atoi(args[++i].c_str()));
         }
         else if (arg == "--blocksize")
         {
             ARGCHECK();
-            rainbow.SetBlocksize(std::atoi(argv[++i]));
+            rainbow.SetBlocksize(std::atoi(args[++i].c_str()));
         }
         else if (arg == "--count")
         {
             ARGCHECK();
-            rainbow.SetCount(std::atoi(argv[++i]));
+            rainbow.SetCount(std::atoi(args[++i].c_str()));
         }
         else if (arg == "--threads")
         {
             ARGCHECK();
-            rainbow.SetThreads(std::atoi(argv[++i]));
+            rainbow.SetThreads(std::atoi(args[++i].c_str()));;
         }
         else if (arg == "--algorithm")
         {
             ARGCHECK();
-            rainbow.SetAlgorithm(argv[++i]);
+            rainbow.SetAlgorithm(args[++i]);
         }
         else if (arg == "--md4")
         {
@@ -139,15 +143,15 @@ main(
         }
         else if (rainbow.GetPath().empty())
         {
-            rainbow.SetPath(argv[i]);
+            rainbow.SetPath(args[i]);
         }
         else if (action == "crack" || action == "test")
         {
-            target = argv[i];
+            target = args[i];
         }
         else if (action == "decompress" || action == "compress")
         {
-            destination = argv[i];
+            destination = args[i];
         }
     }
 

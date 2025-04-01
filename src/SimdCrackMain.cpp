@@ -46,9 +46,12 @@ int main(
 		return 0;
 	}
 
+	// Parse the command line arguments
+	auto args = cracktools::ParseArgv(argv, argc);
+
 	for (int i = 1; i < argc; i++)
 	{
-		std::string arg = argv[i];
+		std::string& arg = args[i];
 		if (arg == "--outfile" || arg == "-o")
 		{
 			ARGCHECK();
