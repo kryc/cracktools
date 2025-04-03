@@ -63,7 +63,7 @@ main(
     // Parse the command line arguments
     auto args = cracktools::ParseArgv(argv, argc);
 
-    action = argv[1];
+    action = args[1];
 
     // Set the default charset
     rainbow.SetCharset("ascii");

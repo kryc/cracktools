@@ -23,6 +23,7 @@
 #include "simdhash.h"
 
 #include "Chain.hpp"
+#include "HashList.hpp"
 #include "Reduce.hpp"
 #include "SmallString.hpp"
 
@@ -68,6 +69,7 @@ public:
     void SetLength(const size_t Length) { m_Length = Length; }
     const size_t GetLength(void) const { return m_Length; }
     void SetBlocksize(const size_t Blocksize) { m_Blocksize = Blocksize % SimdLanes() == 0 ? Blocksize : (Blocksize + SimdLanes()) % SimdLanes(); }
+    const size_t GetBlocksize(void) const { return m_Blocksize; }
     void SetCount(const size_t Count) { m_Count = Count; }
     const size_t GetCount(void) const;
     void SetThreads(const size_t Threads) { m_Threads = Threads; }
@@ -100,15 +102,15 @@ public:
     void SortTable(void);
     static const Chain GetChain(const std::filesystem::path& Path, const size_t Index);
     static const Chain ComputeChain(const size_t Index, const size_t Min, const size_t Max, const size_t Length, const HashAlgorithm Algorithm, const std::string& Charset);
-    inline const uint8_t* GetEndpointAt(const size_t Index) const;
-    inline const uint8_t* GetRecordAt(const size_t Index) const;
+    inline std::span<const uint8_t> GetEndpointAt(const size_t Index) const;
+    inline std::span<const uint8_t> GetRecordAt(const size_t Index) const;
 protected:
     void SortStartpoints(void);
     void RemoveStartpoints(void);
 private:
     // General purpose
     void ChangeType(const std::filesystem::path& Destination, const TableType Type);
-    const size_t FindEndpoint(const char* Endpoint, const size_t Length) const;
+    std::optional<size_t> FindEndpoint(const char* Endpoint, const size_t Length) const;
     std::optional<std::string> ValidateChain(const size_t ChainIndex, const uint8_t* Hash) const;
     bool TableMapped(void) { return m_MappedTableFd != nullptr; };
     bool MapTable(const bool ReadOnly = true);
@@ -150,6 +152,7 @@ private:
     size_t m_Chains = 0;
     TableType m_TableType = TypeCompressed;
     dispatch::DispatchPoolPtr m_DispatchPool;
+    size_t m_TerminalWidth = 80;
     // For building
     size_t m_StartingChains = 0;
     FILE* m_WriteHandle = NULL;
@@ -159,7 +162,8 @@ private:
     size_t m_ChainsWritten = 0;
     std::map<size_t, uint64_t> m_ThreadTimers;
     // For cracking
-    uint8_t* m_MappedTable = nullptr;
+    HashList m_RainbowTable;
+    std::span<uint8_t> m_MappedTable;
     FILE* m_MappedTableFd = nullptr;
     size_t m_MappedFileSize;
     size_t m_MappedTableSize;

@@ -20,6 +20,8 @@
 #include "SmallString.hpp"
 #include "WordGenerator.hpp"
 
+#pragma clang unsafe_buffer_usage begin
+
 #ifdef BIGINT
 typedef mpz_class index_t;
 #else
@@ -495,5 +497,7 @@ public:
 private:
     size_t m_ModMax;
 };
+
+#pragma clang unsafe_buffer_usage end
 
 #endif /* Reduce_hpp */
