@@ -9,8 +9,14 @@
 #ifndef SmallString_hpp
 #define SmallString_hpp
 
+#include <array>
 #include <cstdint>
 #include <cstring>
+#include <span>
+#include <string>
+#include <string_view>
+
+#include "UnsafeBuffer.hpp"
 
 // Defined on a uint32/uint64 boundary minus
 // one so that we can store the length in a
@@ -23,12 +29,21 @@ constexpr size_t kSmallStringMaxLength = 31u;
 class SmallString
 {
 public:
-    void Set(const char* Value, const uint8_t Length) { memcpy(this->Value, Value, Length); this->Length = Length; }
-    void Set(const uint8_t* Value, const uint8_t Length) { Set((const char*)Value, Length); };
-    void SetLength(const uint8_t Length) { this->Length = Length; };
-    std::string GetString(void) const { return std::string(&Value[0], &Value[this->Length]); };
-    char Value[kSmallStringMaxLength];
-    uint8_t Length;
+    template <typename T>
+    void Set(std::span<T> NewValue) {
+        static_assert(std::is_same_v<T, char> || std::is_same_v<T, const char> ||
+                std::is_same_v<T, uint8_t> || std::is_same_v<T, const uint8_t>,
+                "T must be char, const char, uint8_t, or const uint8_t");
+        std::memcpy((char*)m_Value.data(), NewValue.data(), NewValue.size());
+        SetLength(NewValue.size());
+    };
+    void Set(std::string_view Value) { Set(cracktools::UnsafeSpan<const char>(Value)); };
+    void SetLength(const uint8_t Length) { m_Length = Length; };
+    std::span<const char> Get(void) const { return std::span<const char>(m_Value).subspan(0, m_Length); };
+    const std::string_view GetString(void) const { return std::string_view(Get()); };
+private:
+    std::array<char, kSmallStringMaxLength> m_Value;
+    uint8_t m_Length;
 } ;
 
 #endif /* SmallString_hpp */

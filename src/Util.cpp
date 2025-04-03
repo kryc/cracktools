@@ -6,9 +6,15 @@
 //  Copyright © 2024 Kryc. All rights reserved.
 //
 
-#include <vector>
+#include <array>
+#include <iomanip>
+#include <span>
+#include <sstream>
 #include <string>
 #include <cstdint>
+#include <vector>
+
+#include <UnsafeBuffer.hpp>
 #include "Util.hpp"
 
 namespace Util
@@ -57,10 +63,18 @@ ParseHex(
 
 std::string
 ToHex(
-    std::span<const uint8_t> Bytes
+	std::span<const uint8_t> Bytes
 )
 {
-	return ToHex(Bytes.data(), Bytes.size());
+	std::ostringstream oss;
+	oss << std::hex << std::setfill('0');
+
+	for (const auto& byte : Bytes)
+	{
+		oss << std::setw(2) << static_cast<int>(byte);
+	}
+
+	return oss.str();
 }
 
 std::string
@@ -69,19 +83,9 @@ ToHex(
 	const size_t Length
 )
 {
-	char buffer[3];
-	std::string ret;
-
-	buffer[2] = '\0';
-
-	for (size_t i = 0; i < Length; i++)
-	{
-		snprintf(buffer, 3, "%02x", Bytes[i]);
-		ret.push_back(buffer[0]);
-		ret.push_back(buffer[1]);
-	}
-
-	return ret;
+	return ToHex(
+		cracktools::UnsafeSpan<const uint8_t>(Bytes, Length)
+	);
 }
 
 bool

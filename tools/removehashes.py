@@ -1,14 +1,15 @@
+#!/bin/env python3
 import argparse
 import logging
 import os
 import re
 import sys
 
-hex_re = re.compile(r'^((?:[a-fA-F0-9]{2})+).*$', re.IGNORECASE)
+hex_re = re.compile(r'^([0-9a-f]+)', re.IGNORECASE)
 
 def parse(line: str) -> str:
     '''Return a normalized hash string'''
-    m = re.match(hex_re, line)
+    m = re.search(hex_re, line)
     if m is None:
         return None
     return m.group(1).lower()
@@ -34,20 +35,6 @@ def count_lines(file_handle) -> int:
                 break
             yield b
     return sum(bl.count('\n') for bl in blocks(file_handle))
-
-def memcmp(str1, str2, num):
-    for i in range(num):
-        if i >= len(str1) or i >= len(str2):
-            break
-        diff = ord(str1[i]) - ord(str2[i])
-        if diff != 0:
-            return diff
-
-    # If lengths are different after comparing 'num' characters
-    if len(str1) != len(str2) and len(str1) < num and len(str2) < num:
-        return len(str1) - len(str2)
-
-    return 0
 
 def process(target: str, cracked: str, output: str, nocheck: bool) -> int:
     tf = open(target, 'r', encoding='utf8')
@@ -78,12 +65,9 @@ def process(target: str, cracked: str, output: str, nocheck: bool) -> int:
             logging.warning('Invalid target hex: target')
             continue
 
-        if memcmp(target_hash, cracked_hash, len(cracked_hash)) < 0:
+        if cracked_hash != target_hash:
             of.write(target_line)
         else:
-            while memcmp(target_hash, cracked_hash, len(cracked_hash)) != 0:
-                logging.error(f'Spurious line: {cracked_hash} != {target_hash}')
-                cracked_hash = read_and_parse(cf)
             cracked_hash = read_and_parse(cf)
 
 def main() -> int:

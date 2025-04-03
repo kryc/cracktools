@@ -14,7 +14,6 @@
 #include <iostream>
 #include <string>
 #include <string.h>
-#include <sys/mman.h>
 #include <tuple>
 #include <vector>
 
@@ -541,7 +540,11 @@ CrackList::Crack(
         }
 
         m_DigestLength = GetHashWidth(m_Algorithm);
-        m_HashList.Initialize(m_HashFile, m_DigestLength);
+        if (!m_HashList.Initialize(m_HashFile, m_DigestLength))
+        {
+            std::cerr << "Error: unable to initialize hash list" << std::endl;
+            return false;
+        }
     }
     else if (m_HashType == InputTypeText)
     {

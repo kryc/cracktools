@@ -16,6 +16,7 @@
 #include <sys/mman.h>
 
 #include "HashList.hpp"
+#include "UnsafeBuffer.hpp"
 
 // The threshold at which we perform an index
 // of all of the hashes and perform fast lookup
@@ -30,7 +31,8 @@ Bitmask(
     const size_t BitmaskSize
 )
 {
-    uint32_t v32 = *(uint32_t*)Value.data();
+    uint32_t v32;
+    std::memcpy(&v32, Value.data(), sizeof(v32));
 #ifndef __ARM__
     v32 = __bswap_32(v32);
 #endif
@@ -38,30 +40,24 @@ Bitmask(
     return v32;
 }
 
-/* static */
-const bool
-HashList::Lookup(
+std::optional<size_t>
+HashList::FindBinaryInternal(
     std::span<const uint8_t> HashList,
     std::span<const uint8_t> Hash
-)
+) const
 {
-    const size_t Size = HashList.size();
-    const size_t HashSize = Hash.size();
-    const size_t Count = Size / HashSize;
-
-    assert(Size % HashSize == 0);
-
+    const size_t count = HashList.size() / m_RowWidth;
     ssize_t low = 0;
-    ssize_t high = Count - 1;
+    ssize_t high = count - 1;
 
     while (low <= high)
     {
         const ssize_t mid = low + (high - low) / 2;
-        auto subspan = HashList.subspan(mid * HashSize, HashSize);
-        int cmp = std::memcmp(subspan.data(), Hash.data(), HashSize);
+        auto midhash = GetHash(HashList, mid);
+        int cmp = std::memcmp(midhash.data(), Hash.data(), m_DigestLength);
         if (cmp == 0)
         {
-            return true;
+            return mid;
         }
         else if (cmp < 0)
         {
@@ -73,32 +69,37 @@ HashList::Lookup(
         }
     }
 
-    return false;
+    return std::nullopt;
 }
 
-inline const bool
-HashList::LookupLinear(
+std::optional<size_t>
+HashList::FindLinearInternal(
     std::span<const uint8_t> HashList,
     std::span<const uint8_t> Hash
+) const
+{
+    const size_t count = HashList.size() / m_RowWidth;
+    for (size_t offset = 0; offset < count; offset++)
+    {
+        auto cmphash = GetHash(HashList, offset);
+        if (std::equal(cmphash.begin(), cmphash.end(), Hash.begin())) {
+            return offset;
+        }
+    }
+    return std::nullopt;
+}
+
+void
+HashList::Clear(
+    void
 )
 {
-#ifdef SAFEANDSLOW
-    for (const auto& subspan : HashList | std::ranges::views::slide(Hash.size())) {
-        if (std::equal(subspan.begin(), subspan.end(), Hash.begin())) {
-            return true;
-        }
-    }
-    return false;
-#else
-    for (size_t offset = 0; offset < HashList.size(); offset += Hash.size())
+    if (m_BinaryHashFileHandle != nullptr)
     {
-        auto subspan = HashList.subspan(offset, Hash.size());
-        if (std::equal(subspan.begin(), subspan.end(), Hash.begin())) {
-            return true;
-        }
+        cracktools::UnmapFileSpan(m_Data, m_BinaryHashFileHandle);
     }
-    return false;
-#endif
+    m_LookupTable.clear();
+    m_Path.clear();
 }
 
 const bool
@@ -109,66 +110,47 @@ HashList::Initialize(
 )
 {
     m_Path = Path;
-    m_DigestLength = DigestLength;
 
-    // Get the file size
-    const size_t size = std::filesystem::file_size(m_Path);
+    auto mapping = cracktools::MmapFileSpan<const uint8_t>(
+        m_Path,
+        PROT_READ,
+        MAP_SHARED
+    );
 
-    m_BinaryHashFileHandle = fopen(m_Path.c_str(), "r");
-    if (m_BinaryHashFileHandle == nullptr)
+    if (!mapping.has_value())
     {
-        std::cerr << "Error: unable to open binary hash file" << std::endl;
+        std::cerr << "Error: unable to map file" << std::endl;
         return false;
     }
 
-    if (size % m_DigestLength != 0)
-    {
-        std::cerr << "Error: length of hash file does not match digest" << std::endl;
-        return false;
-    }
+    m_BinaryHashFileHandle = std::get<FILE*>(mapping.value());
+    auto data = std::get<std::span<const uint8_t>>(mapping.value());
 
-    // Mmap the file
-    const uint8_t * const base = (uint8_t*)mmap(nullptr, size, PROT_READ, MAP_SHARED, fileno(m_BinaryHashFileHandle), 0);
-    if (base == nullptr)
-    {
-        std::cerr << "Error: Unable to map hashes file" << std::endl;
-        return false;
-    }
-
-    m_Data = std::span<const uint8_t>(base, size);
-
-    if (ShouldSort)
-    {
-        Sort();
-    }
-
-    return InitializeInternal();
+    return Initialize(
+        data,
+        DigestLength,
+        ShouldSort
+    );
 }
 
 const bool
 HashList::Initialize(
     std::span<const uint8_t> Data,
     const size_t DigestLength,
+    const size_t DigestOffset,
+    const size_t RowWidth,
     const bool Sort
 )
 {
     m_Data = Data;
     m_DigestLength = DigestLength;
-    const size_t count = Data.size() / m_DigestLength;
+    m_RowWidth = RowWidth;
+    m_DigestOffset = DigestOffset;
 
-    std::cerr << "HashList::Initialize: " << count << " hashes" << std::endl;
-    
-    if (count < LINEAR_LOOKUP_THRESHOLD)
+    if (Data.size() % m_RowWidth != 0)
     {
-        std::cerr << "Using linear search" << std::endl;
-    }
-    else if (count < FAST_LOOKUP_THRESHOLD)
-    {
-        std::cerr << "Using binary search" << std::endl;
-    }
-    else
-    {
-        std::cerr << "Using fast lookup" << std::endl;
+        std::cerr << "Error: data size is not a multiple of row width" << std::endl;
+        return false;
     }
     
     if (Sort)
@@ -187,112 +169,121 @@ HashList::InitializeInternal(
     constexpr size_t READAHEAD = 512;
     constexpr size_t INVALID_OFFSET = std::numeric_limits<size_t>::max();
 
-    auto ret = madvise((void*)m_Data.data(), m_Data.size(), MADV_RANDOM|MADV_WILLNEED);
-    if (ret != 0)
-    {
-        std::cerr << "Madvise not happy" << std::endl;
-    }
-
-    // Build lookup table
+    std::cerr << "HashList::Initialize: " << GetCount() << " rows." << std::endl;
+    std::cerr << "Row Width:" << m_RowWidth << std::endl;
+    std::cerr << "Digest Length: " << m_DigestLength << std::endl;
+    std::cerr << "Digest Offset: " << m_DigestOffset << std::endl;
     std::cerr << "Indexing hash table." << std::flush;
 
     m_LookupTable.resize(1 << m_BitmaskSize);
     std::vector<size_t> offsets(m_LookupTable.size(), INVALID_OFFSET);
 
-    // For lists larger than FAST_LOOKUP_THRESHOLD
-    // We need to index the offset list
-    if (GetCount() >= FAST_LOOKUP_THRESHOLD)
+    // First pass
+    std::cerr << "\rIndexing hash table. Pass 1" << std::flush;
+    for (size_t i = 0; i < GetCount(); i += READAHEAD)
     {
-        // First pass
-        std::cerr << "\rIndexing hash table. Pass 1" << std::flush;
-        for (size_t i = 0; i < GetCount(); i+= READAHEAD)
+        auto hash = GetHash(i);
+        const uint32_t index = Bitmask(hash, m_BitmaskSize);
+        if (offsets[index] == INVALID_OFFSET)
         {
-            auto hash = m_Data.subspan(i * m_DigestLength, m_DigestLength);
-            const uint32_t index = Bitmask(hash, m_BitmaskSize);
-            if (offsets[index] == INVALID_OFFSET)
-            {
-                offsets[index] = i;
-            }
+            offsets[index] = i;
         }
+    }
 
-        // Handle the last entry
-        auto last = m_Data.subspan((GetCount() - 1) * m_DigestLength, m_DigestLength);
-        const uint32_t lastIndex = Bitmask(last, m_BitmaskSize);
-        if (offsets[lastIndex] == INVALID_OFFSET)
+    // Handle the last entry
+    auto last = GetHash(GetCount() - 1);
+    const uint32_t lastIndex = Bitmask(last, m_BitmaskSize);
+    if (offsets[lastIndex] == INVALID_OFFSET)
+    {
+        offsets[lastIndex] = GetCount() - 1;
+    }
+
+    // Third pass -> N'th pass
+    // Loop over each known endpoint and check the previous entry
+    size_t pass = 2;
+    bool foundNewEntry;
+    do
+    {
+        foundNewEntry = false;
+        std::cerr << "\rIndexing hash table. Pass " << pass++ << std::flush;
+        for (size_t i = 0; i < offsets.size(); i++)
         {
-            offsets[lastIndex] = GetCount() - 1;
-        }
-
-        // Third pass -> N'th pass
-        // Loop over each known endpoint and check the previous entry
-        size_t pass = 2;
-        bool foundNewEntry;
-        do
-        {
-            foundNewEntry = false;
-            std::cerr << "\rIndexing hash table. Pass " << pass++ << std::flush;
-            for (size_t i = 0; i < m_LookupTable.size(); i++)
-            {
-                if (offsets[i] == INVALID_OFFSET || offsets[i] == 0)
-                {
-                    continue;
-                }
-
-                // Walk backwards until we find the previous
-                while (offsets[i] > 0)
-                {
-                    const size_t previousOffset = offsets[i] - 1;
-                    auto previous = m_Data.subspan(previousOffset * m_DigestLength, m_DigestLength);
-                    const uint32_t index = Bitmask(previous, m_BitmaskSize);
-                    if (index == i)
-                    {
-                        offsets[i] = previousOffset;
-                    }
-                    else
-                    {
-                        if (offsets[index] == INVALID_OFFSET)
-                        {
-                            offsets[index] = previousOffset;
-                            foundNewEntry = true;
-                        }
-                        break;
-                    }
-                }
-            }
-        } while(foundNewEntry);
-
-        // Calculate the counts
-        // We walk through each item, look for the next offset
-        // and calculate the distance between them
-        for (size_t i = 0; i < m_LookupTable.size(); i++)
-        {
-            // Find the next closest offset
-            if (offsets[i] == INVALID_OFFSET)
+            if (offsets[i] == INVALID_OFFSET || offsets[i] == 0)
             {
                 continue;
             }
 
-            for (size_t j = i + 1; j < m_LookupTable.size(); j++)
+            // Walk backwards until we find the previous
+            while (offsets[i] > 0)
             {
-                if (offsets[j] != INVALID_OFFSET)
+                const size_t previousOffset = offsets[i] - 1;
+                auto previous = GetHash(previousOffset);
+                const uint32_t index = Bitmask(previous, m_BitmaskSize);
+                if (index == i)
                 {
-                    assert(offsets[j] > offsets[i]);
-                    const size_t Count = offsets[j] - offsets[i];
-                    m_LookupTable[i] = m_Data.subspan(offsets[i] * m_DigestLength, Count * m_DigestLength);
+                    offsets[i] = previousOffset;
+                }
+                else
+                {
+                    if (offsets[index] == INVALID_OFFSET)
+                    {
+                        offsets[index] = previousOffset;
+                        foundNewEntry = true;
+                    }
                     break;
                 }
             }
         }
+    } while(foundNewEntry);
 
-        // Handle the last entry
-        for (size_t i = m_LookupTable.size() - 1; i > 0; i--)
+    // Calculate the counts
+    // We walk through each item, look for the next offset
+    // and calculate the distance between them
+    for (size_t i = 0; i < m_LookupTable.size(); i++)
+    {
+        // Find the next closest offset
+        if (offsets[i] == INVALID_OFFSET)
         {
-            if (offsets[i] != INVALID_OFFSET)
+            continue;
+        }
+
+        for (size_t j = i + 1; j < m_LookupTable.size(); j++)
+        {
+            if (offsets[j] != INVALID_OFFSET)
             {
-                const size_t Count = GetCount() - offsets[i];
-                m_LookupTable[i] = m_Data.subspan(offsets[i] * m_DigestLength, Count * m_DigestLength);
+                assert(offsets[j] > offsets[i]);
+                const size_t Count = offsets[j] - offsets[i];
+                m_LookupTable[i] = m_Data.subspan(offsets[i] * m_RowWidth, Count * m_RowWidth);
+                break;
             }
         }
+    }
+
+    // Handle the last entry
+    for (size_t i = m_LookupTable.size() - 1; i > 0; i--)
+    {
+        if (offsets[i] != INVALID_OFFSET)
+        {
+            const size_t Count = GetCount() - offsets[i];
+            m_LookupTable[i] = m_Data.subspan(offsets[i] * m_RowWidth, Count * m_RowWidth);
+            break;
+        }
+    }
+
+    // Check that the total lengths add up
+    size_t total = 0;
+    for (size_t i = 0; i < m_LookupTable.size(); i++)
+    {
+        if (m_LookupTable[i].empty())
+        {
+            continue;
+        }
+        total += m_LookupTable[i].size();
+    }
+    if (total != m_Data.size())
+    {
+        std::cerr << "Error: bitmask lengths do not march hash list length" << std::endl;
+        return false;
     }
 
     std::cerr << std::endl;
@@ -305,11 +296,11 @@ HashList::LookupLinear(
     std::span<const uint8_t> Hash
 ) const
 {
-    return LookupLinear(m_Data, Hash);
+    return FindLinearInternal(
+        m_Data, Hash
+    ).has_value();
 }
-
-
-
+#include "Util.hpp"
 const bool
 HashList::LookupFast(
     std::span<const uint8_t> Hash
@@ -323,10 +314,10 @@ HashList::LookupFast(
         return false;
     }
 
-    return Lookup(
+    return FindBinaryInternal(
         subspan,
         Hash
-    );
+    ).has_value();
 }
 
 const bool
@@ -334,52 +325,78 @@ HashList::LookupBinary(
     std::span<const uint8_t> Hash
 ) const
 {
-    return Lookup(
+    return FindBinaryInternal(
+        m_Data,
+        Hash
+    ).has_value();
+}
+
+std::optional<size_t>
+HashList::FindFast(
+    std::span<const uint8_t> Hash
+) const
+{
+    const uint32_t index = Bitmask(Hash, m_BitmaskSize);
+    auto subspan = m_LookupTable[index];
+
+    if (subspan.empty())
+    {
+        return std::nullopt;
+    }
+
+    return FindBinaryInternal(
+        subspan,
+        Hash
+    );
+}
+
+std::optional<size_t>
+HashList::FindLinear(
+    std::span<const uint8_t> Hash
+) const
+{
+    return FindLinearInternal(
         m_Data,
         Hash
     );
 }
 
-const bool
-HashList::Lookup(
-    std::span<const uint8_t> Hash
-) const
+typedef struct _CompareArgs
 {
-    const size_t count = GetCount();
-    if (count >= FAST_LOOKUP_THRESHOLD)
-    {
-        return LookupFast(Hash);
-    }
-    else if (count <= LINEAR_LOOKUP_THRESHOLD)
-    {
-        return LookupLinear(Hash);
-    }
-    else
-    {
-        return LookupBinary(Hash);
-    }
-}
+    size_t DigestLength;
+    size_t RowWidth;
+    size_t DigestOffset;
+} CompareArgs;
 
-#ifdef __APPLE__
-int
-Compare(
-    void* Length,
+#pragma clang unsafe_buffer_usage begin
+
+static int
+RowCompare(
     const void* Value1,
-    const void* Value2
+    const void* Value2,
+    const void* Args
 )
 {
-    return memcmp(Value1, Value2, (size_t)Length);
+    const CompareArgs* args = (const CompareArgs*)Args;
+    const uint8_t* const v1 = (uint8_t*)Value1 + args->DigestOffset;
+    const uint8_t* const v2 = (uint8_t*)Value2 + args->DigestOffset;
+    return memcmp(v1, v2, (size_t)args->DigestLength);
 }
-#endif
+
+#pragma clang unsafe_buffer_usage end
 
 void
 HashList::Sort(
     void
 )
 {
+    CompareArgs args;
+    args.DigestLength = m_DigestLength;
+    args.RowWidth = m_RowWidth;
+    args.DigestOffset = m_DigestOffset;
 #ifdef __APPLE__
     qsort_r(m_Targets, m_TargetsCount, m_HashWidth, (void*)m_HashWidth, Compare);
 #else
-    qsort_r((void*)m_Data.data(), GetCount(), m_DigestLength, (__compar_d_fn_t)memcmp, (void*)m_DigestLength);
+    qsort_r((void*)m_Data.data(), GetCount(), m_RowWidth, (__compar_d_fn_t)RowCompare, (void*)&args);
 #endif
 }

@@ -7,17 +7,17 @@
 //
 
 #include <algorithm>
+#include <array>
 #include <cassert>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
-#include <openssl/sha.h>
 #include <cstring>
-#include <sys/mman.h>
 
-#include "simdhash.h"
+#include "SimdHash.hpp"
 
 #include "CrackDatabase.hpp"
+#include "UnsafeBuffer.hpp"
 #include "Util.hpp"
 
 static int
@@ -26,9 +26,9 @@ Compare(
     const void* Value2
 )
 {
-    uint8_t* v1 = ((uint8_t*)Value1) + sizeof(uint32_t);
-    uint8_t* v2 = ((uint8_t*)Value2) + sizeof(uint32_t);
-    return memcmp(v1, v2, HASH_BYTES);
+    const DatabaseRecord* r1 = reinterpret_cast<const DatabaseRecord*>(Value1);
+    const DatabaseRecord* r2 = reinterpret_cast<const DatabaseRecord*>(Value2);
+    return memcmp(r1->Hash, r2->Hash, HASH_BYTES);
 }
 
 CrackDatabase::CrackDatabase(
@@ -101,7 +101,6 @@ CrackDatabase::Sort(
 {
     std::cerr << "Sorting " << HashAlgorithmToString(Algorithm) <<  " hashes..." << std::flush;
 
-    // Mmap the file
     auto path = m_HashDatabases.at(Algorithm);
 
     if (!std::filesystem::exists(path))
@@ -110,30 +109,23 @@ CrackDatabase::Sort(
         return;
     }
 
-    size_t len = std::filesystem::file_size(path);
-    size_t count = len / sizeof(DatabaseRecord);
-    FILE* fp = fopen(path.c_str(), "r+");
-    if (fp == nullptr)
+    auto mapping = cracktools::MmapFileSpan<DatabaseRecord>(
+        path,
+        PROT_READ|PROT_WRITE,
+        MAP_SHARED
+    );
+
+    if (!mapping.has_value())
     {
-        std::cerr << "Error opening file for sorting" << std::endl;
+        std::cerr << "Error mapping file " << path.filename() << "for sorting" << std::endl;
         return;
     }
 
-    uint8_t* mapped = (uint8_t*)mmap(nullptr, len, PROT_READ|PROT_WRITE, MAP_SHARED, fileno(fp), 0);
-    if (mapped == MAP_FAILED)
-    {
-        std::cerr << "Error mapping file " << path.filename() << std::endl;
-        return;
-    }
+    auto [mapped, fp] = mapping.value();
 
-    auto ret = madvise(mapped, len, MADV_RANDOM | MADV_WILLNEED);
-    if (ret != 0)
-    {
-        std::cerr << "Madvise not happy" << std::endl;
-    }
-
-    qsort(mapped, count, sizeof(DatabaseRecord), Compare);
-    fclose(fp);
+    qsort(mapped.data(), mapped.size(), sizeof(DatabaseRecord), Compare);
+    
+    cracktools::UnmapFileSpan(mapped, fp);
 
     std::cerr << " Completed" << std::endl;
 }
@@ -324,28 +316,27 @@ const std::optional<std::string>
 CrackDatabase::CheckResult(
     const uint8_t* const Target,
     const size_t TargetSize,
-    const DatabaseRecord* const Value,
-    const DatabaseRecord* const Base,
-    const DatabaseRecord* const Top,
+    const DatabaseFileMapping Mapping,
+    const size_t Index,
     const HashAlgorithm Algorithm
 ) const
 {
     // Check this entry then seek backwards while we have
     // a matching initial hash bytes
-    uint8_t temp[TargetSize];
-    for (const DatabaseRecord* seek = Value;
-        seek >= Base && memcmp(seek->Hash, &Target[0], HASH_BYTES) == 0;
-        --seek
+    std::array<uint8_t, MAX_HASH_SIZE> temp_hash;
+    for (size_t i = Index;
+        Index >= 0 && memcmp(Mapping[i].Hash, &Target[0], HASH_BYTES) == 0;
+        --i
     )
     {
-        for (auto& wf : GetAllWordFiles(seek->Length, false))
+        for (auto& wf : GetAllWordFiles(Mapping[i].Length, false))
         {
-            auto words = wf->GetAll(seek->Index);
+            auto words = wf->GetAll(Mapping[i].Index);
             for (auto& word : words)
             {
                 // Check the hash
-                SimdHashSingle(Algorithm, word.size(), (uint8_t*)&word[0], temp);
-                if (memcmp(temp, &Target[0], TargetSize) == 0)
+                SimdHashSingle(Algorithm, word.size(), (uint8_t*)&word[0], temp_hash.data());
+                if (memcmp(temp_hash.data(), &Target[0], TargetSize) == 0)
                 {
                     return std::string(&word[0], word.size());
                 }
@@ -355,19 +346,19 @@ CrackDatabase::CheckResult(
 
     // Seek forwards
     for (
-        const DatabaseRecord* seek = Value + 1;
-        seek <= Top && memcmp(seek->Hash, &Target[0], HASH_BYTES) == 0;
-        ++seek
+        size_t i = Index + 1;
+        i < Mapping.size() && memcmp(Mapping[i].Hash, &Target[0], HASH_BYTES) == 0;
+        ++i
     )
     {
-        for (auto& wf : GetAllWordFiles(seek->Length, false))
+        for (auto& wf : GetAllWordFiles(Mapping[i].Length, false))
         {
-            auto words = wf->GetAll(seek->Index);
+            auto words = wf->GetAll(Mapping[i].Index);
             for (auto& word : words)
             {
                 // Check the hash
-                SimdHashSingle(Algorithm, word.size(), (uint8_t*)&word[0], temp);
-                if (memcmp(temp, &Target[0], TargetSize) == 0)
+                SimdHashSingle(Algorithm, word.size(), (uint8_t*)&word[0], temp_hash.data());
+                if (memcmp(temp_hash.data(), &Target[0], TargetSize) == 0)
                 {
                     return std::string(&word[0], word.size());
                 }
@@ -416,7 +407,7 @@ CrackDatabase::GetDatabase(
     return std::make_shared<const MappedDatabase>(Algorithm, DatabaseFile(Algorithm));
 }
 
-std::optional<const FileMapping>
+std::optional<const DatabaseFileMapping>
 CrackDatabase::GetCachedDatabaseMapping(
     const HashAlgorithm Algorithm
 ) const
@@ -433,34 +424,25 @@ CrackDatabase::GetCachedDatabaseMapping(
 const std::optional<std::string>
 CrackDatabase::Lookup(
     const HashAlgorithm Algorithm,
-    const FileMapping& Mapping,
+    const DatabaseFileMapping Mapping,
     const uint8_t* const Hash,
     const size_t Length
 ) const
 {
-    assert(Mapping.Size % sizeof(DatabaseRecord) == 0);
-    const size_t count = Mapping.Size / sizeof(DatabaseRecord);
-
-    // Perform the search
-    const DatabaseRecord * const base = (const DatabaseRecord*) Mapping.Base;
-    const DatabaseRecord * const top = base + count;
-
-    const DatabaseRecord* low = (const DatabaseRecord*) base;
-    const DatabaseRecord* high = (const DatabaseRecord*) top - 1;
-    const DatabaseRecord* mid;
+    ssize_t low = 0;
+    ssize_t high = Mapping.size() - 1;
 
     while (low <= high)
     {
-        mid = low + ((high - low) / 2);
-        int cmp = memcmp(&mid->Hash[0], &Hash[0], HASH_BYTES);
+        const ssize_t mid = low + (high - low) / 2;
+        int cmp = std::memcmp(Mapping[mid].Hash, Hash, HASH_BYTES);
         if (cmp == 0)
         {
             auto result = CheckResult(
                 Hash,
                 Length,
+                Mapping,
                 mid,
-                base,
-                top,
                 Algorithm
             );
             
@@ -699,9 +681,8 @@ CrackDatabase::OpenDatabaseFilesForLookup(
     void
 )
 {
-    for (size_t i = 0; i < SimdHashAlgorithmCount; i++)
+    for (auto algorithm : simdhash::SimdHashAlgorithms)
     {
-        auto algorithm = SimdHashAlgorithms[i];
         if (HasAlgorithm(algorithm))
         {
             m_DatabaseCache[algorithm] = std::make_shared<const MappedDatabase>(algorithm, DatabaseFile(algorithm));

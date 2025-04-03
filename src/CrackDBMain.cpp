@@ -34,14 +34,13 @@ int main(
         return 0;
     }
 
-    std::string database = argv[1];
-    CrackDatabase db(database);
+    // Parse the command line arguments
+    auto args = cracktools::ParseArgv(argv, argc);
+
+    CrackDatabase db(args[1]);
     std::vector<std::string> positionals;
     std::vector<HashAlgorithm> hashes;
     bool quiet = false;
-
-    // Parse the command line arguments
-    auto args = cracktools::ParseArgv(argv, argc);
 
     for (int i = 2; i < argc; i++)
     {

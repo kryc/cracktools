@@ -72,7 +72,6 @@ private:
     void WorkerFinished(void);
     void ReadInput(void);
     std::vector<std::string> ReadBlock(void);
-    const std::string Hexlify(const std::string& Value) const;
     void OutputResults(void);
     void OutputResultsInternal(std::vector<std::tuple<std::vector<uint8_t>,std::string,std::string>>& Results);
     bool m_Hexlify = true;

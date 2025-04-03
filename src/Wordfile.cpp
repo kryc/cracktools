@@ -15,6 +15,7 @@
 #include <sys/mman.h>
 
 #include "MappedDatabase.hpp"
+#include "UnsafeBuffer.hpp"
 #include "Util.hpp"
 #include "Wordfile.hpp"
 
@@ -139,22 +140,16 @@ Wordfile::OpenFile(
     }
     else
     {
-        m_ReadHandle = fopen(m_Path.c_str(), "rb");
-        if (m_ReadHandle == nullptr)
+        auto mapping = cracktools::MmapFileSpan<char>(m_Path, PROT_READ, MAP_PRIVATE);
+
+        if (!mapping.has_value())
         {
-            std::cerr << "Unable to open word file " << m_Size << std::endl;
-            perror(nullptr);
+            std::cerr << "Error: unable to map file" << std::endl;
             return false;
         }
 
-        m_Mapped = mmap(nullptr, Filesize(), PROT_READ, MAP_PRIVATE, fileno(m_ReadHandle), 0);
-        if (m_Mapped == MAP_FAILED)
-        {
-            std::cerr << "Error mapping word file" << std::endl;
-            return false;
-        }
-
-        m_Span = std::span<char>((char*)m_Mapped, Filesize());
+        m_ReadHandle = std::get<FILE*>(mapping.value());
+        m_Span = std::get<std::span<char>>(mapping.value());
     }
 
     return true;

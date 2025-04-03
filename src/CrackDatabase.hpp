@@ -73,15 +73,15 @@ private:
     void CrackFileInternal(void);
     const bool CrackFileLinear(void);
     void OutputResult(const std::string& Hash, const std::string& Value, std::ostream& Stream) const;
-    const std::optional<std::string> Lookup(const HashAlgorithm Algorithm, const FileMapping& Mapping, const uint8_t* const Hash, const size_t Length) const;
+    const std::optional<std::string> Lookup(const HashAlgorithm Algorithm, const DatabaseFileMapping Mapping, const uint8_t* const Hash, const size_t Length) const;
     const std::optional<std::string> Lookup(const HashAlgorithm Algorithm, const uint8_t* const Hash, const size_t Length) const;
     const std::filesystem::path DatabaseFile(const HashAlgorithm Algorithm) const;
     std::vector<WordfilePtr> GetAllWordFiles(const size_t Length, const bool Write) const;
     void AddWordSize(const size_t Size);
     WordfilePtr GetWordfile(const size_t Length, const bool Write) const;
-    const std::optional<std::string> CheckResult(const uint8_t* const Target, const size_t TargetLength, const DatabaseRecord* const Value, const DatabaseRecord* const Base, const DatabaseRecord* const Top, const HashAlgorithm Algorithm) const;
+    const std::optional<std::string> CheckResult(const uint8_t* const Target, const size_t TargetSize, const DatabaseFileMapping Mapping, const size_t Index, const HashAlgorithm Algorithm) const;
     std::optional<std::shared_ptr<const MappedDatabase>> GetDatabase(const HashAlgorithm Algorithm) const;
-    std::optional<const FileMapping> GetCachedDatabaseMapping(const HashAlgorithm Algorithm) const;
+    std::optional<const DatabaseFileMapping> GetCachedDatabaseMapping(const HashAlgorithm Algorithm) const;
     std::optional<const MappedDatabase> OpenDatabaseNoCache(const HashAlgorithm Algorithm) const;
     size_t m_Min = 1;
     size_t m_Max = std::numeric_limits<uint32_t>::max();
