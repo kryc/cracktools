@@ -49,6 +49,16 @@ std::span<T> UnsafeSpan(
     return std::span<T>(StringView.data(), StringView.size());
 }
 
+template <typename T, typename T2>
+inline static
+std::span<T> UnsafeSpanCast(
+    std::span<T2> Span
+)
+{
+    assert(Span.size_bytes() % sizeof(T) == 0);
+    return std::span<T>((T*)Span.data(), Span.size_bytes() / sizeof(T));
+}
+
 // A function to parse argv into a vector of strings
 inline static
 const std::vector<std::string> ParseArgv(

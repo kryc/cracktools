@@ -48,7 +48,29 @@ typedef struct  __attribute__((__packed__)) _TableHeader
     char     charset[128];
 } TableHeader;
 
-typedef uint64_t rowindex_t;
+typedef struct _TableRecord
+{
+    bool operator<(const _TableRecord& other) const
+    {
+        return endpoint < other.endpoint;
+    }
+    uint64_t startpoint;
+    uint64_t endpoint;
+} TableRecord;
+
+typedef struct _TableRecordCompressed
+{
+    bool operator<(const _TableRecordCompressed& other) const
+    {
+        return endpoint < other.endpoint;
+    }
+    _TableRecordCompressed& operator=(const TableRecord& other)
+    {
+        endpoint = other.endpoint;
+        return *this;
+    }
+    uint64_t endpoint;
+} TableRecordCompressed;
 
 class RainbowTable
 {
@@ -91,7 +113,7 @@ public:
     bool LoadTable(void);
     bool Complete(void) const { return m_ThreadsCompleted == m_Threads; }
     std::vector<std::tuple<std::string, std::string>> Crack(std::string& Target);
-    static const size_t ChainWidthForType(const TableType Type, const size_t Max) { return Type == TypeCompressed ? Max : sizeof(rowindex_t) + Max; }
+    static const size_t ChainWidthForType(const TableType Type, const size_t Max);
     const size_t GetChainWidth(void) const { return ChainWidthForType(m_TableType, m_Max); }
     static void DoHash(const uint8_t* Data, const size_t Length, uint8_t* Digest, const HashAlgorithm Algorithm) { SimdHashSingle(Algorithm, Length, Data, Digest); };
     static const std::string DoHashHex(const uint8_t* Data, const size_t Length, const HashAlgorithm Algorithm);
@@ -102,15 +124,15 @@ public:
     void SortTable(void);
     static const Chain GetChain(const std::filesystem::path& Path, const size_t Index);
     static const Chain ComputeChain(const size_t Index, const size_t Min, const size_t Max, const size_t Length, const HashAlgorithm Algorithm, const std::string& Charset);
-    inline std::span<const uint8_t> GetEndpointAt(const size_t Index) const;
-    inline std::span<const uint8_t> GetRecordAt(const size_t Index) const;
+    inline const uint64_t GetEndpointAt(const size_t Index) const;
+    inline const TableRecord GetRecordAt(const size_t Index) const;
 protected:
     void SortStartpoints(void);
     void RemoveStartpoints(void);
 private:
     // General purpose
     void ChangeType(const std::filesystem::path& Destination, const TableType Type);
-    std::optional<size_t> FindEndpoint(const char* Endpoint, const size_t Length) const;
+    std::optional<size_t> FindStartIndexForEndpoint(const uint64_t) const;
     std::optional<std::string> ValidateChain(const size_t ChainIndex, const uint8_t* Hash) const;
     bool TableMapped(void) { return m_MappedTableFd != nullptr; };
     bool MapTable(const bool ReadOnly = true);
@@ -125,12 +147,11 @@ private:
     // Building
     void StoreTableHeader(void) const;
     void GenerateBlock(const size_t ThreadId, const size_t BlockId);
-    void SaveBlock(const size_t ThreadId, const size_t BlockId, const std::vector<SmallString> Block, const uint64_t Time);
-    void OutputStatus(const SmallString& LastEndpoint) const;
-    void WriteBlock(const size_t BlockId, const std::vector<SmallString>& Block);
+    void SaveBlock(const size_t ThreadId, const size_t BlockId, const std::vector<TableRecord> Block, const uint64_t Time);
+    void OutputStatus(const std::string_view LastEndpoint) const;
+    void WriteBlock(const size_t BlockId, std::span<const TableRecord> Block);
     void BuildThreadCompleted(const size_t ThreadId);
     // Cracking
-    void IndexTable(void);
     std::optional<std::string> CrackOne(const std::string& Target);
     void CrackOneWorker(const size_t ThreadId, const std::vector<uint8_t> Target);
     std::optional<std::string> CheckIteration(const HybridReducer& Reducer, const std::vector<uint8_t>& Hash, const size_t Iteration) const;
@@ -148,7 +169,6 @@ private:
     size_t m_Threads = 0;
     std::string m_Charset;
     size_t m_HashWidth = 0;
-    size_t m_ChainWidth = 0;
     size_t m_Chains = 0;
     TableType m_TableType = TypeCompressed;
     dispatch::DispatchPoolPtr m_DispatchPool;
@@ -157,13 +177,14 @@ private:
     size_t m_StartingChains = 0;
     FILE* m_WriteHandle = NULL;
     size_t m_NextWriteBlock = 0;
-    std::map<size_t, const std::vector<SmallString>> m_WriteCache;
+    std::map<size_t, const std::vector<TableRecord>> m_WriteCache;
     size_t m_ThreadsCompleted = 0;
     size_t m_ChainsWritten = 0;
     std::map<size_t, uint64_t> m_ThreadTimers;
     // For cracking
-    HashList m_RainbowTable;
     std::span<uint8_t> m_MappedTable;
+    std::span<TableRecord> m_MappedTableRecords;
+    std::span<TableRecordCompressed> m_MappedTableRecordsCompressed;
     FILE* m_MappedTableFd = nullptr;
     size_t m_MappedFileSize;
     size_t m_MappedTableSize;
