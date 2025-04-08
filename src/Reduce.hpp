@@ -10,14 +10,18 @@
 #define Reduce_hpp
 
 #include <assert.h>
+#include <byteswap.h>
 #include <cinttypes>
 #include <cstddef>
 #include <iostream>
 #include <gmpxx.h>
 #include <math.h>
+#include <span>
 #include <string>
+#include <string_view>
 
 #include "SmallString.hpp"
+#include "UnsafeBuffer.hpp"
 #include "WordGenerator.hpp"
 
 #pragma clang unsafe_buffer_usage begin
@@ -101,11 +105,13 @@ calculate_modulo_bias_mask(
 
 static inline index_t
 load_bytes_to_index(
-    const uint8_t* const Buffer,
+    std::span<const uint8_t> Buffer,
     const size_t Offset,
     const size_t Length
 )
 {
+    assert(Length <= sizeof(index_t));
+    assert(Offset + Length <= Buffer.size());
 #ifdef BIGINT
     index_t reduction;
     mpz_import(reduction.get_mpz_t(), m_BytesRequired, 1, sizeof(uint8_t), 0, 0, &hashBuffer[offset]);
@@ -126,12 +132,9 @@ public:
     Reducer(
         const size_t Min,
         const size_t Max,
-        const size_t HashLength,
-        const std::string& Charset
+        const std::string_view Charset
     ) : m_Min(Min),
         m_Max(Max),
-        m_HashLength(HashLength),
-        m_HashLengthWords(HashLength/sizeof(uint32_t)),
         m_Charset(Charset),
 #ifdef BIGINT
         m_MinIndex(WordGenerator::WordLengthIndex(Min, Charset)),
@@ -142,49 +145,56 @@ public:
 #endif
         { };
     virtual size_t Reduce(
-        char* Destination,
-        const size_t DestLength,
-        const uint8_t* Hash,
+        std::span<char> Destination,
+        std::span<const uint8_t> Hash,
         const size_t Iteration
     ) const = 0;
     virtual ~Reducer() {};
     const size_t GetMin(void) const { return m_Min; }
     const size_t GetMax(void) const { return m_Max; }
-    const size_t GetHashLength(void) const { return m_HashLength; }
-    const std::string& GetCharset(void) const  { return m_Charset; }
+    const std::string_view GetCharset(void) const  { return m_Charset; }
     const index_t GetMinIndex(void) const { return m_MinIndex; }
     const index_t GetMaxIndex(void) const { return m_MaxIndex; }
     const index_t GetKeyspace(void) const { return m_MaxIndex - m_MinIndex; }
 protected:
     // A basic entropy extension function based on SHA256 extension
-    // It replaces the data in a destination buffer
-    void ExtendEntropy(
-        uint32_t* const Buffer,
-        const size_t LengthWords
-    ) const
+    // It replaces the data in a destination buffer. there are two entropy
+    // extenstion algirthms. (where n is the length of the buffer in words)
+    // 1. EXTEND_SIMPLE:
+    //    out[i] = out[i - n] ^ out[i - 1]
+    // 2. EXTEND_SHA256:
+    //    s0 = (out[i - n] >> 7) ^ (out[i - n] >> 18) ^ (out[i - n] >> 3)
+    //    s1 = (out[i - 2] >> 17) ^ (out[i - 2] >> 19) ^ (out[i - 2] >> 10)
+    //    out[i] = s0 + s1
+    inline static void ExtendEntropy(
+        std::span<uint32_t> Buffer
+    )
     {
-        uint32_t temp[LengthWords * 2];
-        // Copy existing state
-        memcpy(temp, Buffer, LengthWords * sizeof(uint32_t));
-        // Extend the buffer
-        for (size_t i = LengthWords; i < sizeof(temp) / sizeof(*temp); i++)
+        for (size_t i = 0; i < Buffer.size(); i++)
         {
+            const uint32_t nextDword = Buffer[i];
+            const size_t index2 = (Buffer.size() - 2 + i) % Buffer.size();
 #ifndef EXTEND_SIMPLE
-            uint32_t s0 = rotr(temp[i - LengthWords], 7) ^ rotr(temp[i - LengthWords], 18) ^ (temp[i - LengthWords] >> 3);
-            uint32_t s1 = rotr(temp[i - 2], 17) ^ rotr(temp[i - 2], 19) ^ (temp[i - 2] >> 10);
-            temp[i] = s0 + s1;
+            const uint32_t s0 = rotr(nextDword, 7) ^ rotr(nextDword, 18) ^ (nextDword >> 3);
+            const uint32_t s1 = rotr(Buffer[index2], 17) ^ rotr(Buffer[index2], 19) ^ (Buffer[index2] >> 10);
+            Buffer[i] = s0 + s1;
 #else
-            temp[i] = rotl(temp[i - LengthWords] ^ temp[i - 2], 1);
+            Buffer[i] = rotl(nextDword ^ Buffer[index2], 1);
 #endif
         }
-        // Copy the extended buffer back
-        memcpy(Buffer, &temp[LengthWords], LengthWords * sizeof(uint32_t));
+    }
+
+    inline static void ExtendEntropy(
+        std::span<uint8_t> Buffer
+    )
+    {
+        ExtendEntropy(cracktools::SpanCast<uint32_t>(Buffer));
     }
 
     inline const size_t
     GetCharsUnbiased(
-        char* const Destination,
-        const uint8_t* Buffer,
+        std::span<char> Destination,
+        std::span<uint8_t> Buffer,
         const size_t Offset,
         const size_t Length,
         const uint8_t ModMax
@@ -196,9 +206,9 @@ protected:
         size_t offset = Offset;
         while (bytesWritten < Length)
         {
-            if (offset >= m_HashLength)
+            if (offset >= Buffer.size())
             {
-                ExtendEntropy((uint32_t*)Buffer, m_HashLengthWords);
+                ExtendEntropy(Buffer);
                 offset = 0;
             }
 
@@ -213,9 +223,7 @@ protected:
 
     const size_t m_Min;
     const size_t m_Max;
-    const size_t m_HashLength;
-    const size_t m_HashLengthWords;
-    const std::string m_Charset;
+    const std::string_view m_Charset;
     const index_t m_MinIndex;
     const index_t m_MaxIndex;
 };
@@ -226,23 +234,20 @@ public:
     BasicModuloReducer(
         const size_t Min,
         const size_t Max,
-        const size_t HashLength,
-        const std::string& Charset
-    ) : Reducer(Min, Max, HashLength, Charset) {}
+        const std::string_view Charset
+    ) : Reducer(Min, Max, Charset) {}
 
     size_t Reduce(
-        char* Destination,
-        const size_t DestLength,
-        const uint8_t* Hash,
+        std::span<char> Destination,
+        std::span<const uint8_t> Hash,
         const size_t Iteration
     ) const override
     {
         
         // Parse the hash as a single bigint
-        index_t reduction = load_bytes_to_index(Hash, 0, m_HashLength);
+        index_t reduction = load_bytes_to_index(Hash, 0, Hash.size());
         return PerformReduction(
             Destination,
-            DestLength,
             reduction,
             Iteration
         );
@@ -251,8 +256,7 @@ public:
 protected:
 
     inline size_t PerformReduction(
-        char* Destination,
-        const size_t DestLength,
+        std::span<char> Destination,
         index_t& Value,
         const size_t Iteration
     ) const
@@ -266,7 +270,6 @@ protected:
         // Generate and return the word for the index
         return WordGenerator::GenerateWord(
             Destination,
-            DestLength,
             Value,
             m_Charset
         );
@@ -279,9 +282,8 @@ public:
     ModuloReducer(
         const size_t Min,
         const size_t Max,
-        const size_t HashLength,
-        const std::string& Charset
-    ) : BasicModuloReducer(Min, Max, HashLength, Charset)
+        const std::string_view Charset
+    ) : BasicModuloReducer(Min, Max, Charset)
     {
         // Figure out the smallest number of bits of
         // input hash data required to generate a
@@ -291,19 +293,16 @@ public:
             &m_BytesRequired,
             &m_MsbMask
         );
-
-        assert(m_BytesRequired * sizeof(uint8_t) <= m_HashLength);
     };
 
     size_t Reduce(
-        char* Destination,
-        const size_t DestLength,
-        const uint8_t* Hash,
+        std::span<char> Destination,
+        std::span<const uint8_t> Hash,
         const size_t Iteration
     ) const override
     {
-        uint8_t hashBuffer[m_HashLength];
-        memcpy(hashBuffer, Hash, m_HashLength);
+        std::vector<uint8_t> hashBuffer(Hash.size());
+        std::copy(Hash.begin(), Hash.end(), hashBuffer.begin());
         // Repeatedly try to load the hash integer until it is in range
         // we do this to avoid a modulo bias favouring reduction at the bottom
         // end of the password space
@@ -311,9 +310,9 @@ public:
         size_t offset = 0;
         while (reduction > GetKeyspace())
         {
-            if (offset + m_BytesRequired == m_HashLength)
+            if (offset + m_BytesRequired == Hash.size())
             {
-                ExtendEntropy((uint32_t*)hashBuffer, m_HashLengthWords);
+                ExtendEntropy(hashBuffer);
                 offset = 0;
             }
             // Mask off the most significant bit
@@ -329,7 +328,6 @@ public:
         // Now return the password as normal
         return PerformReduction(
             Destination,
-            DestLength,
             reduction,
             Iteration
         );
@@ -341,13 +339,13 @@ protected:
 
 class HybridReducer final : public Reducer
 {
+    static constexpr size_t kHybridReducerMaxHashSize = 512u / 8u;
 public:
     HybridReducer(
         const size_t Min,
         const size_t Max,
-        const size_t HashLength,
         const std::string& Charset
-    ) : Reducer(Min, Max, HashLength, Charset)
+    ) : Reducer(Min, Max, Charset)
     {
         index_t total = 0;
         for (size_t i = Min; i <= Max; i++)
@@ -380,24 +378,25 @@ public:
     }
 
     size_t Reduce(
-        char* Destination,
-        const size_t DestLength,
-        const uint8_t* Hash,
+        std::span<char> Destination,
+        std::span<const uint8_t> Hash,
         const size_t Iteration
     ) const override
     {
-        uint8_t buffer[m_HashLength];
-        uint32_t * const buffer32 = (uint32_t*) buffer;
-        const uint32_t * const hash32 = (uint32_t*) Hash;
-        size_t length, offset;
+        std::array<uint8_t, kHybridReducerMaxHashSize> tempBuffer;
+        // Create a span of the temporary hash buffer that just covers
+        // the part that we will use in this operation
+        auto buffer = cracktools::UnsafeSpan<uint8_t>(tempBuffer.data(), Hash.size());
+        // Two utility uint32 spans to access the hash and the temp
+        // buffer as DWORDs
+        const std::span<uint32_t> buffer32 = cracktools::SpanCast<uint32_t>(buffer);
+        const std::span<const uint32_t> hash32 = cracktools::SpanCast<const uint32_t>(Hash);
+        size_t length, offset = 0;
         // Copy and mix in the iteration
-        for (size_t i = 0; i < m_HashLengthWords; i++)
+        for (size_t i = 0; i < hash32.size(); i++)
         {
             buffer32[i] = hash32[i] ^ rotl(0x5a827999 * Iteration, i);
         }
-
-        // Initialize the buffer read offset
-        offset = 0;
         
         // If we are using variable lengths we use a bigint
         // within the keyspace range to get the length
@@ -409,18 +408,19 @@ public:
             index_t reduction = m_Limits[m_Max] + 1;
             while (reduction >= m_Limits[m_Max])
             {
-                if (offset + m_BytesRequired == m_HashLength)
+                if (offset + m_BytesRequired == Hash.size())
                 {
-                    ExtendEntropy((uint32_t*)buffer, m_HashLengthWords);
+                    ExtendEntropy(buffer32);
                     offset = 0;
                 }
-                // Mask off the most significant bit
-                // const uint8_t mostSigByte = buffer[offset];
-                // buffer[offset] = mostSigByte & m_MsbMask;
                 // Parse the hash as a single integer
                 reduction = load_bytes_to_index(buffer, offset, m_BytesRequired);
-                // Replace the original entropy in case we need to extend
-                // buffer[offset] = mostSigByte;
+                // If the value is too big we can reuse this entropy and
+                // reverse the byte order to see if the result is smaller.
+                if (reduction >= m_Limits[m_Max])
+                {
+                    reduction = bswap_64(reduction) >> (64 - m_BytesRequired * 8);
+                }
                 // Move the offset along
                 offset++;
             }
@@ -467,24 +467,22 @@ public:
     BytewiseReducer(
         const size_t Min,
         const size_t Max,
-        const size_t HashLength,
         const std::string& Charset
-    ) : Reducer(Min, Max, HashLength, Charset)
+    ) : Reducer(Min, Max, Charset)
     {
         assert(Min == Max);
         m_ModMax = calculate_modulo_bias_mask(m_Charset.size());
     }
     
     size_t Reduce(
-        char* Destination,
-        const size_t DestLength,
-        const uint8_t* Hash,
+        std::span<char> Destination,
+        std::span<const uint8_t> Hash,
         const size_t Iteration
     ) const override
     {
-        uint8_t buffer[m_HashLength];
+        std::vector<uint8_t> buffer(Hash.size());
         // Copy hash to buffer so we can update it
-        memcpy(buffer, Hash, m_HashLength);
+        std::copy(Hash.begin(), Hash.end(), buffer.begin());
 
         return GetCharsUnbiased(
             Destination,

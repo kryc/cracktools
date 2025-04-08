@@ -51,7 +51,7 @@ std::span<T> UnsafeSpan(
 
 template <typename T, typename T2>
 inline static
-std::span<T> UnsafeSpanCast(
+std::span<T> SpanCast(
     std::span<T2> Span
 )
 {

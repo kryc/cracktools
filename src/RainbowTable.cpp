@@ -154,11 +154,12 @@ RainbowTable::GenerateBlock(
 
     WordGenerator wordGenerator(m_Charset);
     wordGenerator.GenerateParsingLookupTable();
-    HybridReducer reducer(m_Min, m_Max, m_HashWidth, m_Charset);
+    HybridReducer reducer(m_Min, m_Max, m_Charset);
     std::vector<TableRecord> block(m_Blocksize);
 
     SimdHashBufferFixed<kSmallStringMaxLength> words;
-    std::array<uint8_t, MAX_HASH_SIZE * MAX_LANES> hashes;
+    std::array<uint8_t, MAX_HASH_SIZE * MAX_LANES> hashBuffer;
+    std::span<uint8_t> hashes(hashBuffer.data(), m_HashWidth * SimdLanes());
 
     // Calculate lower bound and add the current index
 #ifdef BIGINT
@@ -178,7 +179,7 @@ RainbowTable::GenerateBlock(
         // Set the chain start point
         for (size_t i = 0; i < lanes; i++)
         {
-            const size_t length = wordGenerator.Generate((char*)words[i], m_Max, counter++);
+            const size_t length = wordGenerator.Generate(words.GetCharWriteSpan(i), counter++);
             words.SetLength(i, length);
         }
 
@@ -196,8 +197,8 @@ RainbowTable::GenerateBlock(
             // Perform reduce
             for (size_t h = 0; h < lanes; h++)
             {
-                const uint8_t* hash = &hashes[h * hashWidth];
-                const size_t length = reducer.Reduce((char*)words[h], m_Max, hash, i);
+                auto hash = hashes.subspan(h * hashWidth, hashWidth);
+                const size_t length = reducer.Reduce(words.GetCharWriteSpan(h), hash, i);
                 words.SetLength(h, length);
             }
         }
@@ -689,7 +690,7 @@ RainbowTable::MapTable(
             std::cerr << "Invalid or currupt table file. Data not a multiple of chain width" << std::endl;
             return false;
         }
-        m_MappedTableRecordsCompressed = cracktools::UnsafeSpanCast<TableRecordCompressed>(subspan_data);
+        m_MappedTableRecordsCompressed = cracktools::SpanCast<TableRecordCompressed>(subspan_data);
     }
     else
     {
@@ -698,7 +699,7 @@ RainbowTable::MapTable(
             std::cerr << "Invalid or currupt table file. Data not a multiple of chain width" << std::endl;
             return false;
         }
-        m_MappedTableRecords = cracktools::UnsafeSpanCast<TableRecord>(subspan_data);
+        m_MappedTableRecords = cracktools::SpanCast<TableRecord>(subspan_data);
     }
 
 
@@ -803,20 +804,21 @@ RainbowTable::CheckIteration(
     const size_t Iteration
 ) const
 {
-    std::array<uint8_t, MAX_HASH_SIZE> hash;
+    std::array<uint8_t, MAX_HASH_SIZE> hashBuffer;
+    std::span<uint8_t> hash(hashBuffer.begin(), m_HashWidth);
     std::array<char, 31> reduced;
-    size_t  length;
+    size_t length;
 
     memcpy(&hash[0], &Target[0], m_HashWidth);
 
     for (size_t j = Iteration; j < m_Length - 1; j++)
     {
-        length = Reducer.Reduce(&reduced[0], m_Max, &hash[0], j);
+        length = Reducer.Reduce(reduced, hash, j);
         DoHash((uint8_t*)&reduced[0], length, &hash[0]);
     }
 
     // Final reduction
-    length = Reducer.Reduce(&reduced[0], m_Max, &hash[0], m_Length - 1);
+    length = Reducer.Reduce(reduced, hash, m_Length - 1);
 
     // Convert the endpoint to a uint64_t
     const std::string_view endpointString(&reduced[0], length);
@@ -837,7 +839,7 @@ RainbowTable::CrackOneWorker(
     const std::vector<uint8_t> Target
 )
 {
-    HybridReducer reducer(m_Min, m_Max, m_HashWidth, m_Charset);
+    HybridReducer reducer(m_Min, m_Max, m_Charset);
 
     m_CrackingThreadsRunning++;
 
@@ -868,7 +870,7 @@ RainbowTable::CrackOne(
         return std::nullopt;
     }
 
-    HybridReducer reducer(m_Min, m_Max, m_HashWidth, m_Charset);
+    HybridReducer reducer(m_Min, m_Max, m_Charset);
     auto target = Util::ParseHex(Hash);
     std::optional<std::string> result;
 
@@ -1007,9 +1009,10 @@ RainbowTable::ValidateChain(
     const uint8_t* Target
 ) const
 {
-    std::vector<uint8_t> hash(m_HashWidth);
+    std::array<uint8_t, MAX_HASH_SIZE> hashBuffer;
+    std::span<uint8_t> hash(hashBuffer.begin(), m_HashWidth);
     std::vector<char> reduced(m_Max);
-    HybridReducer reducer(m_Min, m_Max, m_HashWidth, m_Charset);
+    HybridReducer reducer(m_Min, m_Max, m_Charset);
     size_t length;
 #ifdef BIGINT
     mpz_class counter = WordGenerator::WordLengthIndex(m_Min, m_Charset);
@@ -1029,7 +1032,7 @@ RainbowTable::ValidateChain(
         {
             return std::string(&reduced[0], &reduced[length]);
         }
-        length = reducer.Reduce(&reduced[0], m_Max, &hash[0], i);
+        length = reducer.Reduce(reduced, hash, i);
     }
     return {};
 }
@@ -1264,7 +1267,7 @@ RainbowTable::ComputeChain(
     start = WordGenerator::GenerateWord(counter, Charset);
     chain.SetStart(std::string_view(start));
 
-    HybridReducer reducer(Min, Max, hashLength, Charset);
+    HybridReducer reducer(Min, Max, Charset);
 
     std::vector<uint8_t> hash(hashLength);
     std::vector<char> reduced(Max);
@@ -1275,7 +1278,7 @@ RainbowTable::ComputeChain(
     for (size_t i = 0; i < Length; i++)
     {
         DoHash((uint8_t*)&reduced[0], reducedLength, &hash[0], Algorithm);
-        reducedLength = reducer.Reduce(&reduced[0], Max, &hash[0], i);
+        reducedLength = reducer.Reduce(reduced, hash, i);
     }
 
     std::span<char> reducedSpan(reduced);

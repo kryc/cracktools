@@ -10,7 +10,9 @@
 #include <cstdint>
 #include <iostream>
 #include <cmath>
+#include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 #include <gmpxx.h>
 
@@ -87,8 +89,7 @@ WordGenerator::GenerateWordReversed(
 // Static
 const size_t
 WordGenerator::GenerateWord(
-    char* Destination,
-    const size_t DestSize,
+    std::span<char> Destination,
     const mpz_class& Value,
     std::string_view Charset
 )
@@ -99,7 +100,7 @@ WordGenerator::GenerateWord(
 
     do {
         mpz_fdiv_qr_ui(i.get_mpz_t(), r.get_mpz_t(), i.get_mpz_t(), Charset.length());
-        if (length == DestSize)
+        if (length == Destination.size())
             return (size_t)-1;
         Destination[length++] = Charset[r.get_ui()];
     } while (i > 0);
@@ -110,22 +111,20 @@ WordGenerator::GenerateWord(
 // Static
 const size_t
 WordGenerator::GenerateWordReversed(
-    char* Destination,
-    const size_t DestSize,
+    std::span<char> Destination,
     const mpz_class& Value,
     std::string_view Charset
 )
 {
-    size_t length = GenerateWord(Destination, DestSize, Value, Charset);
-    std::reverse(Destination, Destination + length);
+    size_t length = GenerateWord(Destination, Value, Charset);
+    std::reverse(Destination.begin(), Destination.end());
     return length;
 }
 
 // Static
 const size_t
 WordGenerator::GenerateWord(
-    char* Destination,
-    const size_t DestSize,
+    std::span<char> Destination,
     const uint64_t Value,
     std::string_view Charset
 )
@@ -146,14 +145,13 @@ WordGenerator::GenerateWord(
 // Static
 const size_t
 WordGenerator::GenerateWordReversed(
-    char* Destination,
-    const size_t DestSize,
+    std::span<char> Destination,
     const uint64_t Value,
     std::string_view Charset
 )
 {
-    size_t length = GenerateWord(Destination, DestSize, Value, Charset);
-    std::reverse(Destination, Destination + length);
+    size_t length = GenerateWord(Destination, Value, Charset);
+    std::reverse(Destination.begin(), Destination.end());
     return length;
 }
 
@@ -175,22 +173,20 @@ WordGenerator::GenerateReversed(
 
 const size_t
 WordGenerator::Generate(
-    char* Destination,
-    const size_t DestSize,
+    std::span<char> Destination,
     const mpz_class& Value
 )
 {
-    return GenerateWord(Destination, DestSize, Value, m_Charset);
+    return GenerateWord(Destination, Value, m_Charset);
 }
 
 const size_t
 WordGenerator::GenerateReversed(
-    char* Destination,
-    const size_t DestSize,
+    std::span<char> Destination,
     const mpz_class& Value
 )
 {
-    return GenerateWordReversed(Destination, DestSize, Value, m_Charset);
+    return GenerateWordReversed(Destination, Value, m_Charset);
 }
 
 const std::string
@@ -321,7 +317,7 @@ WordGenerator::GenerateParsingLookupTable(
 {
     std::vector<uint8_t> table;
 
-    table.resize(256);
+    table.resize(257);
     memset(&table[0], 0, table.size());
     table[256] = Charset.size();
 
