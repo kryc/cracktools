@@ -189,6 +189,24 @@ WordGenerator::GenerateReversed(
     return GenerateWordReversed(Destination, Value, m_Charset);
 }
 
+const size_t
+WordGenerator::Generate(
+    std::span<char> Destination,
+    const uint64_t Value
+)
+{
+    return GenerateWord(Destination, Value, m_Charset);
+}
+
+const size_t
+WordGenerator::GenerateReversed(
+    std::span<char> Destination,
+    const uint64_t Value
+)
+{
+    return GenerateWordReversed(Destination, Value, m_Charset);
+}
+
 const std::string
 WordGenerator::Generate(
     const mpz_class& Value

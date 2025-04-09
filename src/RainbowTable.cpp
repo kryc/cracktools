@@ -544,7 +544,7 @@ RainbowTable::ValidateConfig(
 
 #ifndef BIGINT
     mpz_class upperbound = WordGenerator::WordLengthIndex(m_Max + 1, m_Charset);
-    if (upperbound > std::numeric_limits<uint64_t>::max())
+    if (upperbound > (size_t)std::numeric_limits<uint64_t>::max())
     {
         std::cerr << "Max length exceeds 64-bit integer limit" << std::endl;
         std::cerr << "To compile with BIGINT support, recompile with -DBIGINT" << std::endl;

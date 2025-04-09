@@ -10,7 +10,7 @@
 #define Reduce_hpp
 
 #include <assert.h>
-#include <byteswap.h>
+#include <bit>
 #include <cinttypes>
 #include <cstddef>
 #include <iostream>
@@ -419,7 +419,7 @@ public:
                 // reverse the byte order to see if the result is smaller.
                 if (reduction >= m_Limits[m_Max])
                 {
-                    reduction = bswap_64(reduction) >> (64 - m_BytesRequired * 8);
+                    reduction = std::byteswap(reduction) >> (64 - m_BytesRequired * 8);
                 }
                 // Move the offset along
                 offset++;

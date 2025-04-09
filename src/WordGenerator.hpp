@@ -55,6 +55,8 @@ public:
     const std::string GenerateReversed(const mpz_class& Value);
     const size_t Generate(std::span<char> Destination, const mpz_class& Value);
     const size_t GenerateReversed(std::span<char> Destination, const mpz_class& Value);
+    const size_t Generate(std::span<char> Destination, const uint64_t Value);
+    const size_t GenerateReversed(std::span<char> Destination, const uint64_t Value);
     static const std::vector<uint8_t> GenerateParsingLookupTable(std::string_view Charset);
     const void GenerateParsingLookupTable(void) { m_LookupTable = GenerateParsingLookupTable(m_Charset); };
     static const mpz_class Parse(std::string_view Word, std::string_view Charset);

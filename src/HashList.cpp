@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <assert.h>
+#include <bit>
 #include <iostream>
 #include <ranges>
 #include <span>
@@ -34,7 +35,7 @@ Bitmask(
     uint32_t v32;
     std::memcpy(&v32, Value.data(), sizeof(v32));
 #ifndef __ARM__
-    v32 = __bswap_32(v32);
+    v32 = std::byteswap(v32);
 #endif
     v32 >>= (32 - BitmaskSize);
     return v32;
@@ -370,12 +371,21 @@ typedef struct _CompareArgs
 
 #pragma clang unsafe_buffer_usage begin
 
+#ifdef __APPLE__
+static int
+RowCompare(
+    void* Args,
+    const void* Value1,
+    const void* Value2
+)
+#else
 static int
 RowCompare(
     const void* Value1,
     const void* Value2,
     const void* Args
 )
+#endif
 {
     const CompareArgs* args = (const CompareArgs*)Args;
     const uint8_t* const v1 = (uint8_t*)Value1 + args->DigestOffset;
@@ -395,7 +405,7 @@ HashList::Sort(
     args.RowWidth = m_RowWidth;
     args.DigestOffset = m_DigestOffset;
 #ifdef __APPLE__
-    qsort_r(m_Targets, m_TargetsCount, m_HashWidth, (void*)m_HashWidth, Compare);
+    qsort_r((void*)m_Data.data(), GetCount(), m_RowWidth, (void*)&args, RowCompare);
 #else
     qsort_r((void*)m_Data.data(), GetCount(), m_RowWidth, (__compar_d_fn_t)RowCompare, (void*)&args);
 #endif

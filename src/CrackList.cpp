@@ -14,6 +14,7 @@
 #include <iostream>
 #include <string>
 #include <string.h>
+#include <thread>
 #include <tuple>
 #include <vector>
 
@@ -267,7 +268,7 @@ CrackList::CrackWorker(
     // We need to wait for more input
     if (block.empty())
     {
-        usleep(rand() % 100);
+        std::this_thread::sleep_for(std::chrono::milliseconds(rand() % 100));
         dispatch::PostTaskFast(
             dispatch::bind(
                 &CrackList::CrackWorker,
@@ -458,7 +459,7 @@ CrackList::ReadInput(
 
     if (cache_full)
     {
-        usleep(20);
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
 
     // Post the next task
