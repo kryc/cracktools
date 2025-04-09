@@ -20,6 +20,8 @@
 #include <sys/mman.h>
 #include <vector>
 
+#include "Check.hpp"
+
 namespace cracktools
 {
 
@@ -55,7 +57,8 @@ std::span<T> SpanCast(
     std::span<T2> Span
 )
 {
-    assert(Span.size_bytes() % sizeof(T) == 0);
+    CHECK(Span.size_bytes() % sizeof(T) == 0, "Span size not a multiple of T");
+    DCHECK(Span.data() != nullptr, "Span data is null");
     return std::span<T>((T*)Span.data(), Span.size_bytes() / sizeof(T));
 }
 
