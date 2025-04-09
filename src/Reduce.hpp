@@ -161,25 +161,26 @@ protected:
     // It replaces the data in a destination buffer. there are two entropy
     // extenstion algirthms. (where n is the length of the buffer in words)
     // 1. EXTEND_SIMPLE:
-    //    out[i] = out[i - n] ^ out[i - 1]
+    //    out[i] = rotl(out[i - n] ^ out[i - 1]) + out[i - 7]
     // 2. EXTEND_SHA256:
     //    s0 = (out[i - n] >> 7) ^ (out[i - n] >> 18) ^ (out[i - n] >> 3)
     //    s1 = (out[i - 2] >> 17) ^ (out[i - 2] >> 19) ^ (out[i - 2] >> 10)
-    //    out[i] = s0 + s1
+    //    out[i] = s0 + s1 + out[i - 3]
     inline static void ExtendEntropy(
         std::span<uint32_t> Buffer
     )
     {
         for (size_t i = 0; i < Buffer.size(); i++)
         {
-            const uint32_t nextDword = Buffer[i];
-            const size_t index2 = (Buffer.size() - 2 + i) % Buffer.size();
+            const uint32_t d1 = Buffer[i];
+            const uint32_t d2 = Buffer[(Buffer.size() - 2 + i) % Buffer.size()];
+            const uint32_t d3 = Buffer[(Buffer.size() - 3 + i) % Buffer.size()];
 #ifndef EXTEND_SIMPLE
-            const uint32_t s0 = rotr(nextDword, 7) ^ rotr(nextDword, 18) ^ (nextDword >> 3);
-            const uint32_t s1 = rotr(Buffer[index2], 17) ^ rotr(Buffer[index2], 19) ^ (Buffer[index2] >> 10);
-            Buffer[i] = s0 + s1;
+            const uint32_t s0 = rotr(d1, 7) ^ rotr(d1, 18) ^ (d1 >> 3);
+            const uint32_t s1 = rotr(d2, 17) ^ rotr(d2, 19) ^ (d2 >> 10);
+            Buffer[i] = s0 + s1 + d3;
 #else
-            Buffer[i] = rotl(nextDword ^ Buffer[index2], 1);
+            Buffer[i] = rotl(d1 ^ d2, 1) + d3;
 #endif
         }
     }
