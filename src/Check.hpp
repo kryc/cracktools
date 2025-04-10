@@ -32,15 +32,20 @@ CheckImpl(
 
 } // namespace cracktools
 
-#define CHECK(condition, message) \
+#define CHECKA(condition, message) \
     cracktools::CheckImpl(condition, message, __FILE__, __LINE__)
+#define CHECK(condition) \
+    cracktools::CheckImpl(condition, #condition, __FILE__, __LINE__)
 
 // DCHECK if debug build
 #ifdef DEBUG
-#define DCHECK(condition, message) \
+#define DCHECKA(condition, message) \
     cracktools::CheckImpl(condition, message, __FILE__, __LINE__)
+#define DCHECK(condition) \
+    cracktools::CheckImpl(condition, #condition, __FILE__, __LINE__)
 #else
-#define DCHECK(condition, message)
+#define DCHECKA(condition, message)
+#define DCHECK(condition)
 #endif
 
 #endif /* Check_hpp */
