@@ -24,8 +24,6 @@
 #include "UnsafeBuffer.hpp"
 #include "WordGenerator.hpp"
 
-#pragma clang unsafe_buffer_usage begin
-
 #ifdef BIGINT
 typedef mpz_class index_t;
 #else
@@ -54,19 +52,20 @@ static inline void
 calculate_bytes_required(
     const index_t Value,
     size_t* BytesRequired,
-    uint8_t* MSBMask
+    index_t* Mask
 )
 {
     // Figure out the smallest number of bits of
     // input hash data required to represent _Value_
     size_t bitsRequired = 0;
-    index_t mask = 0;
     size_t bitsoverflow;
 
-    while (mask < Value)
+    *Mask = 0;
+
+    while (*Mask < Value)
     {
-        mask <<= 1;
-        mask |= 0x1;
+        *Mask <<= 1;
+        *Mask |= 0x1;
         bitsRequired++;
     }
     // Calculate the number of whole bytes required
@@ -79,14 +78,6 @@ calculate_bytes_required(
     if (bitsoverflow != 0)
     {
         (*BytesRequired)++;
-        // We need to mask off the top additional
-        // bits though
-        size_t bitstomask = 8 - bitsoverflow;
-        *MSBMask = 0xff >> bitstomask;
-    }
-    else
-    {
-        *MSBMask = 0xff;
     }
 }
 
@@ -292,7 +283,7 @@ public:
         calculate_bytes_required(
             GetKeyspace(),
             &m_BytesRequired,
-            &m_MsbMask
+            &m_Mask
         );
     };
 
@@ -316,13 +307,10 @@ public:
                 ExtendEntropy(hashBuffer);
                 offset = 0;
             }
-            // Mask off the most significant bit
-            uint8_t mostSigByte = hashBuffer[offset];
-            hashBuffer[offset] = mostSigByte & m_MsbMask;
             // Parse the hash as a single integer
             reduction = load_bytes_to_index(hashBuffer, offset, m_BytesRequired);
-            // Replace the original entropy in case we need to extend
-            hashBuffer[offset] = mostSigByte;
+            // Mask the value to ensure it is in range
+            reduction &= m_Mask;
             // Move the offset along
             offset++;
         }
@@ -335,7 +323,7 @@ public:
     }
 protected:
     size_t m_BytesRequired;
-    uint8_t m_MsbMask;
+    index_t m_Mask;
 };
 
 class HybridReducer final : public Reducer
@@ -368,7 +356,7 @@ public:
         calculate_bytes_required(
             total,
             &m_BytesRequired,
-            &m_MsbMask
+            &m_Mask
         );
 
 #ifndef BIGINT
@@ -418,10 +406,11 @@ public:
                 reduction = load_bytes_to_index(buffer, offset, m_BytesRequired);
                 // If the value is too big we can reuse this entropy and
                 // reverse the byte order to see if the result is smaller.
-                if (reduction >= m_Limits[m_Max])
+                if ((reduction & m_Mask) >= m_Limits[m_Max])
                 {
                     reduction = std::byteswap(reduction) >> (64 - m_BytesRequired * 8);
                 }
+                reduction &= m_Mask;
                 // Move the offset along
                 offset++;
             }
@@ -457,7 +446,7 @@ public:
     }
 private:
     size_t m_BytesRequired;
-    uint8_t m_MsbMask;
+    index_t m_Mask;
     std::array<index_t, kSmallStringMaxLength> m_Limits{};
     size_t m_ModMax;
 };
@@ -496,7 +485,5 @@ public:
 private:
     size_t m_ModMax;
 };
-
-#pragma clang unsafe_buffer_usage end
 
 #endif /* Reduce_hpp */
