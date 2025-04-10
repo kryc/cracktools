@@ -58,8 +58,8 @@ std::span<T> SpanCast(
     std::span<T2> Span
 )
 {
-    CHECK(Span.size_bytes() % sizeof(T) == 0, "Span size not a multiple of T");
-    DCHECK(Span.data() != nullptr, "Span data is null");
+    CHECKA(Span.size_bytes() % sizeof(T) == 0, "Span size not a multiple of T");
+    DCHECKA(Span.data() != nullptr, "Span data is null");
     return std::span<T>((T*)Span.data(), Span.size_bytes() / sizeof(T));
 }
 
@@ -108,8 +108,17 @@ Uint32FromLittleEndian(
     std::span<const uint8_t> Span
 )
 {
-    CHECK(Span.size() >= sizeof(uint32_t), "Span size is less than uint32_t");
+    CHECKA(Span.size() >= sizeof(uint32_t), "Span size is less than uint32_t");
     return *(uint32_t*)Span.data();
+}
+
+inline static uint64_t
+Uint64FromLittleEndian(
+    std::span<const uint8_t> Span
+)
+{
+    CHECKA(Span.size() >= sizeof(uint64_t), "Span size is less than uint64_t");
+    return *(uint64_t*)Span.data();
 }
 
 template <typename T>
@@ -119,7 +128,7 @@ SpanCopy(
     std::span<const T> Source
 )
 {
-    CHECK(Destination.size() == Source.size(), "Destination and source size mismatch");
+    CHECKA(Destination.size() == Source.size(), "Destination and source size mismatch");
     std::memcpy(Destination.data(), Source.data(), Source.size_bytes());
 }
 
@@ -130,8 +139,8 @@ SpanCopy(
     const size_t Length
 )
 {
-    CHECK(Destination.size() >= Length, "Destination size is less than length");
-    CHECK(Source.size() >= Length, "Source size is less than length");
+    CHECKA(Destination.size() >= Length, "Destination size is less than length");
+    CHECKA(Source.size() >= Length, "Source size is less than length");
     std::memcpy(Destination.data(), Source.data(), Length);
 }
 
