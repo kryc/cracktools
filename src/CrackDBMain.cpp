@@ -16,6 +16,45 @@
 #include "UnsafeBuffer.hpp"
 #include "Util.hpp"
 
+// Define the help string as a global constant
+const std::string HELP_STRING = R"(
+Usage: crackdb <database> <action> [options] <path>
+
+Actions:
+  build                        Build a database from a wordlist.
+  test                         Test a hash or file of hashes against the database.
+  crack                        Crack a hash or file of hashes using the database.
+
+Options:
+  --md5                        Use the MD5 hash algorithm.
+  --sha, --sha1                Use the SHA-1 hash algorithm.
+  --sha2, --sha256             Use the SHA-256 hash algorithm.
+  --sha384                     Use the SHA-384 hash algorithm.
+  --sha512                     Use the SHA-512 hash algorithm.
+  --min <value>                Set the minimum password length.
+  --max <value>                Set the maximum password length.
+  -o, --output, --out <file>   Specify the output file for results.
+  -u, --uncrackable <file>     Specify a file to store uncrackable hashes.
+  -p, --passwords              Output only passwords (no hashes).
+  -s, --separator <char>       Set the separator for output (default: ':').
+  -t, --threads <value>        Set the number of threads to use.
+  -b, --blocksize <value>      Set the block size for processing.
+  --nohex                      Disable hexadecimal output for results.
+  --nocache                    Disable file handle caching.
+  -q, --quiet                  Suppress output messages.
+  --help                       Display this help message.
+
+Positional Arguments:
+  <database>                   The path to the database file.
+  <action>                     The action to perform (build, test, crack).
+  <path>                       The path to the wordlist or hash file.
+
+Examples:
+  crackdb mydb.db build --min 6 --max 12 wordlist.txt
+  crackdb mydb.db test --sha256 hashes.txt
+  crackdb mydb.db crack --nohex single_hash.txt
+)";
+
 #define ARGCHECK() \
     if (argc <= i) \
     { \
@@ -24,13 +63,13 @@
     }
 
 int main(
-	int argc,
-	const char * argv[]
+    int argc,
+    const char * argv[]
 )
 {
     if (argc < 4)
     {
-        std::cerr << "Usage: " << argv[0] << " database action [--option] [parameter] path" << std::endl;
+        std::cout << HELP_STRING << std::endl;
         return 0;
     }
 
@@ -116,6 +155,11 @@ int main(
         else if (arg == "--quiet" || arg == "-q")
         {
             quiet = true;
+        }
+        else if (arg == "--help")
+        {
+            std::cout << HELP_STRING << std::endl;
+            return 0;
         }
         else if (arg.starts_with("--"))
         {

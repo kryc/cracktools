@@ -23,6 +23,33 @@
 #include "DispatchQueue.hpp"
 #include "SimdCrack.hpp"
 
+// Define the help string as a global constant
+const std::string HELP_STRING = R"(
+Usage: simdcrack [options] <target>
+
+Options:
+  --outfile, -o <file>          Specify the output file for cracked hashes.
+  --min <value>                 Set the minimum password length.
+  --max <value>                 Set the maximum password length.
+  --resume, -r <file>           Resume from a previous cracking session.
+  --blocksize, -b <value>       Set the block size for processing.
+  --threads, -t <value>         Set the number of threads to use.
+  --prefix, -f <string>         Add a prefix to all generated passwords.
+  --postfix, -a <string>        Add a postfix to all generated passwords.
+  --charset, -c <string>        Specify the character set to use.
+  --extra, -e <string>          Add extra characters to the character set.
+  --bitmask <value>             Set the bitmask size.
+  --sha256                      Use the SHA-256 hash algorithm.
+  --sha1                        Use the SHA-1 hash algorithm.
+  --md5                         Use the MD5 hash algorithm.
+  --md4                         Use the MD4 hash algorithm.
+  --algorithm <name>            Specify the hash algorithm (e.g., sha256, sha1, md5, md4).
+  --help                        Display this help message.
+
+Positional Arguments:
+  <target>                      The hash or target to crack.
+)";
+
 #define ARGCHECK() \
     if (argc <= i) \
     { \
@@ -41,8 +68,8 @@ int main(
 
 	if (argc < 2)
 	{
-		std::cerr << "Usage: " << argv[0] << "[options] <target>" << std::endl;
 		std::cerr << "SIMD Lanes: " << SimdLanes() << std::endl;
+		std::cout << HELP_STRING << std::endl;
 		return 0;
 	}
 
@@ -128,6 +155,16 @@ int main(
 			ARGCHECK();
 			simdcrack.SetAlgorithm(ParseHashAlgorithm(args[++i].c_str()));
 		}
+		else if (arg == "--help")
+		{
+			std::cout << HELP_STRING << std::endl;
+			return 0;
+		}
+		else if (arg.starts_with("--"))
+        {
+            std::cerr << "Unknown option " << arg << std::endl;
+            return 1;
+        }
 		else
 		{
 			assert(arg[0] != '-');

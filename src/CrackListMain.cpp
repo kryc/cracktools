@@ -17,6 +17,31 @@
 #include "Util.hpp"
 #include "simdhash.h"
 
+// Define the help string as a global constant
+const std::string HELP_STRING = R"(
+Usage: cracklist [options] hashfile wordlist
+
+Options:
+  --out, --outfile, -o <file>   Specify the output file for cracked hashes.
+  --threads, -t <value>         Set the number of threads to use.
+  --blocksize <value>           Set the block size for processing.
+  --sha1, --ntlm, --md5, --md4  Specify the hash algorithm to use.
+  --linkedin                    Enable LinkedIn hash processing mode.
+  --binary, -b                  Treat input hashes as binary.
+  --bitmask, --masksize, -m     Set the bitmask size.
+  --autohex, -a                 Automatically convert input to hexadecimal.
+  --no-autohex, -A              Disable automatic hexadecimal conversion.
+  --parse-hex, -p               Parse input hashes as hexadecimal.
+  --text, -T                    Treat input hashes as text.
+  --binary, -B                  Treat input hashes as binary.
+  --terminal-width, -w <value>  Set the terminal width for output formatting.
+  --help                        Display this help message.
+
+Positional Arguments:
+  hashfile                      The file containing the hashes to crack.
+  wordlist                      The wordlist to use for cracking (default stdin).
+)";
+
 #define ARGCHECK() \
     if (argc <= i) \
     { \
@@ -25,13 +50,13 @@
     }
 
 int main(
-	int argc,
-	const char * argv[]
+    int argc,
+    const char * argv[]
 )
 {
     if (argc < 2)
     {
-        std::cerr << "Usage: " << argv[0] << " hashfile wordlist" << std::endl;
+        std::cout << HELP_STRING << std::endl;
         return 0;
     }
 
@@ -109,6 +134,16 @@ int main(
         {
             ARGCHECK();
             cracklist.SetTerminalWidth(atoi(args[++i].c_str()));
+        }
+        else if (arg == "--help")
+        {
+            std::cout << HELP_STRING << std::endl;
+            return 0;
+        }
+        else if (arg.starts_with("--"))
+        {
+            std::cerr << "Unknown option " << arg << std::endl;
+            return 1;
         }
         else if (cracklist.GetHashFile() == "")
         {

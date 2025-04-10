@@ -11,9 +11,34 @@
 #include <string>
 
 #include "simdhash.h"
-
 #include "RainbowTable.hpp"
 #include "UnsafeBuffer.hpp"
+
+// Define the help string as a global constant
+const std::string HELP_STRING = R"(
+Usage: simdrainbowcrack action [options] table
+
+Actions:
+  build       Build a rainbow table.
+  resume      Resume building a rainbow table.
+  crack       Crack a hash using the rainbow table.
+  test        Test a password against the rainbow table.
+  info        Display information about the rainbow table.
+  compress    Compress the rainbow table.
+  decompress  Decompress the rainbow table.
+
+Options:
+  --min <value>       Set the minimum password length.
+  --max <value>       Set the maximum password length.
+  --charset <string>  Set the character set to use.
+  --length <value>    Set the password length.
+  --blocksize <value> Set the block size.
+  --count <value>     Set the number of chains.
+  --threads <value>   Set the number of threads.
+  --algorithm <name>  Set the hash algorithm (e.g., md5, sha1).
+  --noindex           Disable indexing.
+  --help              Display this help message.
+)";
 
 #define ARGCHECK() \
     if (argc <= i) \
@@ -53,7 +78,7 @@ main(
 
     if (argc < 2)
     {
-        std::cerr << "Usage: " << argv[0] << " action [-option] table" << std::endl;
+        std::cout << HELP_STRING << std::endl;
         return 0;
     }
 
@@ -140,6 +165,16 @@ main(
         else if (arg == "--noindex")
         {
             rainbow.DisableIndex();
+        }
+        else if (arg == "--help")
+        {
+            std::cout << HELP_STRING << std::endl;
+            return 0;
+        }
+        else if (arg.starts_with("--"))
+        {
+            std::cerr << "Unknown option " << arg << std::endl;
+            return 1;
         }
         else if (rainbow.GetPath().empty())
         {
