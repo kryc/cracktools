@@ -179,7 +179,7 @@ RainbowTable::GenerateBlock(
         // Set the chain start point
         for (size_t i = 0; i < lanes; i++)
         {
-            const size_t length = wordGenerator.Generate(words.GetCharWriteSpan(i), counter++);
+            const size_t length = wordGenerator.Generate(words.GetBufferChar(i), counter++);
             words.SetLength(i, length);
         }
 
@@ -198,7 +198,7 @@ RainbowTable::GenerateBlock(
             for (size_t h = 0; h < lanes; h++)
             {
                 auto hash = hashes.subspan(h * hashWidth, hashWidth);
-                const size_t length = reducer.Reduce(words.GetCharWriteSpan(h), hash, i);
+                const size_t length = reducer.Reduce(words.GetBufferChar(h), hash, i);
                 words.SetLength(h, length);
             }
         }
