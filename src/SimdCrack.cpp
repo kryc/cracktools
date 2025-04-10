@@ -1,9 +1,18 @@
+//
+//  SimdCrack.cpp
+//  SimdCrack
+//
+//  Created by Kryc on 13/09/2020.
+//  Copyright © 2020 Kryc. All rights reserved.
+//
+
 #include <algorithm>
 #include <chrono>
 #include <fstream>
-#include <inttypes.h>
+#include <cinttypes>
 #include <gmp.h>
 #include <mutex>
+#include <span>
 #include <sys/mman.h>
 
 #include "SimdCrack.hpp"
@@ -86,25 +95,16 @@ SimdCrack::InitAndRun(
     }
 }
 
-int comparator(
-    const void* x,
-    const void* y,
-    void* Width
-)
-{
-    return memcmp(x, y, (size_t)Width);
-}
-
 inline bool
 SimdCrack::AddHashToList(
-    const uint8_t* Hash
+    std::span<const uint8_t> Hash
 )
 {
     // Add the hash to the end of the targetsvector
     m_TargetsVector.insert(
         m_TargetsVector.end(),
-        Hash,
-        Hash + m_HashWidth
+        Hash.begin(),
+        Hash.end()
     );
 
     m_TargetsCount++;
@@ -114,11 +114,11 @@ SimdCrack::AddHashToList(
 
 bool
 SimdCrack::AddHashToList(
-    const std::string Hash
+    const std::string_view Hash
 )
 {
     auto nexthash = Util::ParseHex(Hash);
-    return AddHashToList(&nexthash[0]);
+    return AddHashToList(nexthash);
 }
 
 bool
@@ -389,8 +389,6 @@ SimdCrack::ThreadPulse(
     const mpz_class Last
 )
 {
-    char statusbuf[96];
-
     assert(dispatch::CurrentDispatcher() == dispatch::GetDispatcher("main").get());
 
     m_BlocksCompleted++;
@@ -420,29 +418,22 @@ SimdCrack::ThreadPulse(
         std::string multiplechar;
         hashesPerSec = Util::NumFactor(hashesPerSec, multiplechar);
 
-        statusbuf[sizeof(statusbuf) - 1] = '\0';
-        memset(statusbuf, '\b', sizeof(statusbuf) - 1);
-        fprintf(stderr, "%s", statusbuf);
-        memset(statusbuf, ' ', sizeof(statusbuf) - 1);
-        int count = snprintf(
-            statusbuf, sizeof(statusbuf),
-            "H/s:%.1lf%s C:%zu/%zu L:\"%s\" C:\"%s\" #:%s%s/%s%s (%.1lf%%)",
-                hashesPerSec,
-                multiplechar.c_str(),
-                m_Found,
-                m_TargetsCount,
-                m_LastWord.c_str(),
-                m_Generator.Generate(Last).c_str(),
-                diff.get_str().c_str(),
-                diffch.c_str(),
-                outof.get_str().c_str(),
-                ooch.c_str(),
-                percent.get_d()
+        // Print the status
+        std::string status = std::format(
+            "H/s: {:.1f}{} C:{}/{} L:\"{}\" C:\"{}\" #:{}{}/{}{} ({:.1f}%)",
+            hashesPerSec,
+            multiplechar,
+            m_Found,
+            m_TargetsCount,
+            m_LastWord,
+            m_Generator.Generate(Last),
+            diff.get_str(),
+            diffch,
+            outof.get_str(),
+            ooch,
+            percent.get_d()
         );
-        if (count < sizeof(statusbuf) - 1)
-        {
-            statusbuf[count] = ' ';
-        }
-        fprintf(stderr, "%s", statusbuf);
+
+        std::cerr << "\r" << status << std::flush;
     }
 }

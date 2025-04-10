@@ -154,7 +154,7 @@ private:
     // Cracking
     std::optional<std::string> CrackOne(const std::string& Target);
     void CrackOneWorker(const size_t ThreadId, const std::vector<uint8_t> Target);
-    std::optional<std::string> CheckIteration(const HybridReducer& Reducer, const std::vector<uint8_t>& Hash, const size_t Iteration) const;
+    std::optional<std::string> CheckIteration(const HybridReducer& Reducer, const std::span<const uint8_t> Hash, const size_t Iteration) const;
 
     // General purpose
     std::string m_Operation;

@@ -55,57 +55,57 @@ int main(
 		if (arg == "--outfile" || arg == "-o")
 		{
 			ARGCHECK();
-			simdcrack.SetOutFile(argv[++i]);
+			simdcrack.SetOutFile(args[++i]);
 		}
 		else if (arg == "--min")
 		{
 			ARGCHECK();
-			simdcrack.SetMin(atoi(argv[++i]));
+			simdcrack.SetMin(atoi(args[++i].c_str()));
 		}
 		else if (arg == "--max")
 		{
 			ARGCHECK();
-			simdcrack.SetMax(atoi(argv[++i]));
+			simdcrack.SetMax(atoi(args[++i].c_str()));
 		}
 		else if (arg == "--resume" || arg == "-r")
 		{
 			ARGCHECK();
-			simdcrack.SetResume(argv[++i]);
+			simdcrack.SetResume(args[++i]);
 		}
 		else if (arg == "--blocksize" || arg == "-b")
 		{
 			ARGCHECK();
-			simdcrack.SetBlocksize(atoll(argv[++i]));
+			simdcrack.SetBlocksize(atoll(args[++i].c_str()));
 		}
 		else if (arg == "--threads" || arg == "-t")
 		{
 			ARGCHECK();
-			simdcrack.SetThreads(atoll(argv[++i]));
+			simdcrack.SetThreads(atoll(args[++i].c_str()));
 		}
 		else if (arg == "--prefix" || arg == "-f")
 		{
 			ARGCHECK();
-			simdcrack.SetPrefix(argv[++i]);
+			simdcrack.SetPrefix(args[++i]);
 		}
 		else if (arg == "--postfix" || arg == "-a")
 		{
 			ARGCHECK();
-			simdcrack.SetPostfix(argv[++i]);
+			simdcrack.SetPostfix(args[++i]);
 		}
 		else if (arg == "--charset" || arg == "-c")
 		{
 			ARGCHECK();
-			simdcrack.SetCharset(argv[++i]);
+			simdcrack.SetCharset(args[++i]);
 		}
 		else if (arg == "--extra" || arg == "-e")
 		{
 			ARGCHECK();
-			simdcrack.SetExtra(argv[++i]);
+			simdcrack.SetExtra(args[++i]);
 		}
 		else if (arg == "--bitmask")
 		{
 			ARGCHECK();
-			simdcrack.SetBitmaskSize(atoi(argv[++i]));
+			simdcrack.SetBitmaskSize(atoi(args[++i].c_str()));
 		}
 		else if (arg == "--sha256")
 		{
@@ -126,7 +126,7 @@ int main(
 		else if (arg == "--algorithm")
 		{
 			ARGCHECK();
-			simdcrack.SetAlgorithm(ParseHashAlgorithm(argv[++i]));
+			simdcrack.SetAlgorithm(ParseHashAlgorithm(args[++i].c_str()));
 		}
 		else
 		{

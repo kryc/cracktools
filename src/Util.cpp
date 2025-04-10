@@ -22,7 +22,7 @@ namespace Util
 
 std::vector<uint8_t>
 ParseHex(
-	const std::string& HexString
+	const std::string_view HexString
 )
 {
 	std::vector<uint8_t> vec;
@@ -90,7 +90,7 @@ ToHex(
 
 bool
 IsHex(
-	const std::string& String
+	const std::string_view String
 )
 {
 	// Detect an odd length string
@@ -112,7 +112,7 @@ IsHex(
 
 std::string
 ToLower(
-    const std::string& String
+    const std::string_view String
 )
 {
 	std::string result;
@@ -134,7 +134,7 @@ ToLower(
 
 const std::string
 Hexlify(
-    const std::string& Value
+    const std::string_view Value
 )
 {
     bool needshex = false;
@@ -148,7 +148,7 @@ Hexlify(
     }
     if (!needshex)
     {
-        return Value;
+        return std::string(Value);
     }
     return "$HEX[" + Util::ToHex((const uint8_t*)Value.data(), Value.size()) + "]";
 }

@@ -12,6 +12,7 @@
 #include <span>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <filesystem>
 #include <string>
 #include <optional>
@@ -60,6 +61,87 @@ std::span<T> SpanCast(
     CHECK(Span.size_bytes() % sizeof(T) == 0, "Span size not a multiple of T");
     DCHECK(Span.data() != nullptr, "Span data is null");
     return std::span<T>((T*)Span.data(), Span.size_bytes() / sizeof(T));
+}
+
+template <typename T, typename T2=const uint8_t>
+inline static
+std::span<T2>
+AsBytes(
+    std::span<T> Span
+)
+{
+    return std::span<T2>((T2*)Span.data(), Span.size_bytes());
+}
+
+template <typename T>
+inline static
+std::span<uint8_t>
+AsWritableBytes(
+    std::span<T> Span
+)
+{
+    return AsBytes<uint8_t>(Span);
+}
+
+template <typename T, typename T2=const char>
+inline static
+std::span<T2>
+AsChars(
+    std::span<T> Span
+)
+{
+    return std::span<T2>((T2*)Span.data(), Span.size_bytes());
+}
+
+template <typename T>
+inline static
+std::span<char>
+AsWritableChars(
+    std::span<T> Span
+)
+{
+    return AsChars<char>(Span);
+}
+
+inline static uint32_t
+Uint32FromLittleEndian(
+    std::span<const uint8_t> Span
+)
+{
+    CHECK(Span.size() >= sizeof(uint32_t), "Span size is less than uint32_t");
+    return *(uint32_t*)Span.data();
+}
+
+template <typename T>
+inline static void
+SpanCopy(
+    std::span<T> Destination,
+    std::span<const T> Source
+)
+{
+    CHECK(Destination.size() == Source.size(), "Destination and source size mismatch");
+    std::memcpy(Destination.data(), Source.data(), Source.size_bytes());
+}
+
+inline static void
+SpanCopy(
+    std::span<char> Destination,
+    std::string_view Source,
+    const size_t Length
+)
+{
+    CHECK(Destination.size() >= Length, "Destination size is less than length");
+    CHECK(Source.size() >= Length, "Source size is less than length");
+    std::memcpy(Destination.data(), Source.data(), Length);
+}
+
+inline static void
+SpanCopy(
+    std::span<char> Destination,
+    std::string_view Source
+)
+{
+    return SpanCopy(Destination, Source, Source.size());
 }
 
 // A function to parse argv into a vector of strings

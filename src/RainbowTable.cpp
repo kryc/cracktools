@@ -159,7 +159,7 @@ RainbowTable::GenerateBlock(
 
     SimdHashBufferFixed<kSmallStringMaxLength> words;
     std::array<uint8_t, MAX_HASH_SIZE * MAX_LANES> hashBuffer;
-    std::span<uint8_t> hashes(hashBuffer.data(), m_HashWidth * SimdLanes());
+    auto hashes = cracktools::UnsafeSpan<uint8_t>(hashBuffer.data(), m_HashWidth * SimdLanes());
 
     // Calculate lower bound and add the current index
 #ifdef BIGINT
@@ -800,16 +800,16 @@ RainbowTable::FindStartIndexForEndpoint(
 std::optional<std::string>
 RainbowTable::CheckIteration(
     const HybridReducer& Reducer,
-    const std::vector<uint8_t>& Target,
+    std::span<const uint8_t> Target,
     const size_t Iteration
 ) const
 {
     std::array<uint8_t, MAX_HASH_SIZE> hashBuffer;
-    std::span<uint8_t> hash(hashBuffer.begin(), m_HashWidth);
+    auto hash = cracktools::UnsafeSpan<uint8_t>(hashBuffer.data(), m_HashWidth);
     std::array<char, 31> reduced;
     size_t length;
 
-    memcpy(&hash[0], &Target[0], m_HashWidth);
+    cracktools::SpanCopy(hash, Target);
 
     for (size_t j = Iteration; j < m_Length - 1; j++)
     {
@@ -1010,7 +1010,7 @@ RainbowTable::ValidateChain(
 ) const
 {
     std::array<uint8_t, MAX_HASH_SIZE> hashBuffer;
-    std::span<uint8_t> hash(hashBuffer.begin(), m_HashWidth);
+    auto hash = cracktools::UnsafeSpan<uint8_t>(hashBuffer.data(), m_HashWidth);
     std::vector<char> reduced(m_Max);
     HybridReducer reducer(m_Min, m_Max, m_Charset);
     size_t length;
@@ -1023,7 +1023,7 @@ RainbowTable::ValidateChain(
 
     auto start = WordGenerator::GenerateWord(counter, m_Charset);
     length = start.size();
-    memcpy(&reduced[0], start.c_str(), length);
+    cracktools::SpanCopy(reduced, start);
 
     for (size_t i = 0; i < m_Length; i++)
     {
@@ -1273,7 +1273,7 @@ RainbowTable::ComputeChain(
     std::vector<char> reduced(Max);
     size_t reducedLength = start.size();
 
-    memcpy(&reduced[0], start.c_str(), reducedLength);
+    cracktools::SpanCopy(reduced, start);
 
     for (size_t i = 0; i < Length; i++)
     {

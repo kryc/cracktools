@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <assert.h>
 #include <bit>
+#include <cmath>
 #include <iostream>
 #include <ranges>
 #include <span>
@@ -32,8 +33,7 @@ Bitmask(
     const size_t BitmaskSize
 )
 {
-    uint32_t v32;
-    std::memcpy(&v32, Value.data(), sizeof(v32));
+    uint32_t v32 = cracktools::Uint32FromLittleEndian(Value);
 #ifndef __ARM__
     v32 = std::byteswap(v32);
 #endif
@@ -167,7 +167,6 @@ HashList::InitializeInternal(
     void
 )
 {
-    constexpr size_t READAHEAD = 512;
     constexpr size_t INVALID_OFFSET = std::numeric_limits<size_t>::max();
 
     std::cerr << "HashList::Initialize: " << GetCount() << " rows." << std::endl;
@@ -179,9 +178,11 @@ HashList::InitializeInternal(
     m_LookupTable.resize(1 << m_BitmaskSize);
     std::vector<size_t> offsets(m_LookupTable.size(), INVALID_OFFSET);
 
+    const size_t readahead = std::max<size_t>(1, GetCount() / std::pow(2, m_BitmaskSize));
+
     // First pass
     std::cerr << "\rIndexing hash table. Pass 1" << std::flush;
-    for (size_t i = 0; i < GetCount(); i += READAHEAD)
+    for (size_t i = 0; i < GetCount(); i += readahead)
     {
         auto hash = GetHash(i);
         const uint32_t index = Bitmask(hash, m_BitmaskSize);

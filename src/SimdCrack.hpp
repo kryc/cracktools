@@ -14,6 +14,8 @@
 #include <fstream>
 #include <iostream>
 #include <map>
+#include <span>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -54,8 +56,8 @@ private:
     void GenerateBlocks(const size_t ThreadId, const mpz_class Start, const size_t Step);
     void FoundResults(std::vector<std::tuple<std::string, std::string>> Results);
     bool ProcessHashList(void);
-    bool AddHashToList(const std::string Hash);
-    bool AddHashToList(const uint8_t* Hash);
+    bool AddHashToList(const std::string_view Hash);
+    bool AddHashToList(std::span<const uint8_t> Hash);
     void ThreadPulse(const size_t ThreadId, const uint64_t BlockTime, const mpz_class Last);
     void ThreadCompleted(const size_t ThreadId);
 

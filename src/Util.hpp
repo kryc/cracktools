@@ -12,6 +12,7 @@
 #include <vector>
 #include <span>
 #include <string>
+#include <string_view>
 #include <cstdint>
 #include <gmpxx.h>
 
@@ -20,7 +21,7 @@ namespace Util
 
 std::vector<uint8_t>
 ParseHex(
-    const std::string& HexString
+    const std::string_view HexString
 );
 
 std::string
@@ -36,17 +37,17 @@ ToHex(
 
 bool
 IsHex(
-    const std::string& String
+    const std::string_view String
 );
 
 std::string
 ToLower(
-    const std::string& String
+    const std::string_view String
 );
 
 const std::string
 Hexlify(
-    const std::string& Value
+    const std::string_view Value
 );
 
 double
