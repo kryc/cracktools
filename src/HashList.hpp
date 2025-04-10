@@ -39,7 +39,7 @@ public:
     std::optional<size_t> FindLinear(std::span<const uint8_t> Hash) const;
     std::optional<size_t> Find(std::span<const uint8_t> Hash) const { return FindFast(Hash); }
     const size_t GetCount(void) const { return m_Data.size() / m_RowWidth; };
-    void SetBitmaskSize(const size_t BitmaskSize) { m_BitmaskSize = BitmaskSize; };
+    const bool SetBitmaskSize(const size_t BitmaskSize);
     const size_t GetBitmaskSize(void) const { return m_BitmaskSize; };
     inline std::span<const uint8_t> GetRow(std::span<const uint8_t> Span, const size_t Index) const {
         return Span.subspan(Index * m_RowWidth, m_RowWidth);
@@ -63,7 +63,7 @@ private:
     size_t m_DigestLength;
     size_t m_RowWidth;
     size_t m_DigestOffset;
-    FILE* m_BinaryHashFileHandle;
+    FILE* m_BinaryHashFileHandle = nullptr;
     std::span<const uint8_t> m_Data;
     size_t m_BitmaskSize = 16;
     std::vector<std::span<const uint8_t>> m_LookupTable;

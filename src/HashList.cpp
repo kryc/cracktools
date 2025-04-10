@@ -170,9 +170,6 @@ HashList::InitializeInternal(
     constexpr size_t INVALID_OFFSET = std::numeric_limits<size_t>::max();
 
     std::cerr << "HashList::Initialize: " << GetCount() << " rows." << std::endl;
-    std::cerr << "Row Width:" << m_RowWidth << std::endl;
-    std::cerr << "Digest Length: " << m_DigestLength << std::endl;
-    std::cerr << "Digest Offset: " << m_DigestOffset << std::endl;
     std::cerr << "Indexing hash table." << std::flush;
 
     m_LookupTable.resize(1 << m_BitmaskSize);
@@ -338,16 +335,10 @@ HashList::FindFast(
     std::span<const uint8_t> Hash
 ) const
 {
-    const uint32_t index = Bitmask(Hash, m_BitmaskSize);
-    auto subspan = m_LookupTable[index];
-
-    if (subspan.empty())
-    {
-        return std::nullopt;
-    }
-
+    // FindFast can't use the lookup tables as
+    // we would not be able to find the offset
     return FindBinaryInternal(
-        subspan,
+        m_Data,
         Hash
     );
 }
@@ -361,6 +352,23 @@ HashList::FindLinear(
         m_Data,
         Hash
     );
+}
+
+const bool
+HashList::SetBitmaskSize(
+    const size_t BitmaskSize
+)
+{
+    if (BitmaskSize > 32)
+    {
+        return false;
+    }
+    if (!m_LookupTable.empty())
+    {
+        return false;
+    }
+    m_BitmaskSize = BitmaskSize;
+    return true;
 }
 
 typedef struct _CompareArgs
