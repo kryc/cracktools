@@ -51,15 +51,18 @@ rotr(
 static inline void
 calculate_bytes_required(
     const index_t Value,
+    size_t* BitsRequired,
     size_t* BytesRequired,
     index_t* Mask
 )
 {
     // Figure out the smallest number of bits of
     // input hash data required to represent _Value_
-    size_t bitsRequired = 0;
     size_t bitsoverflow;
+    size_t bitsRequired = 0;
+    size_t bytesRequired = 0;
 
+    bitsRequired = 0;
     *Mask = 0;
 
     while (*Mask < Value)
@@ -69,7 +72,7 @@ calculate_bytes_required(
         bitsRequired++;
     }
     // Calculate the number of whole bytes required
-    *BytesRequired = bitsRequired / 8;
+    bytesRequired = bitsRequired / 8;
     // The number of bits to mask off the most
     // significant byte
     bitsoverflow = bitsRequired % 8;
@@ -77,8 +80,11 @@ calculate_bytes_required(
     // need to use an extra byte
     if (bitsoverflow != 0)
     {
-        (*BytesRequired)++;
+        bytesRequired++;
     }
+
+    *BytesRequired = bytesRequired;
+    *BitsRequired = bitsRequired;
 }
 
 // Doing a simple modulo on each byte will introduce
@@ -282,6 +288,7 @@ public:
         // word in the password space
         calculate_bytes_required(
             GetKeyspace(),
+            &m_BitsRequired,
             &m_BytesRequired,
             &m_Mask
         );
@@ -322,6 +329,7 @@ public:
         );
     }
 protected:
+    size_t m_BitsRequired;
     size_t m_BytesRequired;
     index_t m_Mask;
 };
@@ -355,6 +363,7 @@ public:
         // to represent the largest range of the keyspace
         calculate_bytes_required(
             total,
+            &m_BitsRequired,
             &m_BytesRequired,
             &m_Mask
         );
@@ -445,6 +454,7 @@ public:
         );
     }
 private:
+    size_t m_BitsRequired;
     size_t m_BytesRequired;
     index_t m_Mask;
     std::array<index_t, kSmallStringMaxLength> m_Limits{};
