@@ -706,6 +706,75 @@ RainbowTable::MapTable(
     return true;
 }
 
+const bool
+RainbowTable::IndexTable(
+    void
+)
+{
+    constexpr size_t INVALID_OFFSET = std::numeric_limits<size_t>::max();
+    CHECKA(m_TableType == TypeUncompressed, "Indexing only supported for uncompressed tables");
+    m_LookupTable.resize(1 << m_BitmapSize);
+    std::vector<size_t> offsets(m_LookupTable.size(), INVALID_OFFSET);
+
+    for (size_t i = 0; i < m_MappedTableRecords.size(); i++)
+    {
+        auto record = m_MappedTableRecords[i];
+        auto endpoint = record.endpoint;
+        auto index = endpoint >> (64 - m_BitmapSize);
+        if (offsets[index] == INVALID_OFFSET)
+        {
+            offsets[index] = i;
+        }
+    }
+    // Fill the lookup table with the offsets
+    for (size_t i = 0; i < offsets.size() - 1; i++)
+    {
+        if (offsets[i] == INVALID_OFFSET)
+        {
+            continue;
+        }
+        // Find the next non-empty offset
+        for (size_t j = i + 1; j < offsets.size(); j++)
+        {
+            if (offsets[j] != INVALID_OFFSET)
+            {
+                CHECK(offsets[j] > offsets[i]);
+                const size_t Count = offsets[j] - offsets[i];
+                m_LookupTable[i] = m_MappedTableRecords.subspan(offsets[i], Count);
+                break;
+            }
+        }
+    }
+    // Handle the last element
+    for (ssize_t i = m_LookupTable.size() - 1; i >= 0; i--)
+    {
+        if (offsets[i] != INVALID_OFFSET)
+        {
+            const size_t Count = m_MappedTableRecords.size() - offsets[i];
+            m_LookupTable[i] = m_MappedTableRecords.subspan(offsets[i], Count);
+            break;
+        }
+    }
+    // Check that the total lengths add up
+    size_t total = 0;
+    for (size_t i = 0; i < m_LookupTable.size(); i++)
+    {
+        if (m_LookupTable[i].empty())
+        {
+            continue;
+        }
+        total += m_LookupTable[i].size();
+    }
+    if (total != m_MappedTableRecords.size())
+    {
+        std::cerr << "Error: bitmask lengths (" << total << ") do not match hash list length (" << m_MappedTableRecords.size() << ")" << std::endl;
+        return false;
+    }
+
+    m_Indexed = true;
+    return true;
+}
+
 const TableRecord
 RainbowTable::GetRecordAt(
     const size_t Index
@@ -773,16 +842,18 @@ RainbowTable::FindStartIndexForEndpoint(
     {
         // Perform a binary search based on the endpoint and return the startpoint
         // of a matching record
+        auto span = m_Indexed ? m_LookupTable[Endpoint >> (64 - m_BitmapSize)] : m_MappedTableRecords;
+        // auto span = m_MappedTableRecords;
         ssize_t low = 0;
-        ssize_t high = m_MappedTableRecords.size() - 1;
+        ssize_t high = span.size() - 1;
         while (low <= high)
         {
             ssize_t mid = low + (high - low) / 2;
-            if (m_MappedTableRecords[mid].endpoint == Endpoint)
+            if (span[mid].endpoint == Endpoint)
             {
-                return m_MappedTableRecords[mid].startpoint;
+                return span[mid].startpoint;
             }
-            else if (m_MappedTableRecords[mid].endpoint < Endpoint)
+            else if (span[mid].endpoint < Endpoint)
             {
                 low = mid + 1;
             }
@@ -950,7 +1021,11 @@ RainbowTable::Crack(
     if (!m_IndexDisable)
     {
         std::cerr << "Indexing table..";
-        // IndexTable();
+        if (!IndexTable())
+        {
+            std::cerr << "Error indexing table" << std::endl;
+            return {};
+        }
         std::cerr << " done." << std::endl;
     }
 

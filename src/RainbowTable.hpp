@@ -126,9 +126,6 @@ public:
     static const Chain ComputeChain(const size_t Index, const size_t Min, const size_t Max, const size_t Length, const HashAlgorithm Algorithm, const std::string& Charset);
     inline const uint64_t GetEndpointAt(const size_t Index) const;
     inline const TableRecord GetRecordAt(const size_t Index) const;
-protected:
-    void SortStartpoints(void);
-    void RemoveStartpoints(void);
 private:
     // General purpose
     void ChangeType(const std::filesystem::path& Destination, const TableType Type);
@@ -137,6 +134,7 @@ private:
     bool TableMapped(void) { return m_MappedTableFd != nullptr; };
     bool MapTable(const bool ReadOnly = true);
     bool UnmapTable(void);
+    const bool IndexTable(void);
 #ifdef BIGINT
     static const mpz_class CalculateLowerBound(const size_t Min, const std::string& Charset) { return WordGenerator::WordLengthIndex(Min, Charset); };
     const mpz_class CalculateLowerBound(void) const { return CalculateLowerBound(m_Min, m_Charset); };
@@ -186,11 +184,8 @@ private:
     std::span<TableRecord> m_MappedTableRecords;
     std::span<TableRecordCompressed> m_MappedTableRecordsCompressed;
     FILE* m_MappedTableFd = nullptr;
-    size_t m_MappedFileSize;
-    size_t m_MappedTableSize;
-    static constexpr size_t LOOKUP_SIZE = std::numeric_limits<uint16_t>::max() + 1;
-    const uint8_t* m_MappedTableLookup[LOOKUP_SIZE];
-    size_t m_MappedTableLookupSize[LOOKUP_SIZE];
+    std::vector<std::span<TableRecord>> m_LookupTable;
+    size_t m_BitmapSize = 24;
     bool m_IndexDisable = false;
     bool m_Indexed = false;
     bool m_MappedReadOnly = false;
