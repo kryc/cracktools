@@ -104,7 +104,6 @@ public:
     const char GetSeparator(void) const { return m_Separator; }
     std::string GetType(void) const { return m_TableType == TypeCompressed ? "Compressed" : "Uncompressed";  }
     float GetCoverage(void);
-    void DisableIndex(void) { m_IndexDisable = true; }
     bool TableExists(void) const { return std::filesystem::exists(m_Path); }
     static bool GetTableHeader(const std::filesystem::path& Path, TableHeader* Header);
     static bool IsTableFile(const std::filesystem::path& Path);
@@ -134,7 +133,6 @@ private:
     bool TableMapped(void) { return m_MappedTableFd != nullptr; };
     bool MapTable(const bool ReadOnly = true);
     bool UnmapTable(void);
-    const bool IndexTable(void);
 #ifdef BIGINT
     static const mpz_class CalculateLowerBound(const size_t Min, const std::string& Charset) { return WordGenerator::WordLengthIndex(Min, Charset); };
     const mpz_class CalculateLowerBound(void) const { return CalculateLowerBound(m_Min, m_Charset); };
@@ -184,10 +182,6 @@ private:
     std::span<TableRecord> m_MappedTableRecords;
     std::span<TableRecordCompressed> m_MappedTableRecordsCompressed;
     FILE* m_MappedTableFd = nullptr;
-    std::vector<std::span<TableRecord>> m_LookupTable;
-    size_t m_BitmapSize = 24;
-    bool m_IndexDisable = false;
-    bool m_Indexed = false;
     bool m_MappedReadOnly = false;
     std::ifstream m_HashFileStream;
     std::mutex m_HashFileStreamLock;
