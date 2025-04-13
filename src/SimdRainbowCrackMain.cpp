@@ -162,10 +162,6 @@ main(
         {
             rainbow.SetAlgorithm("ntlm");
         }
-        else if (arg == "--noindex")
-        {
-            rainbow.DisableIndex();
-        }
         else if (arg == "--help")
         {
             std::cout << HELP_STRING << std::endl;
