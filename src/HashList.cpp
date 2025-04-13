@@ -299,7 +299,7 @@ HashList::LookupLinear(
         m_Data, Hash
     ).has_value();
 }
-#include "Util.hpp"
+
 const bool
 HashList::LookupFast(
     std::span<const uint8_t> Hash
@@ -311,6 +311,21 @@ HashList::LookupFast(
     if (subspan.empty())
     {
         return false;
+    }
+
+    const size_t DigestLength = m_DigestLength;
+
+    if (subspan.size() == DigestLength)
+    {
+        DCHECK(subspan.size() == Hash.size());
+        return std::equal(subspan.begin(), subspan.end(), Hash.begin());
+    }
+    else if (subspan.size() <= /* Digest Length * 4 */ (DigestLength << 2))
+    {
+        return FindLinearInternal(
+            subspan,
+            Hash
+        ).has_value();
     }
 
     return FindBinaryInternal(
@@ -331,12 +346,10 @@ HashList::LookupBinary(
 }
 
 std::optional<size_t>
-HashList::FindFast(
+HashList::FindBinary(
     std::span<const uint8_t> Hash
 ) const
 {
-    // FindFast can't use the lookup tables as
-    // we would not be able to find the offset
     return FindBinaryInternal(
         m_Data,
         Hash

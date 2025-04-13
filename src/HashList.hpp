@@ -35,9 +35,9 @@ public:
     const bool LookupLinear(std::span<const uint8_t> Hash) const;
     const bool LookupBinary(std::span<const uint8_t> Hash) const;
     inline const bool Lookup(std::span<const uint8_t> Hash) const { return LookupFast(Hash); }
-    std::optional<size_t> FindFast(std::span<const uint8_t> Hash) const;
     std::optional<size_t> FindLinear(std::span<const uint8_t> Hash) const;
-    std::optional<size_t> Find(std::span<const uint8_t> Hash) const { return FindFast(Hash); }
+    std::optional<size_t> FindBinary(std::span<const uint8_t> Hash) const;
+    std::optional<size_t> Find(std::span<const uint8_t> Hash) const { return FindBinary(Hash); }
     const size_t GetCount(void) const { return m_Data.size() / m_RowWidth; };
     const bool SetBitmaskSize(const size_t BitmaskSize);
     const size_t GetBitmaskSize(void) const { return m_BitmaskSize; };
