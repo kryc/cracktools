@@ -9,6 +9,7 @@
 #ifndef UnsafeBuffer_hpp
 #define UnsafeBuffer_hpp
 
+#include <bit>
 #include <span>
 #include <cstddef>
 #include <cstdint>
@@ -104,7 +105,7 @@ AsWritableChars(
 }
 
 inline static uint32_t
-Uint32FromLittleEndian(
+LoadUint32Native(
     std::span<const uint8_t> Span
 )
 {
@@ -112,13 +113,73 @@ Uint32FromLittleEndian(
     return *(uint32_t*)Span.data();
 }
 
+inline static uint32_t
+LoadUint32LittleEndian(
+    std::span<const uint8_t> Span
+)
+{
+    if (std::endian::native == std::endian::little)
+    {
+        return LoadUint32Native(Span);
+    }
+    else
+    {
+        return std::byteswap(LoadUint32Native(Span));
+    }
+}
+
+inline static uint32_t
+LoadUint32BigEndian(
+    std::span<const uint8_t> Span
+)
+{
+    if (std::endian::native == std::endian::little)
+    {
+        return std::byteswap(LoadUint32Native(Span));
+    }
+    else
+    {
+        return LoadUint32Native(Span);
+    }
+}
+
 inline static uint64_t
-Uint64FromLittleEndian(
+LoadUint64Native(
     std::span<const uint8_t> Span
 )
 {
     CHECKA(Span.size() >= sizeof(uint64_t), "Span size is less than uint64_t");
     return *(uint64_t*)Span.data();
+}
+
+inline static uint64_t
+LoadUint64LittleEndian(
+    std::span<const uint8_t> Span
+)
+{
+    if (std::endian::native == std::endian::little)
+    {
+        return LoadUint64Native(Span);
+    }
+    else
+    {
+        return std::byteswap(LoadUint64Native(Span));
+    }
+}
+
+inline static uint64_t
+LoadUint64BigEndian(
+    std::span<const uint8_t> Span
+)
+{
+    if (std::endian::native == std::endian::little)
+    {
+        return std::byteswap(LoadUint64Native(Span));
+    }
+    else
+    {
+        return LoadUint64Native(Span);
+    }
 }
 
 template <typename T>

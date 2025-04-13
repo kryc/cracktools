@@ -33,7 +33,7 @@ Bitmask(
     const size_t BitmaskSize
 )
 {
-    uint32_t v32 = cracktools::Uint32FromLittleEndian(Value);
+    uint32_t v32 = cracktools::LoadUint32LittleEndian(Value);
 #ifndef __ARM__
     v32 = std::byteswap(v32);
 #endif

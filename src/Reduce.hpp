@@ -20,6 +20,7 @@
 #include <string>
 #include <string_view>
 
+#include "Check.hpp"
 #include "SmallString.hpp"
 #include "UnsafeBuffer.hpp"
 #include "WordGenerator.hpp"
@@ -113,11 +114,24 @@ load_bytes_to_index(
     index_t reduction;
     mpz_import(reduction.get_mpz_t(), m_BytesRequired, 1, sizeof(uint8_t), 0, 0, &hashBuffer[offset]);
 #else
+    // If there are more than 8 bytes available after
+    // the offset then we can optimize the load
     index_t reduction = 0;
-    for (size_t i = 0; i < Length; i++)
+    if (Length <= sizeof(uint64_t) && Buffer.size() >= Offset + sizeof(uint64_t))
     {
-        reduction <<= 8;
-        reduction |= Buffer[Offset + i];
+        reduction = cracktools::LoadUint64BigEndian(
+            Buffer.subspan(Offset, sizeof(uint64_t))
+        );
+        // Shift off the unused bytes
+        reduction >>= (sizeof(uint64_t) - Length) * 8;
+    }
+    else
+    {
+        for (size_t i = 0; i < Length; i++)
+        {
+            reduction <<= 8;
+            reduction |= Buffer[Offset + i];
+        }
     }
 #endif
     return reduction;
