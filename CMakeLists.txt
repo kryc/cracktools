@@ -101,3 +101,15 @@ target_include_directories(simdcrack
                                 ./libdispatchqueue/include/
                         )
 target_link_libraries(simdcrack gmp gmpxx simdhash dispatchqueue)
+
+# Wordgen
+set(WORDGEN_SOURCES
+    src/WordGenerator.cpp
+    src/WordGenMain.cpp
+)
+add_executable(wordgen ${WORDGEN_SOURCES})
+target_include_directories(wordgen
+                            PUBLIC
+                                ./src/
+                        )
+target_link_libraries(wordgen gmp gmpxx)

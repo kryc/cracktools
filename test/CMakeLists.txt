@@ -51,7 +51,20 @@ target_include_directories(hashlist_unittest
 target_link_libraries(hashlist_unittest gtest_main gmp gmpxx)
 add_test(NAME hashlist_unittest COMMAND hashlist_unittest)
 
+
+# WordGenerator unittest
+add_executable(wordgenerator_unittest EXCLUDE_FROM_ALL
+    WordGeneratorTest.cpp
+    ../src/WordGenerator.cpp
+    ../src/Util.cpp)
+target_include_directories(wordgenerator_unittest
+    PUBLIC
+        ./
+        ../src/
+)
+target_link_libraries(wordgenerator_unittest gtest_main gmp gmpxx)
+
 add_custom_target(
     unittests
-    DEPENDS hashlist_unittest
+    DEPENDS hashlist_unittest wordgenerator_unittest
 )
