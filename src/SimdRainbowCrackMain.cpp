@@ -137,6 +137,10 @@ main(
             ARGCHECK();
             rainbow.SetThreads(std::atoi(args[++i].c_str()));;
         }
+        else if (arg == "--decompressed")
+        {
+            rainbow.SetType(TypeUncompressed);
+        }
         else if (arg == "--algorithm")
         {
             ARGCHECK();

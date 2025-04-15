@@ -1,3 +1,5 @@
+#include <iostream>
+#include <limits>
 #include <string>
 
 #include "UnsafeBuffer.hpp"
@@ -29,7 +31,7 @@ int main(
     auto args = cracktools::ParseArgv(argv, argc);
 
     size_t min = 1;
-    size_t max = 9;
+    size_t max = std::numeric_limits<size_t>::max();
     std::string charset = ASCII;
     std::string prefix;
     std::string postfix;
@@ -76,6 +78,19 @@ int main(
 
     // Create a WordGenerator instance
     WordGenerator generator(charset, prefix, postfix);
+
+    // Work out the max length for a uint64 in the given charset
+    if (max == std::numeric_limits<size_t>::max())
+    {
+        for (size_t i = 1; i < 64; i++)
+        {
+            if (WordGenerator::WordLengthIndex(i, charset) > std::numeric_limits<uint64_t>::max())
+            {
+                max = i - 1;
+                break;
+            }
+        }
+    }
 
     if (max <= 9)
     {

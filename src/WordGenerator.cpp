@@ -11,11 +11,13 @@
 #include <iostream>
 #include <cmath>
 #include <span>
+#include <ranges>
 #include <string>
 #include <string_view>
 #include <vector>
 #include <gmpxx.h>
 
+#include "Check.hpp"
 #include "WordGenerator.hpp"
 
 #define D(val) (std::cout << "DBG: " << val << std::endl)
@@ -90,11 +92,12 @@ WordGenerator::GenerateWord(
     std::string_view Charset
 )
 {
-    mpz_class i(Value);
+    mpz_class i(Value + 1);
     mpz_class q,r;
     size_t length = 0;
 
     do {
+        i--;
         mpz_fdiv_qr_ui(i.get_mpz_t(), r.get_mpz_t(), i.get_mpz_t(), Charset.length());
         if (length == Destination.size())
             return (size_t)-1;
@@ -123,11 +126,12 @@ WordGenerator::GenerateWord(
     std::string_view Charset
 )
 {
-    uint64_t r, i = Value;
+    uint64_t r, i = Value + 1;
     size_t length = 0;
     const size_t charsetSize = Charset.size();
 
     do {
+        i--;
         r = i % charsetSize;
         i /= charsetSize;
         Destination[length++] = Charset[r];
@@ -222,12 +226,13 @@ WordGenerator::Parse(
     std::string_view Charset
 )
 {
-    mpz_class num;
-    for (const char& c : Word)
+    mpz_class num = 0;
+    for (const char& c : std::ranges::reverse_view(Word))
     {
-        num = num * Charset.size() + (Charset.find_first_of(c) + 1);
+        num = num * Charset.size() + Charset.find_first_of(c);
+        num++;
     }
-    return num;
+    return num - 1;
 }
 
 /* static */ const mpz_class
@@ -247,12 +252,13 @@ WordGenerator::Parse(
     const std::vector<uint8_t>& LookupTable
 )
 {
-    mpz_class num;
-    for (const char& c : Word)
+    mpz_class num = 0;
+    for (const char& c : std::ranges::reverse_view(Word))
     {
-        num = num * LookupTable[256] + (LookupTable[c] + 1);
+        num = num * LookupTable[256] + LookupTable[c];
+        num++;
     }
-    return num;
+    return num - 1;
 }
 
 /* static */ const mpz_class
@@ -273,11 +279,13 @@ WordGenerator::Parse64(
 )
 {
     uint64_t num = 0;
-    for (const char& c : Word)
+    for (const char& c : std::ranges::reverse_view(Word))
     {
-        num = num * Charset.size() + (Charset.find_first_of(c) + 1);
+        num = num * Charset.size() + Charset.find_first_of(c);
+        num++;
     }
-    return num;
+
+    return num - 1;
 }
 
 /* static */ const uint64_t
@@ -298,11 +306,12 @@ WordGenerator::Parse64(
 )
 {
     uint64_t num = 0;
-    for (const char& c : Word)
+    for (const char& c : std::ranges::reverse_view(Word))
     {
-        num = num * LookupTable[256] + (LookupTable[c] + 1);
+        num = num * LookupTable[256] + LookupTable[c];
+        num++;
     }
-    return num;
+    return num - 1;
 }
 
 /* static */ const uint64_t
