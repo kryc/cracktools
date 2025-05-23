@@ -128,6 +128,8 @@ RainbowTable::InitAndRunBuild(
 
     // Wait on the main thread
     mainDispatcher->Wait();
+
+    std::cout << std::endl;
 }
 
 void
