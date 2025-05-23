@@ -32,6 +32,7 @@ int main(
 
     size_t min = 1;
     size_t max = std::numeric_limits<size_t>::max();
+    std::string restore;
     std::string charset = ASCII;
     std::string prefix;
     std::string postfix;
@@ -48,6 +49,11 @@ int main(
         {
             ARGCHECK();
             max = std::atoi(args[++i].c_str());
+        }
+        else if (arg == "--restore")
+        {
+            ARGCHECK();
+            restore = args[++i];
         }
         else if (arg == "--charset")
         {
@@ -68,6 +74,11 @@ int main(
         {
             ARGCHECK();
             postfix = args[++i];
+        }
+        else if (arg == "--help")
+        {
+            std::cout << HELP_STRING;
+            return 0;
         }
         else
         {
@@ -96,8 +107,21 @@ int main(
     {
         const size_t lowerbound = WordGenerator::WordLengthIndex64(min, charset);
         const size_t upperbound = WordGenerator::WordLengthIndex64(max + 1, charset);
+        size_t startpoint = lowerbound;
 
-        for (size_t i = lowerbound; i < upperbound; i++)
+        // If we have a restore point, use that now
+        if (!restore.empty())
+        {
+            startpoint = WordGenerator::Parse64(restore, charset);
+        }
+
+        if (startpoint > upperbound)
+        {
+            std::cerr << "Restore point is out of range" << std::endl;
+            return 1;
+        }
+
+        for (size_t i = startpoint; i < upperbound; i++)
         {
             std::string word = generator.Generate(i);
             std::cout << word << std::endl;
@@ -105,10 +129,23 @@ int main(
     }
     else
     {
-        mpz_class lowerbound = WordGenerator::WordLengthIndex(min, charset);
-        mpz_class upperbound = WordGenerator::WordLengthIndex(max + 1, charset);
+        const mpz_class lowerbound = WordGenerator::WordLengthIndex(min, charset);
+        const mpz_class upperbound = WordGenerator::WordLengthIndex(max + 1, charset);
+        mpz_class startpoint = lowerbound;
 
-        for (mpz_class i = lowerbound; i < upperbound; i++)
+        // If we have a restore point, use that now
+        if (!restore.empty())
+        {
+            startpoint = WordGenerator::Parse(restore, charset);
+        }
+
+        if (startpoint > upperbound)
+        {
+            std::cerr << "Restore point is out of range" << std::endl;
+            return 1;
+        }
+
+        for (mpz_class i = startpoint; i < upperbound; i++)
         {
             std::string word = generator.Generate(i);
             std::cout << word << std::endl;
