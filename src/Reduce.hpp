@@ -49,6 +49,31 @@ rotr(
     return (Value >> Distance) | (Value << (32 - Distance));
 }
 
+// For a given charset size, calculate the number of bits
+// required to represent the maximum value
+static inline const size_t
+calculate_bits_required(
+    const size_t Value,
+    uint8_t* MaskOut
+)
+{
+    if (Value == 0)
+    {
+        *MaskOut = 0;
+        return 0;
+    }
+
+    // Calculate the number of bits required
+    size_t bitsRequired = std::bit_width(Value);
+
+    // Create the mask
+    uint64_t mask = (1ULL << bitsRequired) - 1;
+
+    DCHECK(bitsRequired <= 8);
+    *MaskOut = static_cast<uint8_t>(mask);
+    return bitsRequired;
+}
+
 static inline void
 calculate_bytes_required(
     const index_t Value,
@@ -86,19 +111,6 @@ calculate_bytes_required(
 
     *BytesRequired = bytesRequired;
     *BitsRequired = bitsRequired;
-}
-
-// Doing a simple modulo on each byte will introduce
-// a modulo bias. We need to calculate the maximum
-// value that a multiple of the number of characters
-// will fit into a single uint8_t
-static inline uint8_t
-calculate_modulo_bias_mask(
-    const size_t CharsetSize
-)
-{
-    size_t maxval = CharsetSize - 1;
-    return floor(pow(2, 8) / (maxval + 1)) * (maxval + 1);
 }
 
 static inline index_t
@@ -208,13 +220,14 @@ protected:
         std::span<char> Destination,
         std::span<uint8_t> Buffer,
         const size_t Offset,
-        const size_t Length,
-        const uint8_t ModMax
+        const size_t Length
     ) const
     {
         // Now read bytes from the remaining input buffer
         size_t bytesWritten = 0;
         const size_t charsetSize = m_Charset.size();
+        uint8_t mask;
+        const size_t bitsRequired = calculate_bits_required(charsetSize, &mask);
         size_t offset = Offset;
         while (bytesWritten < Length)
         {
@@ -224,10 +237,17 @@ protected:
                 offset = 0;
             }
 
-            uint8_t next = Buffer[offset++];
-            if (next < ModMax)
+            uint8_t nextByte = Buffer[offset++];
+            // Repeatedly shift the next byte until it is in range
+            for (size_t i = bitsRequired; i <= 8; i++)
             {
-                Destination[bytesWritten++] = m_Charset[next % charsetSize];
+                uint8_t value = nextByte & mask;
+                if (value < m_Charset.size())
+                {
+                    Destination[bytesWritten++] = m_Charset[value % charsetSize];
+                    break;
+                }
+                nextByte >>= 1;
             }
         }
         return bytesWritten;
@@ -385,8 +405,6 @@ public:
 #ifndef BIGINT
         assert(m_BytesRequired <= sizeof(uint64_t));
 #endif
-
-        m_ModMax = calculate_modulo_bias_mask(m_Charset.size());
     }
 
     size_t Reduce(
@@ -463,8 +481,7 @@ public:
             Destination,
             buffer,
             offset,
-            length,
-            m_ModMax
+            length
         );
     }
 private:
@@ -472,7 +489,6 @@ private:
     size_t m_BytesRequired;
     index_t m_Mask;
     std::array<index_t, kSmallStringMaxLength> m_Limits{};
-    size_t m_ModMax;
 };
 
 class BytewiseReducer final : public Reducer
@@ -485,7 +501,6 @@ public:
     ) : Reducer(Min, Max, Charset)
     {
         assert(Min == Max);
-        m_ModMax = calculate_modulo_bias_mask(m_Charset.size());
     }
     
     size_t Reduce(
@@ -502,12 +517,9 @@ public:
             Destination,
             buffer,
             0,
-            m_Max,
-            m_ModMax
+            m_Max
         );
     };
-private:
-    size_t m_ModMax;
 };
 
 #endif /* Reduce_hpp */

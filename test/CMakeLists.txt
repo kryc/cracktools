@@ -64,7 +64,17 @@ target_include_directories(wordgenerator_unittest
 )
 target_link_libraries(wordgenerator_unittest gtest_main gmp gmpxx)
 
+# Reduce unit test
+add_executable(reduce_unittest EXCLUDE_FROM_ALL
+    ReduceUnittest.cpp)
+target_include_directories(reduce_unittest
+    PUBLIC
+        ./
+        ../src/
+)
+target_link_libraries(reduce_unittest gtest_main)
+
 add_custom_target(
     unittests
-    DEPENDS hashlist_unittest wordgenerator_unittest
+    DEPENDS hashlist_unittest wordgenerator_unittest reduce_unittest
 )
