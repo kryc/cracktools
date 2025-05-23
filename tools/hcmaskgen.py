@@ -7,6 +7,7 @@ import argparse
 import logging
 import re
 import string
+import sys
 
 def get_mask(word: str) -> str:
     """
@@ -65,6 +66,12 @@ def get_masks(wordlist: str, minlen: int = None, maxlen: int = None) -> list:
     masks = sorted(mask_counts.items(), key=lambda x: x[1], reverse=True)
     return masks
 
+def ending_digits(minlen: int, maxlen: int) -> str:
+    '''Generates mask list for characters followed by digits'''
+    for i in range(minlen, maxlen + 1):
+        for y in range(1, i - 1):
+            yield '1' + 'l' * (y - 1) + 'd' * (i - y)
+
 def main():
     parser = argparse.ArgumentParser(description='Generate hashcat masks from wordlist')
     parser.add_argument('wordlist', help='Wordlist file')
@@ -78,21 +85,26 @@ def main():
 
     logging.basicConfig(level=args.loglevel, format='%(levelname)s - %(message)s')
 
+    outstream = open(args.output, 'w', encoding='utf-8') if args.output else sys.stdout
+
+    if args.wordlist == 'appenddigits':
+        if args.minlen is None or args.maxlen is None:
+            parser.error('Minimum and maximum lengths are required for append digit mode')
+        for mask in ending_digits(args.minlen, args.maxlen):
+            formatted = '?' + '?'.join(mask)
+            outstream.write(f'?u?l,{formatted}\n')
+        return
+    
     masks = get_masks(args.wordlist, args.minlen, args.maxlen)
-    if args.output:
-        logging.info(f"Writing masks to {args.output}")
-        with open(args.output, 'w', encoding='utf-8') as output_file:
-            for mask, count in masks:
-                if count < args.mincount:
-                    continue
-                formatted = '?' + '?'.join(mask)
-                if args.output_count:
-                    output_file.write(f'{formatted}:{count}\n')
-                else:
-                    output_file.write(f'{formatted}\n')
-    else:
-        for mask, count in masks:
-            print(f"{''.join(mask)} {count}")
+
+    for mask, count in masks:
+        if count < args.mincount:
+            continue
+        formatted = '?' + '?'.join(mask)
+        if args.output_count:
+            outstream.write(f'{formatted}:{count}\n')
+        else:
+            outstream.write(f'{formatted}\n')
 
 if __name__ == '__main__':
     main()

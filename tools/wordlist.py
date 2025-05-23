@@ -8,7 +8,7 @@ def read(path: str, encoding: str, include_comments: bool=False, verbose: bool=F
     '''Read wordlist file to set'''
     if verbose:
         sys.stderr.write(f'Reading file: {path}\n')
-    with open(path, encoding=encoding) as fh:
+    with open(path, encoding=encoding, errors='ignore') as fh:
         return {word.rstrip('\n') for word in fh if include_comments or not word.startswith('#')}
 
 def reads(paths: list, encoding: str) -> list:

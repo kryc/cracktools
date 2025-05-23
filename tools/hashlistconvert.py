@@ -11,8 +11,13 @@ def main() -> int:
     # Parse the input and output files from the command line arguments
     parser = argparse.ArgumentParser(description='Hash list to binary file converter')
     parser.add_argument('input', help='Input UTF-8 text file')
-    parser.add_argument('output', help='Output flat binary file')
+    parser.add_argument('output', nargs='?', help='Output flat binary file')
     args = parser.parse_args()
+
+    if args.output is None and args.input.endswith('.txt'):
+        args.output = args.input[:-4] + '.bin'
+    elif args.output is None:
+        args.output = args.input + '.bin'
 
     # Open the input and output streams
     with open(args.input, 'rt', encoding='utf8') as fhr:
