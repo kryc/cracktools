@@ -693,7 +693,7 @@ CrackDatabase::OpenDatabaseFilesForLookup(
 
 const bool
 CrackDatabase::CrackFile(
-    const std::string& HashfileInput
+    const std::string_view HashfileInput
 )
 {
     // Open the input file
@@ -754,7 +754,7 @@ CrackDatabase::CrackFile(
 const std::optional<std::string>
 CrackDatabase::Test(
     const HashAlgorithm Algorithm,
-    const std::string& Value
+    const std::string_view Value
 )
 {
     std::vector<uint8_t> digest(GetDigestLength(Algorithm));

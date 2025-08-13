@@ -367,7 +367,7 @@ RainbowTable::SaveBlock(
 
 bool
 RainbowTable::SetType(
-    const std::string Type
+    const std::string_view Type
 )
 {
     if (Type == "compressed")
@@ -862,7 +862,7 @@ RainbowTable::CrackOneWorker(
 
 std::optional<std::string>
 RainbowTable::CrackOne(
-    const std::string& Hash
+    const std::string_view Hash
 )
 {
     if (Hash.size() != m_HashWidth * 2)
@@ -929,7 +929,7 @@ RainbowTable::CrackOne(
 
 std::vector<std::tuple<std::string, std::string>>
 RainbowTable::Crack(
-    std::string& Target
+    const std::string_view Target
 )
 {
     // Mmap the table
@@ -972,7 +972,7 @@ RainbowTable::Crack(
     else if (std::filesystem::exists(Target))
     {
         // Open the input file handle
-        m_HashFileStream = std::ifstream(Target);
+        m_HashFileStream = std::ifstream(std::string(Target));
 
         std::string line;
         while (std::getline(m_HashFileStream, line))

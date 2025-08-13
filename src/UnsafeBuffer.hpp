@@ -216,12 +216,12 @@ SpanCopy(
 
 // A function to parse argv into a vector of strings
 inline static
-const std::vector<std::string> ParseArgv(
+const std::vector<std::string_view> ParseArgv(
     const char* Argv[],
     const int Argc
 )
 {
-    std::vector<std::string> Args;
+    std::vector<std::string_view> Args;
     Args.reserve(Argc);
     for (int i = 0; i < Argc; ++i) {
         Args.emplace_back(Argv[i]);

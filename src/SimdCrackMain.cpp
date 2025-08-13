@@ -22,6 +22,7 @@
 #include "WordGenerator.hpp"
 #include "DispatchQueue.hpp"
 #include "SimdCrack.hpp"
+#include "UnsafeBuffer.hpp"
 
 // Define the help string as a global constant
 const std::string HELP_STRING = R"(
@@ -78,7 +79,7 @@ int main(
 
 	for (int i = 1; i < argc; i++)
 	{
-		std::string& arg = args[i];
+		const std::string_view arg = args[i];
 		if (arg == "--outfile" || arg == "-o")
 		{
 			ARGCHECK();
@@ -87,12 +88,12 @@ int main(
 		else if (arg == "--min")
 		{
 			ARGCHECK();
-			simdcrack.SetMin(atoi(args[++i].c_str()));
+			simdcrack.SetMin(Util::ParseNumber<size_t>(args[++i]));
 		}
 		else if (arg == "--max")
 		{
 			ARGCHECK();
-			simdcrack.SetMax(atoi(args[++i].c_str()));
+			simdcrack.SetMax(Util::ParseNumber<size_t>(args[++i]));
 		}
 		else if (arg == "--resume" || arg == "-r")
 		{
@@ -102,12 +103,12 @@ int main(
 		else if (arg == "--blocksize" || arg == "-b")
 		{
 			ARGCHECK();
-			simdcrack.SetBlocksize(atoll(args[++i].c_str()));
+			simdcrack.SetBlocksize(Util::ParseNumber<size_t>(args[++i]));
 		}
 		else if (arg == "--threads" || arg == "-t")
 		{
 			ARGCHECK();
-			simdcrack.SetThreads(atoll(args[++i].c_str()));
+			simdcrack.SetThreads(Util::ParseNumber<size_t>(args[++i]));
 		}
 		else if (arg == "--prefix" || arg == "-f")
 		{
@@ -132,7 +133,7 @@ int main(
 		else if (arg == "--bitmask")
 		{
 			ARGCHECK();
-			simdcrack.SetBitmaskSize(atoi(args[++i].c_str()));
+			simdcrack.SetBitmaskSize(Util::ParseNumber<size_t>(args[++i]));
 		}
 		else if (arg == "--sha256")
 		{
@@ -153,7 +154,7 @@ int main(
 		else if (arg == "--algorithm")
 		{
 			ARGCHECK();
-			simdcrack.SetAlgorithm(ParseHashAlgorithm(args[++i].c_str()));
+			simdcrack.SetAlgorithm(ParseHashAlgorithm(args[++i].data()));
 		}
 		else if (arg == "--help")
 		{

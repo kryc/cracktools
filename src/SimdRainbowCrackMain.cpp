@@ -13,6 +13,7 @@
 #include "simdhash.h"
 #include "RainbowTable.hpp"
 #include "UnsafeBuffer.hpp"
+#include "Util.hpp"
 
 // Define the help string as a global constant
 const std::string HELP_STRING = R"(
@@ -95,22 +96,22 @@ main(
 
     for (int i = 2; i < argc; i++)
 	{
-		std::string arg = args[i];
+		const std::string_view arg = args[i];
         if (arg == "--min")
         {
             ARGCHECK();
-            rainbow.SetMin(std::atoi(args[++i].c_str()));
+            rainbow.SetMin(Util::ParseNumber<size_t>(args[++i]));
         }
         else if (arg == "--max")
         {
             ARGCHECK();
-            rainbow.SetMax(std::atoi(args[++i].c_str()));
+            rainbow.SetMax(Util::ParseNumber<size_t>(args[++i]));
         }
         else if (arg == "--chars")
         {
             ARGCHECK();
-            rainbow.SetMin(std::atoi(args[++i].c_str()));
-            rainbow.SetMax(std::atoi(args[i].c_str()));
+            rainbow.SetMin(Util::ParseNumber<size_t>(args[++i]));
+            rainbow.SetMax(Util::ParseNumber<size_t>(args[i]));
         }
         else if (arg == "--charset")
         {
@@ -120,22 +121,22 @@ main(
         else if (arg == "--length")
         {
             ARGCHECK();
-            rainbow.SetLength(std::atoi(args[++i].c_str()));
+            rainbow.SetLength(Util::ParseNumber<size_t>(args[++i]));
         }
         else if (arg == "--blocksize")
         {
             ARGCHECK();
-            rainbow.SetBlocksize(std::atoi(args[++i].c_str()));
+            rainbow.SetBlocksize(Util::ParseNumber<size_t>(args[++i]));
         }
         else if (arg == "--count")
         {
             ARGCHECK();
-            rainbow.SetCount(std::atoi(args[++i].c_str()));
+            rainbow.SetCount(Util::ParseNumber<size_t>(args[++i]));
         }
         else if (arg == "--threads")
         {
             ARGCHECK();
-            rainbow.SetThreads(std::atoi(args[++i].c_str()));;
+            rainbow.SetThreads(Util::ParseNumber<size_t>(args[++i]));
         }
         else if (arg == "--decompressed")
         {

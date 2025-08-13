@@ -15,6 +15,8 @@
 #include <mutex>
 #include <optional>
 #include <stdio.h>
+#include <string>
+#include <string_view>
 #include <vector>
 #include <sys/mman.h>
 
@@ -41,16 +43,16 @@ public:
     const bool Build(const std::vector<HashAlgorithm> Types, const std::filesystem::path InputWords);
     const std::optional<std::string> Lookup(const HashAlgorithm Algorithm, const std::vector<uint8_t>& Hash) const;
     const std::optional<std::string> Lookup(const std::vector<uint8_t>& Hash) const;
-    const std::optional<std::string> Lookup(const std::string& Hash) const { return Lookup(Util::ParseHex(Hash)); };
-    const bool CrackFile(const std::string& HashfileInput);
-    const std::optional<std::string> Test(const HashAlgorithm Algorithm, const std::string& Value);
+    const std::optional<std::string> Lookup(const std::string_view Hash) const { return Lookup(Util::ParseHex(Hash)); };
+    const bool CrackFile(const std::string_view HashfileInput);
+    const std::optional<std::string> Test(const HashAlgorithm Algorithm, const std::string_view Value);
     const bool HasAlgorithm(const HashAlgorithm Algorithm) const;
     void DisableFileHandleCache(void) { m_CacheWordFiles = false; };
     void SetMin(const size_t Min) { m_Min = Min; };
     void SetMax(const size_t Max) { m_Max = std::min<size_t>(std::numeric_limits<uint32_t>::max(), Max); };
-    void SetOutput(const std::string& Output) { m_Output = Output; };
-    void SetUncrackable(const std::string& Uncrackable) { m_Uncrackable = Uncrackable; };
-    void SetSeparator(const std::string& Separator) { m_Separator = Separator; };
+    void SetOutput(const std::string_view Output) { m_Output = Output; };
+    void SetUncrackable(const std::string_view Uncrackable) { m_Uncrackable = Uncrackable; };
+    void SetSeparator(const std::string_view Separator) { m_Separator = Separator; };
     void SetPasswordsOnly(const bool PasswordsOnly) { m_PasswordsOnly = PasswordsOnly; };
     void SetHex(const bool Hex) { m_Hex = Hex; };
     void SetThreads(const size_t Threads) { m_Threads = Threads; };

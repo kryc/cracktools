@@ -3,6 +3,7 @@
 #include <string>
 
 #include "UnsafeBuffer.hpp"
+#include "Util.hpp"
 #include "WordGenerator.hpp"
 
 #define ARGCHECK() \
@@ -39,16 +40,16 @@ int main(
 
     for (int i = 1; i < argc; i++)
 	{
-        std::string arg = args[i];
+        const std::string_view arg = args[i];
         if (arg == "--min")
         {
             ARGCHECK();
-            min = std::atoi(args[++i].c_str());
+            min = Util::ParseNumber<size_t>(args[++i]);
         }
         else if (arg == "--max")
         {
             ARGCHECK();
-            max = std::atoi(args[++i].c_str());
+            max = Util::ParseNumber<size_t>(args[++i]);
         }
         else if (arg == "--restore")
         {
@@ -63,7 +64,7 @@ int main(
         else if (arg == "--length")
         {
             ARGCHECK();
-            max = std::atoi(args[++i].c_str());
+            max = Util::ParseNumber<size_t>(args[++i]);
         }
         else if (arg == "--prefix")
         {
@@ -95,7 +96,8 @@ int main(
     {
         for (size_t i = 1; i < 64; i++)
         {
-            if (WordGenerator::WordLengthIndex(i, charset) > std::numeric_limits<uint64_t>::max())
+            const auto wordIndex = WordGenerator::WordLengthIndex64(i, charset);
+            if (wordIndex > std::numeric_limits<uint64_t>::max())
             {
                 max = i - 1;
                 break;

@@ -38,12 +38,12 @@ public:
     void SetAlgorithm(const HashAlgorithm Algo) { m_Algorithm = Algo; m_HashWidth = GetHashWidth(m_Algorithm); }
     void SetThreads(const size_t Threads) { m_Threads = Threads; }
     void SetOutFile(const std::filesystem::path Outfile) { m_Outfile = Outfile; }
-    void SetResume(const std::string& Resume) { m_ResumeString = Resume; }
-    void SetPrefix(const std::string& Prefix) { m_Prefix = Prefix; }
-    void SetPostfix(const std::string& Postfix) { m_Postfix = Postfix; }
-    void SetCharset(const std::string& Charset) { m_Charset = ParseCharset(Charset); }
-    void SetExtra(const std::string& Charset) { m_Charset += ParseCharset(Charset); }
-    void AddTarget(const std::string& Target) { m_Target.push_back(Target); }
+    void SetResume(const std::string_view Resume) { m_ResumeString = Resume; }
+    void SetPrefix(const std::string_view Prefix) { m_Prefix = Prefix; }
+    void SetPostfix(const std::string_view Postfix) { m_Postfix = Postfix; }
+    void SetCharset(const std::string_view Charset) { m_Charset = ParseCharset(Charset); }
+    void SetExtra(const std::string_view Charset) { m_Charset += ParseCharset(Charset); }
+    void AddTarget(const std::string_view Target) { m_Target.push_back(Target); }
     void SetMin(const size_t Min) { m_Min = Min; }
     void SetMax(const size_t Max) { m_Max = Max; }
     void SetSeparator(const char Separator) { m_Separator = Separator; }
@@ -62,7 +62,7 @@ private:
     void ThreadCompleted(const size_t ThreadId);
 
     dispatch::DispatcherPoolPtr m_DispatchPool;
-    std::vector<std::string> m_Target;
+    std::vector<std::string_view> m_Target;
     bool m_Hexlify = true;
     HashList m_HashList;
     WordGenerator m_Generator;
@@ -84,10 +84,10 @@ private:
     std::string m_Outfile;
     std::ofstream m_OutfileStream;
     mpz_class m_Resume;
-    std::string m_Prefix;
-    std::string m_Postfix;
+    std::string_view m_Prefix;
+    std::string_view m_Postfix;
     std::string m_Charset = ASCII;
-    std::string m_ResumeString;
+    std::string_view m_ResumeString;
     size_t m_Min = 1;
     size_t m_Max = MAX_OPTIMIZED_BUFFER_SIZE;
     mpz_class m_Limit;

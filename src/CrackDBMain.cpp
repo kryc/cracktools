@@ -77,13 +77,13 @@ int main(
     auto args = cracktools::ParseArgv(argv, argc);
 
     CrackDatabase db(args[1]);
-    std::vector<std::string> positionals;
+    std::vector<std::string_view> positionals;
     std::vector<HashAlgorithm> hashes;
     bool quiet = false;
 
     for (int i = 2; i < argc; i++)
     {
-        std::string arg = args[i];
+        const std::string_view arg = args[i];
 
         if (arg == "--md5")
         {
@@ -108,12 +108,12 @@ int main(
         else if (arg == "--min")
         {
             ARGCHECK();
-            db.SetMin(atoi(args[++i].c_str()));
+            db.SetMin(Util::ParseNumber<size_t>(args[++i]));
         }
         else if (arg == "--max")
         {
             ARGCHECK();
-            db.SetMax(atoi(args[++i].c_str()));
+            db.SetMax(Util::ParseNumber<size_t>(args[++i]));
         }
         else if (arg == "-o" || arg == "--output" || arg == "--out")
         {
@@ -137,12 +137,12 @@ int main(
         else if (arg == "-t" || arg == "--threads")
         {
             ARGCHECK();
-            db.SetThreads(atoi(args[++i].c_str()));
+            db.SetThreads(Util::ParseNumber<size_t>(args[++i]));
         }
         else if (arg == "-b" || arg == "--blocksize")
         {
             ARGCHECK();
-            db.SetBlockSize(atoi(args[++i].c_str()));
+            db.SetBlockSize(Util::ParseNumber<size_t>(args[++i]));
         }
         else if (arg == "--nohex")
         {
@@ -201,7 +201,7 @@ int main(
         if (std::filesystem::exists(positionals[1]))
         {
             // Read and crack each line
-            std::fstream ifs(positionals[1], std::ios::in);
+            std::fstream ifs(std::string(positionals[1]), std::ios::in);
             
             for(std::string line; getline(ifs, line); )
             {

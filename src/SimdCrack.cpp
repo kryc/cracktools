@@ -123,7 +123,7 @@ SimdCrack::AddHashToList(
 
 bool
 ValidHexHashes(
-    std::vector<std::string> Hashes
+    std::vector<std::string_view> Hashes
 )
 {
     for (auto & hex : Hashes)

@@ -69,7 +69,7 @@ int main(
 
     for (int i = 1; i < argc; i++)
     {
-        std::string arg = args[i];
+        std::string_view arg = args[i];
 
         if (arg == "--out" || arg == "--outfile" || arg == "-o")
         {
@@ -79,17 +79,17 @@ int main(
         else if (arg == "--threads" || arg == "-t")
         {
             ARGCHECK();
-            cracklist.SetThreads(atoi(args[++i].c_str()));
+            cracklist.SetThreads(Util::ParseNumber<size_t>(args[++i]));
         }
         else if (arg == "--blocksize")
         {
             ARGCHECK();
-            cracklist.SetBlockSize(atoi(args[++i].c_str()));
+            cracklist.SetBlockSize(Util::ParseNumber<size_t>(args[++i]));
         }
         else if (arg == "--sha1" || arg == "--ntlm" || arg == "--md5" || arg == "--md4")
         {
-            auto algoStr = arg.substr(2);
-            auto algorithm = ParseHashAlgorithm(algoStr.c_str());
+            auto algoStr = arg.substr(2); // Remove the leading '--'
+            auto algorithm = ParseHashAlgorithm(algoStr.data());
             if (algorithm == HashAlgorithmUndefined)
             {
                 std::cerr << "Unrecognised hash algorithm \"" << algoStr << "\"" << std::endl;
@@ -108,7 +108,7 @@ int main(
         else if (arg == "--bitmask" || arg == "--masksize" || arg == "-m")
         {
             ARGCHECK();
-            cracklist.SetBitmaskSize(atoi(args[++i].c_str()));
+            cracklist.SetBitmaskSize(Util::ParseNumber<size_t>(args[++i]));
         }
         else if (arg == "--autohex" || arg == "-a")
         {
@@ -133,7 +133,7 @@ int main(
         else if (arg == "--terminal-width" || arg == "-w")
         {
             ARGCHECK();
-            cracklist.SetTerminalWidth(atoi(args[++i].c_str()));
+            cracklist.SetTerminalWidth(Util::ParseNumber<size_t>(args[++i]));
         }
         else if (arg == "--help")
         {

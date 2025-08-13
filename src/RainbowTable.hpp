@@ -81,7 +81,7 @@ public:
     bool ValidateConfig(void);
     void SetPath(std::filesystem::path Path) { m_Path = Path; }
     std::filesystem::path GetPath(void) const { return m_Path; }
-    void SetAlgorithm(const std::string& Algorithm) { m_Algorithm = ParseHashAlgorithm(Algorithm.c_str()); }
+    void SetAlgorithm(const std::string_view Algorithm) { m_Algorithm = ParseHashAlgorithm(Algorithm.data()); }
     const std::string GetAlgorithmString(void) const { return HashAlgorithmToString(m_Algorithm); }
     const HashAlgorithm GetAlgorithm(void) const { return m_Algorithm; }
     void SetMin(const size_t Min) { m_Min = Min; }
@@ -96,10 +96,10 @@ public:
     const size_t GetCount(void) const;
     void SetThreads(const size_t Threads) { m_Threads = Threads; }
     const size_t GetThreads(void) const { return m_Threads; }
-    void SetCharset(const std::string Charset) { m_Charset = ParseCharset(Charset); }
+    void SetCharset(const std::string_view Charset) { m_Charset = ParseCharset(Charset); }
     const std::string& GetCharset(void) const { return m_Charset; }
     void SetType(const TableType Type) { m_TableType = Type; }
-    bool SetType(const std::string Type);
+    bool SetType(const std::string_view Type);
     void SetSeparator(const char Separator) { m_Separator = Separator; }
     const char GetSeparator(void) const { return m_Separator; }
     std::string GetType(void) const { return m_TableType == TypeCompressed ? "Compressed" : "Uncompressed";  }
@@ -111,7 +111,7 @@ public:
     bool ValidTable(void) const { return TableExists() && IsTableFile(m_Path); }
     bool LoadTable(void);
     bool Complete(void) const { return m_ThreadsCompleted == m_Threads; }
-    std::vector<std::tuple<std::string, std::string>> Crack(std::string& Target);
+    std::vector<std::tuple<std::string, std::string>> Crack(const std::string_view Target);
     static const size_t ChainWidthForType(const TableType Type, const size_t Max);
     const size_t GetChainWidth(void) const { return ChainWidthForType(m_TableType, m_Max); }
     static void DoHash(const uint8_t* Data, const size_t Length, uint8_t* Digest, const HashAlgorithm Algorithm) { SimdHashSingle(Algorithm, Length, Data, Digest); };
@@ -148,7 +148,7 @@ private:
     void WriteBlock(const size_t BlockId, std::span<const TableRecord> Block);
     void BuildThreadCompleted(const size_t ThreadId);
     // Cracking
-    std::optional<std::string> CrackOne(const std::string& Target);
+    std::optional<std::string> CrackOne(const std::string_view Target);
     void CrackOneWorker(const size_t ThreadId, const std::vector<uint8_t> Target);
     std::optional<std::string> CheckIteration(const HybridReducer& Reducer, const std::span<const uint8_t> Hash, const size_t Iteration) const;
 

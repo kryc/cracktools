@@ -9,12 +9,15 @@
 #ifndef Util_hpp
 #define Util_hpp
 
+#include <charconv>
 #include <vector>
 #include <span>
 #include <string>
 #include <string_view>
 #include <cstdint>
 #include <gmpxx.h>
+
+#include "Check.hpp"
 
 namespace Util
 {
@@ -68,6 +71,22 @@ SizeFactor(
     std::string& HumanFactor
 );
 
+template <typename T>
+const T
+ParseNumber(
+    const std::string_view String
+)
+{
+    T result{};
+    auto success = std::from_chars(
+        String.data(),
+        String.data() + String.size(),
+        result
+    );
+    CHECKA(success.ec == std::errc(), "Failed to parse number from string");
+    return result;
 }
+
+} // namespace Util
 
 #endif /* Util_hpp */

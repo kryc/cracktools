@@ -18,6 +18,7 @@
 #include <queue>
 #include <shared_mutex>
 #include <string>
+#include <string_view>
 #include <tuple>
 
 #include "DispatchQueue.hpp"
@@ -37,11 +38,11 @@ class CrackList
 {
 public:
     CrackList() = default;
-    void SetHashFile(const std::string HashFile) { m_HashFile = HashFile; }
+    void SetHashFile(const std::string_view HashFile) { m_HashFile = HashFile; }
     void SetOutFile(const std::filesystem::path OutFile) { m_OutFile = OutFile; }
-    void SetWordlist(const std::string Wordlist) { m_Wordlist = Wordlist; }
+    void SetWordlist(const std::string_view Wordlist) { m_Wordlist = Wordlist; }
     void SetAlgorithm(const HashAlgorithm Algorithm) { m_Algorithm = Algorithm; }
-    void SetSeparator(const std::string Separator) { m_Separator = Separator; }
+    void SetSeparator(const std::string_view Separator) { m_Separator = Separator; }
     void SetThreads(const size_t Threads) { m_Threads = Threads; }
     void SetBlockSize(const size_t BlockSize) { m_BlockSize = BlockSize; }
     void SetBinary(const bool Binary) { m_HashType = Binary ? InputTypeBinary : InputTypeText; }
