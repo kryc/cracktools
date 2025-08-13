@@ -198,14 +198,14 @@ TEST(WordGenerator, EqualityReversed64) {
     for (size_t i = 0; i < 100; i++) {
         const uint64_t value = i;
         auto word = WordGenerator::GenerateWordReversed(value, LOWER);
-        EXPECT_EQ(value, WordGenerator::ParseReversed(word, LOWER));
-        EXPECT_EQ(value, WordGenerator::ParseReversed(word, lut));
+        EXPECT_EQ(value, WordGenerator::ParseReversed64(word, LOWER));
+        EXPECT_EQ(value, WordGenerator::ParseReversed64(word, lut));
     }
     for (size_t i = 0; i < 5; i++) {
         const uint64_t value = i * 1000;
         auto word = WordGenerator::GenerateWordReversed(value, LOWER);
-        EXPECT_EQ(value, WordGenerator::ParseReversed(word, LOWER));
-        EXPECT_EQ(value, WordGenerator::ParseReversed(word, lut));
+        EXPECT_EQ(value, WordGenerator::ParseReversed64(word, LOWER));
+        EXPECT_EQ(value, WordGenerator::ParseReversed64(word, lut));
     }
 }
 
