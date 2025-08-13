@@ -31,24 +31,6 @@ typedef mpz_class index_t;
 typedef uint64_t index_t;
 #endif
 
-static inline uint32_t
-rotl(
-    const uint32_t Value,
-    const uint8_t Distance
-)
-{
-    return (Value << Distance) | (Value >> (32 - Distance));
-}
-
-static inline uint32_t
-rotr(
-    const uint32_t Value,
-    const uint8_t Distance
-)
-{
-    return (Value >> Distance) | (Value << (32 - Distance));
-}
-
 // For a given charset size, calculate the number of bits
 // required to represent the maximum value
 static inline const size_t
@@ -184,7 +166,7 @@ protected:
     // It replaces the data in a destination buffer. there are two entropy
     // extenstion algirthms. (where n is the length of the buffer in words)
     // 1. EXTEND_SIMPLE:
-    //    out[i] = rotl(out[i - n] ^ out[i - 1]) + out[i - 7]
+    //    out[i] = std::rotl(out[i - n] ^ out[i - 1]) + out[i - 7]
     // 2. EXTEND_SHA256:
     //    s0 = (out[i - n] >> 7) ^ (out[i - n] >> 18) ^ (out[i - n] >> 3)
     //    s1 = (out[i - 2] >> 17) ^ (out[i - 2] >> 19) ^ (out[i - 2] >> 10)
@@ -199,11 +181,11 @@ protected:
             const uint32_t d2 = Buffer[(Buffer.size() - 2 + i) % Buffer.size()];
             const uint32_t d3 = Buffer[(Buffer.size() - 3 + i) % Buffer.size()];
 #ifndef EXTEND_SIMPLE
-            const uint32_t s0 = rotr(d1, 7) ^ rotr(d1, 18) ^ (d1 >> 3);
-            const uint32_t s1 = rotr(d2, 17) ^ rotr(d2, 19) ^ (d2 >> 10);
+            const uint32_t s0 = std::rotr(d1, 7) ^ std::rotr(d1, 18) ^ (d1 >> 3);
+            const uint32_t s1 = std::rotr(d2, 17) ^ std::rotr(d2, 19) ^ (d2 >> 10);
             Buffer[i] = s0 + s1 + d3;
 #else
-            Buffer[i] = rotl(d1 ^ d2, 1) + d3;
+            Buffer[i] = std::rotl(d1 ^ d2, 1) + d3;
 #endif
         }
     }
@@ -425,7 +407,7 @@ public:
         // Copy and mix in the iteration
         for (size_t i = 0; i < hash32.size(); i++)
         {
-            buffer32[i] = hash32[i] ^ rotl(0x5a827999 * Iteration, i);
+            buffer32[i] = hash32[i] ^ std::rotl(0x5a827999 * Iteration, i);
         }
         
         // If we are using variable lengths we use a bigint
