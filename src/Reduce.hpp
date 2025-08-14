@@ -357,7 +357,7 @@ public:
     HybridReducer(
         const size_t Min,
         const size_t Max,
-        const std::string& Charset
+        const std::string_view Charset
     ) : Reducer(Min, Max, Charset)
     {
         index_t total = 0;
@@ -479,7 +479,7 @@ public:
     BytewiseReducer(
         const size_t Min,
         const size_t Max,
-        const std::string& Charset
+        const std::string_view Charset
     ) : Reducer(Min, Max, Charset)
     {
         assert(Min == Max);
