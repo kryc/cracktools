@@ -64,35 +64,22 @@ calculate_bytes_required(
     index_t* Mask
 )
 {
-    // Figure out the smallest number of bits of
-    // input hash data required to represent _Value_
-    size_t bitsoverflow;
-    size_t bitsRequired = 0;
-    size_t bytesRequired = 0;
-
-    bitsRequired = 0;
-    *Mask = 0;
-
-    while (*Mask < Value)
+    const size_t bitsRequired = std::bit_width(Value);
+    const size_t bytesRequired = (bitsRequired + 7) / 8;
+    const index_t mask = (1ULL << bitsRequired) - 1;
+    
+    if (BitsRequired != nullptr)
     {
-        *Mask <<= 1;
-        *Mask |= 0x1;
-        bitsRequired++;
+        *BitsRequired = bitsRequired;
     }
-    // Calculate the number of whole bytes required
-    bytesRequired = bitsRequired / 8;
-    // The number of bits to mask off the most
-    // significant byte
-    bitsoverflow = bitsRequired % 8;
-    // If we overflow an 8-bit boundary then we
-    // need to use an extra byte
-    if (bitsoverflow != 0)
+    if (BytesRequired != nullptr)
     {
-        bytesRequired++;
+        *BytesRequired = bytesRequired;
     }
-
-    *BytesRequired = bytesRequired;
-    *BitsRequired = bitsRequired;
+    if (Mask != nullptr)
+    {
+        *Mask = mask;
+    }
 }
 
 static inline index_t
@@ -350,11 +337,12 @@ protected:
     index_t m_Mask;
 };
 
-class HybridReducer final : public Reducer
+class HybridReducerOld final : public Reducer
 {
     static constexpr size_t kHybridReducerMaxHashSize = 512u / 8u;
+    static constexpr uint64_t kHybridReducerRoundConstant = 0x5a827999;
 public:
-    HybridReducer(
+    HybridReducerOld(
         const size_t Min,
         const size_t Max,
         const std::string_view Charset
@@ -407,7 +395,7 @@ public:
         // Copy and mix in the iteration
         for (size_t i = 0; i < hash32.size(); i++)
         {
-            buffer32[i] = hash32[i] ^ std::rotl(0x5a827999 * Iteration, i);
+            buffer32[i] = hash32[i] ^ std::rotl(kHybridReducerRoundConstant * Iteration, i);
         }
         
         // If we are using variable lengths we use a bigint
@@ -471,6 +459,86 @@ private:
     size_t m_BytesRequired;
     index_t m_Mask;
     std::array<index_t, kSmallStringMaxLength> m_Limits{};
+};
+
+class HybridReducer final : public Reducer
+{
+    static constexpr size_t kHybridReducerMaxHashSize = 512u / 8u;
+    static constexpr uint64_t kHybridReducerRoundConstant = 0x6a09e667f3bcc908;
+public:
+    HybridReducer(
+        const size_t Min,
+        const size_t Max,
+        const std::string_view Charset
+    ) : Reducer(Min, Max, Charset)
+    {
+#ifdef BIGINT
+        const mpz_class lower = WordGenerator::WordLengthIndex(Min, Charset);
+        const mpz_class upper = WordGenerator::WordLengthIndex(Max + 1, Charset);
+#else
+        const uint64_t lower = WordGenerator::WordLengthIndex64(Min, Charset);
+        const uint64_t upper = WordGenerator::WordLengthIndex64(Max + 1, Charset);
+#endif
+        m_KeyspaceSize = upper - lower;
+
+        // We need to calculate the number of bytes required
+        // to represent the largest range of the keyspace
+        calculate_bytes_required(
+            m_KeyspaceSize,
+            &m_BitsRequired,
+            &m_BytesRequired,
+            &m_Mask
+        );
+
+#ifndef BIGINT
+        assert(m_BytesRequired <= sizeof(uint64_t));
+#endif
+    }
+
+    size_t Reduce(
+        std::span<char> Destination,
+        std::span<const uint8_t> Hash,
+        const size_t Iteration
+    ) const override
+    {
+        uint64_t iterationModifier = kHybridReducerRoundConstant * Iteration;
+        size_t roundConstantModifier = 0;
+        
+        // Repeatedly try to load the hash integer until it is in range
+        // we do this to avoid a modulo bias favouring reduction at the bottom
+        // end of the password space
+        size_t offset = 0;
+        index_t reduction = m_KeyspaceSize + 1;
+        while (reduction >= m_KeyspaceSize)
+        {
+            if (offset + m_BytesRequired == Hash.size())
+            {
+                CHECKA(roundConstantModifier < 64, "Exhausted reduction rounds. Unable to reduce hash.");
+                roundConstantModifier++;
+                iterationModifier = std::rotl(iterationModifier, 1);
+                offset = 0;
+            }
+            // Parse the hash as a single integer
+            reduction = load_bytes_to_index(Hash, offset++, m_BytesRequired);
+            reduction ^= iterationModifier;
+            // Apply the mask to ensure it is in range
+            reduction &= m_Mask;
+        }
+
+        // Now just use the reduction to generate the word
+        size_t length = WordGenerator::GenerateWord(
+            Destination,
+            reduction,
+            m_Charset
+        );
+
+        return length;
+    }
+private:
+    index_t m_KeyspaceSize;
+    size_t m_BitsRequired;
+    size_t m_BytesRequired;
+    index_t m_Mask;
 };
 
 class BytewiseReducer final : public Reducer
