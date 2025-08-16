@@ -704,7 +704,7 @@ CrackDatabase::CrackFile(
             std::cerr << "Specified file does not exist" << std::endl;
             return false;
         }
-        m_InputFileStream.open(HashfileInput, std::ios::in);
+        m_InputFileStream.open(std::string(HashfileInput), std::ios::in);
     }
 
     // Open the output file
