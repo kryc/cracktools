@@ -7,6 +7,7 @@
 //
 
 #include <array>
+#include <cctype>
 #include <iomanip>
 #include <span>
 #include <sstream>
@@ -88,6 +89,16 @@ ToHex(
 	);
 }
 
+std::string
+ToHex(
+    std::string_view Value
+)
+{
+	return ToHex(
+		cracktools::AsBytes(Value)
+	);
+}
+
 bool
 IsHex(
 	const std::string_view String
@@ -132,25 +143,173 @@ ToLower(
 	return result;
 }
 
+const bool
+IsHexlified(
+    const std::string_view Value
+)
+{
+	return Value.size() > 6 &&
+		   Value.size() % 2 == 0 &&
+		   Value.starts_with("$HEX[") &&
+		   Value.ends_with("]") &&
+		   IsHex(Value.substr(5, Value.size() - 6));
+}
+
+const bool
+IsPrintableUTF8(
+	std::span<const uint8_t> Value
+)
+{
+    size_t i = 0;
+    while (i < Value.size()) {
+        uint8_t byte = Value[i];
+        uint32_t codepoint = 0;
+        size_t remaining = Value.size() - i;
+
+        if (byte <= 0x7F) {
+            // ASCII
+            codepoint = byte;
+            i += 1;
+        } else if ((byte & 0xE0) == 0xC0 && remaining >= 2) {
+            // 2-byte sequence
+            if ((Value[i + 1] & 0xC0) != 0x80) return false;
+            codepoint = ((byte & 0x1F) << 6) | (Value[i + 1] & 0x3F);
+            if (codepoint < 0x80) return false; // Overlong encoding
+            i += 2;
+        } else if ((byte & 0xF0) == 0xE0 && remaining >= 3) {
+            // 3-byte sequence
+            if ((Value[i + 1] & 0xC0) != 0x80 || (Value[i + 2] & 0xC0) != 0x80) return false;
+            codepoint = ((byte & 0x0F) << 12) |
+                        ((Value[i + 1] & 0x3F) << 6) |
+                        (Value[i + 2] & 0x3F);
+            if (codepoint < 0x800) return false; // Overlong encoding
+            i += 3;
+        } else if ((byte & 0xF8) == 0xF0 && remaining >= 4) {
+            // 4-byte sequence
+            if ((Value[i + 1] & 0xC0) != 0x80 ||
+                (Value[i + 2] & 0xC0) != 0x80 ||
+                (Value[i + 3] & 0xC0) != 0x80) return false;
+            codepoint = ((byte & 0x07) << 18) |
+                        ((Value[i + 1] & 0x3F) << 12) |
+                        ((Value[i + 2] & 0x3F) << 6) |
+                        (Value[i + 3] & 0x3F);
+            if (codepoint < 0x10000 || codepoint > 0x10FFFF) return false; // Overlong or out of range
+            i += 4;
+        } else {
+            return false; // Invalid leading byte
+        }
+
+        // Check if codepoint is printable
+        if ((codepoint >= 0x00 && codepoint <= 0x1F) || // C0 controls
+            (codepoint == 0x7F) ||                      // DEL
+            (codepoint >= 0x80 && codepoint <= 0x9F) || // C1 controls
+            (codepoint >= 0xD800 && codepoint <= 0xDFFF) || // Surrogates
+            (codepoint == 0xFFFE || codepoint == 0xFFFF)) { // Noncharacters
+            return false;
+        }
+    }
+
+    return true;
+}
+
+const bool
+IsPrintableUTF8(
+	std::string_view Value
+)
+{
+	return IsPrintableUTF8(
+		cracktools::AsBytes(Value)
+	);
+}
+
+const bool
+IsPrintableASCII(
+	std::span<const uint8_t> Value
+)
+{
+	for (auto c : Value)
+	{
+		if (c < 0x20 || c > 0x7E)
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
+const bool
+IsPrintableASCII(
+	std::string_view Value
+)
+{
+	return IsPrintableASCII(
+		cracktools::AsBytes(Value)
+	);
+}
+
+const bool
+NeedsHexlify(
+    const std::string_view Value,
+	const char Separator,
+	const bool AlwaysAscii
+)
+{
+	// Check if the string is printable
+	if (AlwaysAscii && !IsPrintableASCII(Value))
+	{
+		return true;
+	}
+	else if (!AlwaysAscii && !IsPrintableUTF8(Value))
+	{
+		return true;
+	}
+
+	// Check if the string contains the separator
+	if (Value.find(Separator) != std::string_view::npos)
+	{
+		return true;
+	}
+
+	// Check if it looks hexlified.
+	// This check is weaker than IsHexlified
+	if (Value.starts_with("$HEX["))
+	{
+		return true;
+	}
+
+	// Check if it ends in whitespace
+	if (!Value.empty() && isspace(Value.back()))
+	{
+		return true;
+	}
+
+	return false;
+}
+
 const std::string
 Hexlify(
     const std::string_view Value
 )
 {
-    bool needshex = false;
-    for (auto c : Value)
+    if (NeedsHexlify(Value))
     {
-        if (c < ' ' || c > '~' || c == ':')
-        {
-            needshex = true;
-            break;
-        }
-    }
-    if (!needshex)
-    {
-        return std::string(Value);
-    }
-    return "$HEX[" + Util::ToHex((const uint8_t*)Value.data(), Value.size()) + "]";
+		return "$HEX[" + Util::ToHex(Value) + "]";
+	}
+	return std::string(Value);
+}
+
+const std::string
+UnHexlify(
+    const std::string_view Value
+)
+{
+	if (IsHexlified(Value))
+	{
+		auto vec = ParseHex(Value.substr(5, Value.size() - 6));
+		auto span = std::span<const uint8_t>(vec);
+		return cracktools::AsString(span);
+	}
+	return std::string(Value);
 }
 
 double

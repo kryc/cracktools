@@ -74,7 +74,28 @@ target_include_directories(reduce_unittest
 )
 target_link_libraries(reduce_unittest gtest_main)
 
+# UnsafeBuffer unit test
+add_executable(unsafebuffer_unittest EXCLUDE_FROM_ALL
+    UnsafeBufferUnittest.cpp)
+target_include_directories(unsafebuffer_unittest
+    PUBLIC
+        ./
+        ../src/
+)
+target_link_libraries(unsafebuffer_unittest gtest_main)
+
+# Util unit test
+add_executable(util_unittest EXCLUDE_FROM_ALL
+    UtilUnittest.cpp
+    ../src/Util.cpp)
+target_include_directories(util_unittest
+    PUBLIC
+        ./
+        ../src/
+)
+target_link_libraries(util_unittest gtest_main gmp gmpxx)
+
 add_custom_target(
     unittests
-    DEPENDS hashlist_unittest wordgenerator_unittest reduce_unittest
+    DEPENDS hashlist_unittest wordgenerator_unittest reduce_unittest unsafebuffer_unittest util_unittest
 )

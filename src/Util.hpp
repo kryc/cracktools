@@ -18,6 +18,7 @@
 #include <gmpxx.h>
 
 #include "Check.hpp"
+#include "UnsafeBuffer.hpp"
 
 namespace Util
 {
@@ -38,6 +39,11 @@ ToHex(
     std::span<const uint8_t> Bytes
 );
 
+std::string
+ToHex(
+    std::string_view Value
+);
+
 bool
 IsHex(
     const std::string_view String
@@ -48,8 +54,45 @@ ToLower(
     const std::string_view String
 );
 
+const bool
+IsHexlified(
+    const std::string_view Value
+);
+
+const bool
+IsPrintableUTF8(
+	std::span<const uint8_t> Value
+);
+
+const bool
+IsPrintableUTF8(
+	std::string_view Value
+);
+
+const bool
+IsPrintableASCII(
+	std::span<const uint8_t> Value
+);
+
+const bool
+IsPrintableASCII(
+	std::string_view Value
+);
+
+const bool
+NeedsHexlify(
+    const std::string_view Value,
+    const char Separator = ':',
+    const bool AlwaysAscii = false
+);
+
 const std::string
 Hexlify(
+    const std::string_view Value
+);
+
+const std::string
+UnHexlify(
     const std::string_view Value
 );
 

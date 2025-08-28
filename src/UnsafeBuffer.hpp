@@ -74,6 +74,16 @@ AsBytes(
     return std::span<T2>((T2*)Span.data(), Span.size_bytes());
 }
 
+template <typename T=const uint8_t>
+inline static
+std::span<T>
+AsBytes(
+    std::string_view String
+)
+{
+    return std::span<T>((T*)String.data(), String.size() * sizeof(std::string_view::value_type));
+}
+
 template <typename T>
 inline static
 std::span<uint8_t>
@@ -102,6 +112,16 @@ AsWritableChars(
 )
 {
     return AsChars<char>(Span);
+}
+
+template <typename T>
+inline static
+std::string
+AsString(
+    std::span<T> Span
+)
+{
+    return std::string((char*)Span.data(), Span.size_bytes());
 }
 
 inline static uint32_t

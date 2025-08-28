@@ -407,11 +407,7 @@ CrackList::ReadBlock(
         }
 
         // Handle parsing "$HEX[]" input.
-        if (m_ParseHexInput && line.starts_with("$HEX[") && line.back() == ']')
-        {
-            auto bytes = Util::ParseHex(line.substr(5, line.size() - 6));
-            line = std::string(bytes.begin(), bytes.end());
-        }
+        line = Util::UnHexlify(line);
 
         m_LastLine = line;
         block.push_back(std::move(line));

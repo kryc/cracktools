@@ -113,3 +113,16 @@ target_include_directories(wordgen
                                 ./src/
                         )
 target_link_libraries(wordgen gmp gmpxx)
+
+# HashPipe
+set(HASHPIPE_SOURCES
+    src/HashPipeMain.cpp
+    src/Util.cpp
+)
+add_executable(hashpipe ${HASHPIPE_SOURCES})
+target_include_directories(hashpipe
+                            PUBLIC
+                                ./src/
+                                ./SimdHash/src/
+                        )
+target_link_libraries(hashpipe simdhash gmp gmpxx)
