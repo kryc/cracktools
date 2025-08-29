@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "SimdHash.hpp"
+#include "SimdHashBuffer.hpp"
 #include "Util.hpp"
 
 #include "UnsafeBuffer.hpp"
@@ -25,6 +26,8 @@
         std::cerr << "No value specified for " << arg << std::endl; \
         return 1; \
     }
+
+constexpr size_t MaxSize = 128;
 
 enum class OutputCase
 {
@@ -70,40 +73,73 @@ void HashPipe(
 
     // Read the input line by line, hash each line with each algorithm, and write the results to the output
     std::string line;
-    std::array<uint8_t, MAX_HASH_SIZE> hash_output;
-    while (std::getline(*input, line))
+
+    const size_t lanes = SimdLanes();
+    
+    SimdHashBufferFixed<MaxSize> words;
+    std::array<uint8_t, MAX_HASH_SIZE * MAX_LANES> hashes;
+    std::span<uint8_t, MAX_HASH_SIZE * MAX_LANES> hashspan(hashes);
+
+    for (;;)
     {
-        // Handle parsing "$HEX[]" input.
-        line = Util::UnHexlify(line);
-        
+        // Read the next block of words
+        size_t count = 0;
+        for (size_t i = 0; 
+            i < lanes && std::getline(*input, line);
+            i++, count++)
+        {
+            // Handle parsing "$HEX[]" input.
+            line = Util::UnHexlify(line);
+            // Ignore lines that are too long
+            if (line.size() > MaxSize)
+            {
+                i--, count--;
+                continue;
+            }
+            // Add them to the simd buffer
+            words.Set(i, line);
+        }
+
+        // If we didn't read any more then exit
+        if (count == 0)
+        {
+            break;
+        }
+
         for (const auto& algo : Algorithms)
         {
+            const size_t hashWidth = GetHashWidth(algo);
+
             // Do the hash
-            SimdHashSingle(
+            SimdHash(
                 algo,
-                line.size(),
-                (const uint8_t*)line.data(),
-                hash_output.data()
+                words.GetLengths(),
+                words.ConstBuffers(),
+                &hashes[0]
             );
 
-            // Get the hash length in bytes
-            const size_t hash_length = GetHashWidth(algo);
-            // Get the subspan for the algorithm
-            std::span<const uint8_t> hash_span(hash_output);
-            hash_span = hash_span.subspan(0, hash_length);
-            // Convert to hex
-            std::string hash_hex = Util::ToHex(hash_span);
-            if (Case != OutputCase::Upper)
+            // Output the hashes in hex
+            for (size_t h = 0; h < count; h++)
             {
-                std::transform(hash_hex.begin(), hash_hex.end(), hash_hex.begin(), ::tolower);
-                *output << hash_hex << std::endl;
+                auto hash = hashspan.subspan(h * hashWidth, hashWidth);
+                // Convert to hex and output
+                std::string hash_hex = Util::ToHex(hash);
+                switch (Case)
+                {
+                    case OutputCase::Lower:
+                        *output << hash_hex << std::endl;
+                        break;
+                    case OutputCase::Upper:
+                        std::transform(hash_hex.begin(), hash_hex.end(), hash_hex.begin(), ::toupper);
+                        *output << hash_hex << std::endl;
+                        break;
+                    case OutputCase::Both:
+                        *output << hash_hex << std::endl;
+                        std::transform(hash_hex.begin(), hash_hex.end(), hash_hex.begin(), ::toupper);
+                        *output << hash_hex << std::endl;
+                        break;
+                }
             }
-            if (Case != OutputCase::Lower)
-            {
-                std::transform(hash_hex.begin(), hash_hex.end(), hash_hex.begin(), ::toupper);
-                *output << hash_hex << std::endl;
-            }
-            
         }
     }
 }
