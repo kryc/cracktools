@@ -23,6 +23,12 @@
 namespace Util
 {
 
+enum class Case
+{
+    Lower,
+    Upper
+};
+
 std::vector<uint8_t>
 ParseHex(
     const std::string_view HexString
@@ -31,17 +37,20 @@ ParseHex(
 std::string
 ToHex(
     const uint8_t* Bytes,
-    const size_t Length
+    const size_t Length,
+    const Case OutputCase = Case::Lower
 );
 
 std::string
 ToHex(
-    std::span<const uint8_t> Bytes
+    std::span<const uint8_t> Bytes,
+    const Case OutputCase = Case::Lower
 );
 
 std::string
 ToHex(
-    std::string_view Value
+    std::string_view Value,
+    const Case OutputCase = Case::Lower
 );
 
 bool

@@ -64,11 +64,16 @@ ParseHex(
 
 std::string
 ToHex(
-	std::span<const uint8_t> Bytes
+	std::span<const uint8_t> Bytes,
+	const Case OutputCase
 )
 {
 	std::ostringstream oss;
 	oss << std::hex << std::setfill('0');
+	if (OutputCase == Case::Upper)
+	{
+		oss << std::uppercase;
+	}
 
 	for (const auto& byte : Bytes)
 	{
@@ -81,21 +86,25 @@ ToHex(
 std::string
 ToHex(
 	const uint8_t* Bytes,
-	const size_t Length
+	const size_t Length,
+	const Case OutputCase
 )
 {
 	return ToHex(
-		cracktools::UnsafeSpan<const uint8_t>(Bytes, Length)
+		cracktools::UnsafeSpan<const uint8_t>(Bytes, Length),
+		OutputCase
 	);
 }
 
 std::string
 ToHex(
-    std::string_view Value
+    std::string_view Value,
+	const Case OutputCase
 )
 {
 	return ToHex(
-		cracktools::AsBytes(Value)
+		cracktools::AsBytes(Value),
+		OutputCase
 	);
 }
 
@@ -204,6 +213,9 @@ IsPrintableUTF8(
             (codepoint == 0x7F) ||                      // DEL
             (codepoint >= 0x80 && codepoint <= 0x9F) || // C1 controls
             (codepoint >= 0xD800 && codepoint <= 0xDFFF) || // Surrogates
+			(codepoint >= 0xE000 && codepoint <= 0xF8FF) ||     // BMP PUA
+			(codepoint >= 0xF0000 && codepoint <= 0xFFFFD) ||   // SPUA-A
+			(codepoint >= 0x100000 && codepoint <= 0x10FFFD) || // SPUA-B
             (codepoint == 0xFFFE || codepoint == 0xFFFF)) { // Noncharacters
             return false;
         }
@@ -293,7 +305,7 @@ Hexlify(
 {
     if (NeedsHexlify(Value))
     {
-		return "$HEX[" + Util::ToHex(Value) + "]";
+		return "$HEX[" + Util::ToHex(Value, Case::Upper) + "]";
 	}
 	return std::string(Value);
 }

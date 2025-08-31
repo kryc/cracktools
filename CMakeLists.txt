@@ -126,3 +126,15 @@ target_include_directories(hashpipe
                                 ./SimdHash/src/
                         )
 target_link_libraries(hashpipe simdhash gmp gmpxx)
+
+# Hexlify
+set(HEXLIFY_SOURCES
+    src/HexlifyMain.cpp
+    src/Util.cpp
+)
+add_executable(hexlify ${HEXLIFY_SOURCES})
+target_include_directories(hexlify
+                            PUBLIC
+                                ./src/
+                        )
+target_link_libraries(hexlify gmp gmpxx)
