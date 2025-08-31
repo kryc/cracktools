@@ -37,65 +37,21 @@ endif()
 set(CMAKE_CXX_FLAGS_RELEASE "-O3 -funroll-loops")
 set(CMAKE_CXX_FLAGS_DEBUG "-g -ggdb -O0 -fno-omit-frame-pointer -fsanitize=address -DDEBUG -DDEBUGINFO")
 
-# Now simply link against gtest or gtest_main as needed. Eg
-add_executable(hashlist_unittest EXCLUDE_FROM_ALL
+# Cracktools unittest
+add_executable(unittest EXCLUDE_FROM_ALL
     HashListUnittest.cpp
+    ReduceUnittest.cpp
+    UnsafeBufferUnittest.cpp
+    UtilUnittest.cpp
+    WordGeneratorTest.cpp
     ../src/HashList.cpp
-    ../src/Util.cpp)
-target_include_directories(hashlist_unittest
+    ../src/Util.cpp
+    ../src/WordGenerator.cpp)
+target_include_directories(unittest
     PUBLIC
         ./
         ../src/
         ../SimdHash/src/
 )
-target_link_libraries(hashlist_unittest gtest_main gmp gmpxx)
-add_test(NAME hashlist_unittest COMMAND hashlist_unittest)
-
-
-# WordGenerator unittest
-add_executable(wordgenerator_unittest EXCLUDE_FROM_ALL
-    WordGeneratorTest.cpp
-    ../src/WordGenerator.cpp
-    ../src/Util.cpp)
-target_include_directories(wordgenerator_unittest
-    PUBLIC
-        ./
-        ../src/
-)
-target_link_libraries(wordgenerator_unittest gtest_main gmp gmpxx)
-
-# Reduce unit test
-add_executable(reduce_unittest EXCLUDE_FROM_ALL
-    ReduceUnittest.cpp)
-target_include_directories(reduce_unittest
-    PUBLIC
-        ./
-        ../src/
-)
-target_link_libraries(reduce_unittest gtest_main)
-
-# UnsafeBuffer unit test
-add_executable(unsafebuffer_unittest EXCLUDE_FROM_ALL
-    UnsafeBufferUnittest.cpp)
-target_include_directories(unsafebuffer_unittest
-    PUBLIC
-        ./
-        ../src/
-)
-target_link_libraries(unsafebuffer_unittest gtest_main)
-
-# Util unit test
-add_executable(util_unittest EXCLUDE_FROM_ALL
-    UtilUnittest.cpp
-    ../src/Util.cpp)
-target_include_directories(util_unittest
-    PUBLIC
-        ./
-        ../src/
-)
-target_link_libraries(util_unittest gtest_main gmp gmpxx)
-
-add_custom_target(
-    unittests
-    DEPENDS hashlist_unittest wordgenerator_unittest reduce_unittest unsafebuffer_unittest util_unittest
-)
+target_link_libraries(unittest gtest_main gmp gmpxx)
+add_test(NAME unittest COMMAND unittest)
