@@ -138,3 +138,15 @@ target_include_directories(hexlify
                                 ./src/
                         )
 target_link_libraries(hexlify gmp gmpxx)
+
+# Hexlify
+set(UNHEXLIFY_SOURCES
+    src/UnhexlifyMain.cpp
+    src/Util.cpp
+)
+add_executable(unhexlify ${UNHEXLIFY_SOURCES})
+target_include_directories(unhexlify
+                            PUBLIC
+                                ./src/
+                        )
+target_link_libraries(unhexlify gmp gmpxx)
