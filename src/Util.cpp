@@ -157,9 +157,10 @@ IsHexlified(
     const std::string_view Value
 )
 {
-	return Value.size() > 6 &&
-		   Value.size() % 2 == 0 &&
-		   Value.starts_with("$HEX[") &&
+	return Value.size() >= 6 &&
+		   (Value.size() & 1) == 0 &&
+		   cracktools::LoadUint32LittleEndian(Value) == 'XEH$' &&
+		   Value[4] == '[' &&
 		   Value.ends_with("]") &&
 		   IsHex(Value.substr(5, Value.size() - 6));
 }

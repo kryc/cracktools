@@ -134,32 +134,43 @@ LoadUint32Native(
 }
 
 inline static uint32_t
+LoadUint32Native(
+    const std::string_view String
+)
+{
+    CHECKA(String.size() >= sizeof(uint32_t), "String size is less than uint32_t");
+    return *(uint32_t*)String.data();
+}
+
+template <typename T>
+inline static uint32_t
 LoadUint32LittleEndian(
-    std::span<const uint8_t> Span
+    T Value
 )
 {
     if (std::endian::native == std::endian::little)
     {
-        return LoadUint32Native(Span);
+        return LoadUint32Native(Value);
     }
     else
     {
-        return std::byteswap(LoadUint32Native(Span));
+        return std::byteswap(LoadUint32Native(Value));
     }
 }
 
+template <typename T>
 inline static uint32_t
 LoadUint32BigEndian(
-    std::span<const uint8_t> Span
+    T Value
 )
 {
     if (std::endian::native == std::endian::little)
     {
-        return std::byteswap(LoadUint32Native(Span));
+        return std::byteswap(LoadUint32Native(Value));
     }
     else
     {
-        return LoadUint32Native(Span);
+        return LoadUint32Native(Value);
     }
 }
 
@@ -173,32 +184,43 @@ LoadUint64Native(
 }
 
 inline static uint64_t
+LoadUint64Native(
+    const std::string_view String
+)
+{
+    CHECKA(String.size() >= sizeof(uint64_t), "String size is less than uint64_t");
+    return *(uint64_t*)String.data();
+}
+
+template <typename T>
+inline static uint64_t
 LoadUint64LittleEndian(
-    std::span<const uint8_t> Span
+    T Value
 )
 {
     if (std::endian::native == std::endian::little)
     {
-        return LoadUint64Native(Span);
+        return LoadUint64Native(Value);
     }
     else
     {
-        return std::byteswap(LoadUint64Native(Span));
+        return std::byteswap(LoadUint64Native(Value));
     }
 }
 
+template <typename T>
 inline static uint64_t
 LoadUint64BigEndian(
-    std::span<const uint8_t> Span
+    T Value
 )
 {
     if (std::endian::native == std::endian::little)
     {
-        return std::byteswap(LoadUint64Native(Span));
+        return std::byteswap(LoadUint64Native(Value));
     }
     else
     {
-        return LoadUint64Native(Span);
+        return LoadUint64Native(Value);
     }
 }
 

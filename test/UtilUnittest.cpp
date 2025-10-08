@@ -29,6 +29,16 @@ TEST(Util, Hexlify)
     EXPECT_EQ(Util::Hexlify("NonPrintable\x01"), "$HEX[4E6F6E5072696E7461626C6501]");
 }
 
+TEST(Util, IsHexlified)
+{
+    EXPECT_TRUE(Util::IsHexlified("$HEX[48656C6C6F2C20576F726C6421]"));
+    EXPECT_TRUE(Util::IsHexlified("$HEX[]"));
+    EXPECT_FALSE(Util::IsHexlified("$HEX["));
+    EXPECT_FALSE(Util::IsHexlified("$HEX010203]"));
+    EXPECT_FALSE(Util::IsHexlified("$HEX[ZZZ]"));
+    EXPECT_FALSE(Util::IsHexlified("Hello, World!"));
+}
+
 TEST(Util, UnHexlify)
 {
     EXPECT_EQ(Util::UnHexlify("$HEX[48656C6C6F2C20576F726C6421]"), "Hello, World!");

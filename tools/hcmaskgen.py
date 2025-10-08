@@ -27,11 +27,20 @@ def get_mask(word: str) -> str:
             return None
     return tuple(mask)
 
-def is_ascii_printable(value: str) -> bool:
-    """
-    Check if a string is ASCII printable.
-    """
-    return all(c in string.printable for c in value)
+def unhex(line: str) -> str:
+    """Convert $HEX[] formatted strings to their ASCII representation."""
+    if line.startswith('$HEX[') and \
+        line.endswith(']') and \
+        len(line) > 6 and \
+        len(line) % 2 == 0 and \
+        all(c in string.hexdigits for c in line[5:-1]):
+        hex_str = line[5:-1]
+        try:
+            bytes_obj = bytes.fromhex(hex_str)
+            return bytes_obj.decode('utf-8')
+        except (ValueError, UnicodeDecodeError):
+            return None
+    return line
 
 def get_masks(wordlist: str, minlen: int = None, maxlen: int = None) -> list:
     masks = set()
@@ -40,8 +49,17 @@ def get_masks(wordlist: str, minlen: int = None, maxlen: int = None) -> list:
     logging.info(f"Analyzing wordlist: {wordlist}")
     with open(wordlist, 'r', encoding='utf-8', errors='ignore') as fh:
         for line in fh:
-            line = line.rstrip('\r\n')
-            if not is_ascii_printable(line):
+            line = line.rstrip('\n')
+            if not line:
+                skipped += 1
+                continue
+            # Unhexify if $HEX[] formatted
+            line = unhex(line)
+            if line is None:
+                invalid += 1
+                continue
+            # Skip non-ascii printable lines
+            if not all(c in string.printable for c in line):
                 skipped += 1
                 continue
             if minlen and len(line) < minlen:
