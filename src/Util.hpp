@@ -105,6 +105,11 @@ UnHexlify(
     const std::string_view Value
 );
 
+const bool
+MaybeUnHexlifyInPlace(
+	std::string& Value
+);
+
 double
 NumFactor(
     const double Value,

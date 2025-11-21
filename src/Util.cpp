@@ -306,7 +306,7 @@ Hexlify(
 {
     if (NeedsHexlify(Value))
     {
-		return "$HEX[" + Util::ToHex(Value, Case::Upper) + "]";
+		return "$HEX[" + Util::ToHex(Value, Case::Lower) + "]";
 	}
 	return std::string(Value);
 }
@@ -323,6 +323,20 @@ UnHexlify(
 		return cracktools::AsString(span);
 	}
 	return std::string(Value);
+}
+
+const bool
+MaybeUnHexlifyInPlace(
+	std::string& Value
+)
+{
+	if (IsHexlified(Value))
+	{
+		auto vec = ParseHex(Value.substr(5, Value.size() - 6));
+		Value = cracktools::AsStringView(vec);
+		return true;
+	}
+	return false;
 }
 
 double

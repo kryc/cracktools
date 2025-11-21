@@ -118,9 +118,9 @@ int main(
         {
             cracklist.DisableAutohex();
         }
-        else if (arg == "--parse-hex" || arg == "-p")
+        else if (arg == "--ignore-hex" || arg == "-p")
         {
-            cracklist.SetParseHexInput(true);
+            cracklist.SetParseHexInput(false);
         }
         else if (arg == "--text" || arg == "-T")
         {

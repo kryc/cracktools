@@ -55,6 +55,15 @@ CrackList::CrackLinear(
             continue;
         }
 
+        // Check if we need to unhexlify the input
+        if (m_ParseHexInput)
+        {
+            for (auto& word : block)
+            {
+                Util::MaybeUnHexlifyInPlace(word);
+            }
+        }
+
         for (size_t i = 0; i < block.size(); i+=lanes)
         {
             const size_t remaining = std::min(lanes, block.size() - i);
@@ -289,6 +298,15 @@ CrackList::CrackWorker(
     std::array<uint8_t, MAX_HASH_SIZE * MAX_LANES> hashes;
     std::span<uint8_t, MAX_HASH_SIZE * MAX_LANES> hashspan(hashes);
 
+    // Check if we need to unhexlify input
+    if (m_ParseHexInput)
+    {
+        for (auto& word : block)
+        {
+            Util::MaybeUnHexlifyInPlace(word);
+        }
+    }
+
     for (size_t i = 0; i < block.size(); i+=lanes)
     {
         const size_t remaining = std::min(lanes, block.size() - i);
@@ -405,9 +423,6 @@ CrackList::ReadBlock(
         {
             continue;
         }
-
-        // Handle parsing "$HEX[]" input.
-        line = Util::UnHexlify(line);
 
         m_LastLine = line;
         block.push_back(std::move(line));

@@ -114,6 +114,24 @@ AsWritableChars(
     return AsChars<char>(Span);
 }
 
+inline static
+std::string_view
+AsStringView(
+    std::span<const char> Span
+)
+{
+    return std::string_view(Span.data(), Span.size());
+}
+
+inline static
+std::string_view
+AsStringView(
+    std::span<const uint8_t> Span
+)
+{
+    return std::string_view((const char*)Span.data(), Span.size());
+}
+
 template <typename T>
 inline static
 std::string

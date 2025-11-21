@@ -94,7 +94,7 @@ private:
     std::atomic<size_t> m_WordsProcessed = 0;
     std::atomic<size_t> m_BlocksProcessed = 0;
     size_t m_Cracked = 0;
-    bool m_ParseHexInput = false;
+    bool m_ParseHexInput = true;
     size_t m_TerminalWidth = 80;
     bool m_LinkedIn = false;
     // Threading
