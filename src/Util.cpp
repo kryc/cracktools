@@ -23,14 +23,15 @@ namespace Util
 
 std::vector<uint8_t>
 ParseHex(
-	const std::string_view HexString
+	const std::string_view HexString,
+	const size_t MaxBytes
 )
 {
 	std::vector<uint8_t> vec;
 	bool doingUpper = true;
 	uint8_t next = 0;
 	
-	for (size_t i = 0; i < HexString.size(); i ++)
+	for (size_t i = 0; i < HexString.size() && vec.size() < MaxBytes; i ++)
 	{
 		if (HexString[i] >= 0x30 && HexString[i] <= 0x39)
 		{

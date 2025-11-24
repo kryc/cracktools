@@ -242,6 +242,56 @@ LoadUint64BigEndian(
     }
 }
 
+inline static __uint128_t
+LoadUint128Native(
+    std::span<const uint8_t> Span
+)
+{
+    CHECKA(Span.size() >= sizeof(__uint128_t), "Span size is less than uint128_t");
+    return *(__uint128_t*)Span.data();
+}
+
+inline static __uint128_t
+LoadUint128Native(
+    const std::string_view String
+)
+{
+    CHECKA(String.size() >= sizeof(__uint128_t), "String size is less than uint128_t");
+    return *(__uint128_t*)String.data();
+}
+
+template <typename T>
+inline static __uint128_t
+LoadUint128LittleEndian(
+    T Value
+)
+{
+    if (std::endian::native == std::endian::little)
+    {
+        return LoadUint128Native(Value);
+    }
+    else
+    {
+        return std::byteswap(LoadUint128Native(Value));
+    }
+}
+
+template <typename T>
+inline static __uint128_t
+LoadUint128BigEndian(
+    T Value
+)
+{
+    if (std::endian::native == std::endian::little)
+    {
+        return std::byteswap(LoadUint128Native(Value));
+    }
+    else
+    {
+        return LoadUint128Native(Value);
+    }
+}
+
 template <typename T>
 inline static void
 SpanCopy(

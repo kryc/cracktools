@@ -150,3 +150,15 @@ target_include_directories(unhexlify
                                 ./src/
                         )
 target_link_libraries(unhexlify gmp gmpxx)
+
+# RemoveCracked
+set(REMOVECRACKED_SOURCES
+    src/RemoveCrackedMain.cpp
+    src/Util.cpp
+)
+add_executable(removecracked ${REMOVECRACKED_SOURCES})
+target_include_directories(removecracked
+                            PUBLIC
+                                ./src/
+                        )
+target_link_libraries(removecracked gmp gmpxx)

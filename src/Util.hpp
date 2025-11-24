@@ -29,9 +29,12 @@ enum class Case
     Upper
 };
 
+constexpr size_t MAX = std::numeric_limits<size_t>::max();
+
 std::vector<uint8_t>
 ParseHex(
-    const std::string_view HexString
+    const std::string_view HexString,
+    const size_t MaxBytes = MAX
 );
 
 std::string
