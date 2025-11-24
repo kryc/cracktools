@@ -23,32 +23,6 @@
         return 1; \
     }
 
-inline static uint64_t
-GetSignatureInlineFast(
-    const std::string_view HashString
-)
-{
-    uint64_t Signature = 0;
-    for (size_t i = 0; i < sizeof(Signature) * 2; i++)
-    {
-        uint8_t value;
-        char c = HashString[i];
-        if (c <= '9') {
-            value = c - '0';
-        }
-        else if (c <= 'f')
-        {
-            value = c - 'a' + 10;
-        }
-        else
-        {
-            value = c - 'A' + 10;
-        }
-        Signature = (Signature << 4) | (value & 0xF);
-    }
-    return Signature;
-}
-
 void
 RemoveCracked(
     const std::string_view InputHashesFile,
@@ -57,67 +31,12 @@ RemoveCracked(
     const std::string_view UncrackedOutputFile
 )
 {
-    std::unordered_map<uint64_t, std::string_view> crackedMap;
-    
-    auto mapping = cracktools::MmapFileSpan<const uint8_t>(
-        InputCrackedFile.data(),
-        PROT_READ,
-        MAP_SHARED,
-        false
-    );
-    if (!mapping.has_value())
+    std::ifstream crackedFile(InputCrackedFile.data(), std::ios::in);
+    if (!crackedFile.is_open())
     {
-        std::cerr << "Error memory-mapping input file: " << InputCrackedFile << std::endl;
+        std::cerr << "Error opening input file: " << InputCrackedFile << std::endl;
         return;
-    }
-    auto [span, fd] = mapping.value();
-    // Reserve some space in the map
-    // Sha1 hash size is 40 characters, plus average length pwd is ~8, plus colon and newline
-    crackedMap.reserve(span.size() / (40 + 8 + 2)); 
-
-    // Convert the span to a string view
-    std::string_view fileView = cracktools::AsStringView(span);
-    size_t line_start = 0;
-    for (;;)
-    {
-        size_t line_end = fileView.find('\n', line_start);
-        // If the line end is npos, we have one last line or are done
-        if (line_end == std::string_view::npos)
-        {
-            line_end = fileView.size();
-        }
-        if (line_end == line_start)
-        {
-            break;
-        }
-        std::string_view lineView = fileView.substr(line_start, line_end - line_start);
-        size_t pos = lineView.find(':');
-        if (pos == std::string_view::npos)
-        {
-            std::cerr << "Invalid line in cracked file (no colon): " << lineView << std::endl;
-            continue;
-        }
-
-        std::string_view hashPart = lineView.substr(0, pos);
-        std::string_view passwordPart = lineView.substr(pos + 1);
-        uint64_t key = GetSignatureInlineFast(hashPart);
-        crackedMap[key] = passwordPart;
-
-        if (crackedMap.size() % 100000 == 0)
-        {
-            std::cout << "\rLoaded " << crackedMap.size()/1000 << "k cracked hashes." << std::flush;
-        }
-        
-        // Update line start for next iteration
-        line_start = line_end + 1;
-        if (line_start >= fileView.size())
-        {
-            break;
-        }
-    }
-
-    std::cout << "Loaded total " << crackedMap.size() << " cracked hashes." << std::endl;
-    
+    }   
     // Read the hashes file line by line and separate cracked and uncracked
     std::ifstream hashesFile(InputHashesFile.data(), std::ios::in);
     if (!hashesFile.is_open())
@@ -142,42 +61,136 @@ RemoveCracked(
     size_t totalHashes = 0;
     size_t crackedCount = 0;
     size_t uncrackedCount = 0;
+    size_t missingCount = 0;
 
-    std::string line;
-    for(; std::getline(hashesFile, line); )
+    // Loop through the hashes file and see if it matches the next line
+    // of the cracked file
+    std::string crackedLine;
+    std::string hashLine;
+
+    // Prime the cracked file
+    bool haveCracked = static_cast<bool>(std::getline(crackedFile, crackedLine));
+    std::string_view crackedLineView;
+    std::string_view crackedHashPart;
+    std::string_view crackedPasswordPart;
+
+    if (haveCracked)
     {
-        std::string_view lineView(line);
-        if (lineView.size() != sizeof(uint64_t) * 2)
+        crackedLineView = crackedLine;
+        size_t crackedPos = crackedLineView.find(':');
+        if (crackedPos == std::string_view::npos)
         {
-            uncrackedOutFile << line << std::endl;
+            std::cerr << "Malformed cracked line: " << crackedLine << std::endl;
+            return;
+        }
+        crackedHashPart = crackedLineView.substr(0, crackedPos);
+        crackedPasswordPart = crackedLineView.substr(crackedPos + 1);
+    }
+
+    while (std::getline(hashesFile, hashLine))
+    {
+        totalHashes++;
+        std::string_view hashLineView = hashLine;
+
+        // If there are no cracked lines left, everything else is uncracked
+        if (!haveCracked)
+        {
+            uncrackedOutFile << hashLineView << std::endl;
             uncrackedCount++;
             continue;
         }
-        uint64_t key = GetSignatureInlineFast(lineView);
-        auto it = crackedMap.find(key);
-        if (it != crackedMap.end())
+
+        int cmp = hashLineView.compare(crackedHashPart); // all hashes same length
+
+        if (cmp > 0)
         {
-            crackedOutFile << line << ":" << it->second << std::endl;
+            // Advance the cracked file until we find a match or surpass the hash
+            while (cmp > 0 && haveCracked)
+            {
+                missingCount++;
+                if (std::getline(crackedFile, crackedLine))
+                {
+                    crackedLineView = crackedLine;
+                    size_t crackedPos = crackedLineView.find(':');
+                    if (crackedPos == std::string_view::npos)
+                    {
+                        std::cerr << "Malformed cracked line: " << crackedLine << std::endl;
+                        return;
+                    }
+                    crackedHashPart = crackedLineView.substr(0, crackedPos);
+                    crackedPasswordPart = crackedLineView.substr(crackedPos + 1);
+                    cmp = hashLineView.compare(crackedHashPart);
+                }
+                else
+                {
+                    haveCracked = false;
+                }
+            }
+
+            if (!haveCracked)
+            {
+                // No more cracked lines; current and remaining hashes are uncracked
+                uncrackedOutFile << hashLineView << std::endl;
+                uncrackedCount++;
+                continue;
+            }
+        }
+
+        if (cmp == 0)
+        {
+            // Cracked
+            crackedOutFile << crackedHashPart << ":" << crackedPasswordPart << std::endl;
             crackedCount++;
+
+            // Move to next cracked line for next iteration
+            if (std::getline(crackedFile, crackedLine))
+            {
+                crackedLineView = crackedLine;
+                size_t crackedPos = crackedLineView.find(':');
+                if (crackedPos == std::string_view::npos)
+                {
+                    std::cerr << "Malformed cracked line: " << crackedLine << std::endl;
+                    return;
+                }
+                crackedHashPart = crackedLineView.substr(0, crackedPos);
+                crackedPasswordPart = crackedLineView.substr(crackedPos + 1);
+            }
+            else
+            {
+                haveCracked = false;
+            }
+        }
+        else if (cmp < 0)
+        {
+            // Uncracked
+            uncrackedOutFile << hashLineView << std::endl;
+            uncrackedCount++;
         }
         else
         {
-            uncrackedOutFile << line << std::endl;
-            uncrackedCount++;
+            std::cerr << "Logic error in hash comparison" << std::endl;
         }
-        totalHashes++;
-        if (totalHashes % 100000 == 0)
+
+        if (totalHashes % 1000 == 0)
         {
-            std::cout << "\rH:" << totalHashes/1000 << "k C:" << crackedCount << " U:" << uncrackedCount << std::flush;
+            std::cout << "\rH: " << totalHashes
+                    << " C: " << crackedCount
+                    << " U: " << uncrackedCount
+                    << " M: " << missingCount
+                    << std::flush;
         }
     }
-    
-    std::cout << std::endl;
 
+    std::cout << std::endl;
+    
+    crackedFile.close();
     hashesFile.close();
     crackedOutFile.close();
     uncrackedOutFile.close();
-    cracktools::UnmapFileSpan<const uint8_t>(span, fd);
+
+    std::cout << "Total hashes processed: " << totalHashes << std::endl;
+    std::cout << "Cracked hashes: " << crackedCount << std::endl;
+    std::cout << "Uncracked hashes: " << uncrackedCount << std::endl;
 }
 
 int main(
