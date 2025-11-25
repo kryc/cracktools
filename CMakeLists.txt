@@ -162,3 +162,16 @@ target_include_directories(removecracked
                                 ./src/
                         )
 target_link_libraries(removecracked gmp gmpxx)
+
+# CheckCracked
+set(CHECKCRACKED_SOURCES
+    src/CheckCrackedMain.cpp
+    src/Util.cpp
+)
+add_executable(checkcracked ${CHECKCRACKED_SOURCES})
+target_include_directories(checkcracked
+                            PUBLIC
+                                ./src/
+                                ./SimdHash/src/
+                        )
+target_link_libraries(checkcracked simdhash gmp gmpxx)
