@@ -61,11 +61,7 @@ Unhexlify(
     while (std::getline(*input, line))
     {
         // If it is already a strictly valid $HEX[] line then pass through
-        if (Util::IsHexlified(line))
-        {
-            *output << Util::UnHexlify(line) << std::endl;
-            continue;
-        }
+        Util::MaybeUnHexlifyInPlace(line);
         *output << line << std::endl;
     }
 }

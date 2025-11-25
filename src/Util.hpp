@@ -37,6 +37,12 @@ ParseHex(
     const size_t MaxBytes = MAX
 );
 
+const size_t
+ParseHexInplace(
+	std::span<char> HexString,
+	const size_t MaxBytes = MAX
+);
+
 std::string
 ToHex(
     const uint8_t* Bytes,

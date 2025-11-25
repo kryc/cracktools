@@ -21,6 +21,25 @@
 namespace Util
 {
 
+static const int8_t HEX_LOOKUP[256] = {
+	/* 0x00-0x0f*/ -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+	/* 0x10-0x1f*/ -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+	/* 0x20-0x2f*/ -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+	/* 0x30-0x3f*/  0,  1,  2,  3,  4,  5,  6,  7,  8,  9, -1, -1, -1, -1, -1, -1,
+	/* 0x40-0x4f*/ -1, 10, 11, 12, 13, 14, 15, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+	/* 0x50-0x5f*/ -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+	/* 0x60-0x6f*/ -1, 10, 11, 12, 13, 14, 15, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+	/* 0x70-0x7f*/ -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+	/* 0x80-0x8f*/ -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+	/* 0x90-0x9f*/ -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+	/* 0xa0-0xaf*/ -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+	/* 0xb0-0xbf*/ -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+	/* 0xc0-0xcf*/ -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+	/* 0xd0-0xdf*/ -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+	/* 0xe0-0xef*/ -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+	/* 0xf0-0xff*/ -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1
+};
+
 std::vector<uint8_t>
 ParseHex(
 	const std::string_view HexString,
@@ -28,39 +47,47 @@ ParseHex(
 )
 {
 	std::vector<uint8_t> vec;
-	bool doingUpper = true;
-	uint8_t next = 0;
+
+	vec.reserve((HexString.size() + 1) / 2);
 	
-	for (size_t i = 0; i < HexString.size() && vec.size() < MaxBytes; i ++)
+	for (size_t i = 0; i < HexString.size() && vec.size() < MaxBytes; i+=2)
 	{
-		if (HexString[i] >= 0x30 && HexString[i] <= 0x39)
+		uint8_t upper = HEX_LOOKUP[(uint8_t)HexString[i]];
+		uint8_t lower = HEX_LOOKUP[(uint8_t)HexString[i + 1]];
+		if (upper == (uint8_t)-1 || lower == (uint8_t)-1)
 		{
-			next |= HexString[i] - 0x30;
+			DCHECKA(upper != -1 && lower != -1, "Invalid hex character encountered");
+			continue;
 		}
-		else if (HexString[i] >= 0x41 && HexString[i] <= 0x46)
-		{
-			next |= HexString[i] - 0x41 + 10;
-		}
-		else if (HexString[i] >= 0x61 && HexString[i] <= 0x66)
-		{
-			next |= HexString[i] - 0x61 + 10;
-		}
-		
-		if ((HexString.size() % 2 == 1 && i == 0) ||
-			doingUpper == false)
-		{
-			vec.push_back(next);
-			next = 0;
-			doingUpper = true;
-		}
-		else if (doingUpper)
-		{
-			next <<= 4;
-			doingUpper = false;
-		}
+		uint8_t next = (upper << 4) | lower;
+		vec.push_back(next);
 	}
 	
 	return vec;
+}
+
+const size_t
+ParseHexInplace(
+	std::span<char> HexString,
+	const size_t MaxBytes
+)
+{
+	CHECKA(HexString.size() % 2 == 0, "Hex string must have even length");
+	size_t length = 0;
+	
+	for (size_t i = 0; i < HexString.size() && i/2 < MaxBytes; i+=2)
+	{
+		uint8_t upper = HEX_LOOKUP[(uint8_t)HexString[i]];
+		uint8_t lower = HEX_LOOKUP[(uint8_t)HexString[i + 1]];
+		if (upper == (uint8_t)-1 || lower == (uint8_t)-1)
+		{
+			DCHECKA(upper != (uint8_t)-1 && lower != (uint8_t)-1, "Invalid hex character encountered");
+			continue;
+		}
+		uint8_t next = (upper << 4) | lower;
+		HexString[length++] = static_cast<char>(next);
+	}
+	return length;
 }
 
 std::string
