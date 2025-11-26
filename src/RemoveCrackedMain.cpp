@@ -100,6 +100,13 @@ RemoveCracked(
             continue;
         }
 
+        // The line may contain a hash and a count in the format hash:count
+        size_t colonPos = hashLineView.find(':');
+        if (colonPos != std::string_view::npos)
+        {
+            hashLineView = hashLineView.substr(0, colonPos);
+        }
+
         int cmp = hashLineView.compare(crackedHashPart); // all hashes same length
 
         if (cmp > 0)
