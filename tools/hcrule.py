@@ -5,6 +5,7 @@ A python script to parse hashcat rule files.
 
 import argparse
 import logging
+import os
 
 HASHCAT_RULES = {
     ':': ('Passthrough', 0),
@@ -71,29 +72,6 @@ HASHCAT_RULES = {
     '3': ('Toggle w/Nth separator', 2),
 }
 
-# Rules that operate on the Nth instance position code 'p'.
-# These are syntactically distinct in hashcat (e.g. "Tp", "Dp", "xpM").
-# For now we only record the operator and the number of following parameters
-# after the 'p' designator; the higher-level logic (finding the p-position)
-# is handled separately.
-HASHCAT_P_RULES = {
-    'T': ('Toggle @ p', 0),
-    'D': ('Delete @ p', 0),
-    'x': ('Extract range @ p', 1),  # xpM : one extra length parameter M
-    'O': ('Omit range @ p', 1),     # OpM : one extra length parameter M
-    'i': ('Insert @ p', 1),         # ipX : one extra char X
-    'o': ('Overwrite @ p', 1),      # opX : one extra char X
-    "'": ('Truncate @ p', 0),
-    'X': ('Extract memory @ p', 2), # XpMI : length M and memory index I
-    '*': ('Swap @ p', 1),           # *pM : swap p with position M
-    'L': ('Bitwise shift left @ p', 0),
-    'R': ('Bitwise shift right @ p', 0),
-    '+': ('ASCII increment @ p', 0),
-    '-': ('ASCII decrement @ p', 0),
-    '.': ('Replace p + 1', 0),
-    ',': ('Replace p - 1', 0),
-}
-
 WHITESPACE = (' ', '\t', '\r',)
 
 def line_from_index(text: str, index: int) -> str:
@@ -127,10 +105,8 @@ def parse_rule_file(file_path: str) -> list:
             elif ch in WHITESPACE:
                 continue
             elif ch == '\n':
-                if sub_expression and remaining_params == 0:
-                    assert False
-                elif sub_expression:
-                    logging.warning(f"Rule '{''.join(sub_expression)}' is incomplete.")
+                if sub_expression:
+                    logging.warning("Rule '%s' is incomplete.", ''.join(sub_expression))
                     sub_expression = []
                 elif rule:
                     rules.append(rule)
@@ -147,7 +123,13 @@ def parse_rule_file(file_path: str) -> list:
                     state = 'RULE'
                     remaining_params = param_count
             else:
-                logging.warning(f"Invalid character '{ch}' in line {line_from_index(text, index)}.")
+                logging.warning(
+                    "Invalid character '%s' in '%s' (%s:%s)",
+                    ch,
+                    line_from_index(text, index),
+                    os.path.basename(file_path),
+                    index + 1,
+                )
                 state = 'INVALID_LINE'
         elif state == 'INVALID_LINE':
             if ch == '\n':
@@ -163,14 +145,21 @@ def parse_rule_file(file_path: str) -> list:
                     sub_expression = []
                     state = 'START'
             else:
-                logging.warning(f"Unexpected character '{ch}' in rule '{''.join(sub_expression)}'.")
+                logging.warning(
+                    "Unexpected character '%s' in rule '%s'.",
+                    ch,
+                    ''.join(sub_expression),
+                )
                 state = 'INVALID_LINE'
     # Handle the last rule if it wasn't followed by a newline
     if sub_expression and remaining_params == 0:
         rule.append(tuple(sub_expression))
-        rules.append(rule)
+        if rule:
+            rules.append(rule)
     elif sub_expression and remaining_params > 0:
-        logging.warning(f"Rule '{''.join(sub_expression)}' is incomplete.")
+        logging.warning("Rule '%s' is incomplete.", ''.join(sub_expression))
+        if rule:
+            rules.append(rule)
     elif rule:
         rules.append(rule)
     
@@ -194,6 +183,19 @@ def difference(rules1: list, rules2: list) -> list:
     set2 = {tuple(rule) for rule in rules2}
     return list(set1 - set2)
 
+def filter_rules(rules: list, remove_append: bool, remove_prepend: bool) -> list:
+    """
+    Remove append-only and/or prepend-only rules from the list.
+    """
+    filtered_rules = []
+    for rule in rules:
+        is_append_only = all(r[0] == '$' for r in rule)
+        is_prepend_only = all(r[0] == '^' for r in rule)
+        if (remove_append and is_append_only) or (remove_prepend and is_prepend_only):
+            continue
+        filtered_rules.append(rule)
+    return filtered_rules
+
 def main():
     parser = argparse.ArgumentParser(description='Parse hashcat rule files')
     parser.add_argument('action', choices=['clean', 'difference', 'merge'], help='Action to perform')
@@ -208,6 +210,7 @@ def main():
     
     if args.action == 'clean':
         rules = parse_rule_file(args.files[0])
+        rules = filter_rules(rules, args.no_append, args.no_prepend)
         formatted_rules = format_rules(rules, args.separator)
         if args.output is None:
             print(formatted_rules)
@@ -216,8 +219,10 @@ def main():
                 output_file.write(formatted_rules)
     elif args.action == 'difference':
         rules = parse_rule_file(args.files[0])
+        rules = filter_rules(rules, args.no_append, args.no_prepend)
         for file in args.files[1:]:
             rules2 = parse_rule_file(file)
+            rules2 = filter_rules(rules2, args.no_append, args.no_prepend)
             rules = difference(rules, rules2)
         formatted_diff_rules = format_rules(rules, args.separator)
         if args.output is None:
@@ -229,6 +234,7 @@ def main():
         all_rules = []
         for file in args.files:
             rules = parse_rule_file(file)
+            rules = filter_rules(rules, args.no_append, args.no_prepend)
             all_rules.extend(rules)
         unique_rules = list({tuple(rule) for rule in all_rules})
         formatted_rules = format_rules(unique_rules, args.separator)
