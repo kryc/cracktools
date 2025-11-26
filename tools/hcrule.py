@@ -8,12 +8,14 @@ import logging
 
 HASHCAT_RULES = {
     ':': ('Passthrough', 0),
+
+    # Implemented compatible functions
     'l': ('Lowercase', 0),
     'u': ('Uppercase', 0),
     'c': ('Capitalize', 0),
     'C': ('Invert Capitalize', 0),
     't': ('Toggle Case', 0),
-    'T': ('Toggle @', 1),
+    'T': ('Toggle @ N', 1),
     'r': ('Reverse', 0),
     'd': ('Duplicate', 0),
     'p': ('Duplicate N', 1),
@@ -35,11 +37,12 @@ HASHCAT_RULES = {
     'z': ('Duplicate first N', 1),
     'Z': ('Duplicate last N', 1),
     'q': ('Duplicate all', 0),
-    'X': ('Extract memory', 3), 
+    'X': ('Extract memory', 3),
     'M': ('Memorize', 0),
-    'm': ('Append memory', 1),
-    'r': ('Prepend memory', 1),
-    'M': ('Memorize', 0),
+    '4': ('Append memory', 0),
+    '6': ('Prepend memory', 0),
+
+    # Rules used to reject plains
     '<': ('Reject less', 1),
     '>': ('Reject greater', 1),
     '_': ('Reject equal', 1),
@@ -49,7 +52,9 @@ HASHCAT_RULES = {
     ')': ('Reject equal last', 1),
     '=': ('Reject equal at', 2),
     '%': ('Reject contains', 2),
-    'Q': ('Reject contains', 0),
+    'Q': ('Reject contains (memory equal)', 0),
+
+    # Implemented specific functions
     'k': ('Swap front', 0),
     'K': ('Swap back', 0),
     '*': ('Swap @ N', 2),
@@ -64,6 +69,29 @@ HASHCAT_RULES = {
     'E': ('Title', 0),
     'e': ('Title w/separator', 1),
     '3': ('Toggle w/Nth separator', 2),
+}
+
+# Rules that operate on the Nth instance position code 'p'.
+# These are syntactically distinct in hashcat (e.g. "Tp", "Dp", "xpM").
+# For now we only record the operator and the number of following parameters
+# after the 'p' designator; the higher-level logic (finding the p-position)
+# is handled separately.
+HASHCAT_P_RULES = {
+    'T': ('Toggle @ p', 0),
+    'D': ('Delete @ p', 0),
+    'x': ('Extract range @ p', 1),  # xpM : one extra length parameter M
+    'O': ('Omit range @ p', 1),     # OpM : one extra length parameter M
+    'i': ('Insert @ p', 1),         # ipX : one extra char X
+    'o': ('Overwrite @ p', 1),      # opX : one extra char X
+    "'": ('Truncate @ p', 0),
+    'X': ('Extract memory @ p', 2), # XpMI : length M and memory index I
+    '*': ('Swap @ p', 1),           # *pM : swap p with position M
+    'L': ('Bitwise shift left @ p', 0),
+    'R': ('Bitwise shift right @ p', 0),
+    '+': ('ASCII increment @ p', 0),
+    '-': ('ASCII decrement @ p', 0),
+    '.': ('Replace p + 1', 0),
+    ',': ('Replace p - 1', 0),
 }
 
 WHITESPACE = (' ', '\t', '\r',)
@@ -169,9 +197,11 @@ def difference(rules1: list, rules2: list) -> list:
 def main():
     parser = argparse.ArgumentParser(description='Parse hashcat rule files')
     parser.add_argument('action', choices=['clean', 'difference', 'merge'], help='Action to perform')
-    parser.add_argument('files', nargs='+', help='Input and output file')
+    parser.add_argument('files', nargs='+', help='Input file')
     parser.add_argument('--output', '-o', help='Output file')
     parser.add_argument('--separator', '-s', default=' ', help='Separator for output rules')
+    parser.add_argument('--no-append', action='store_true', help='Remove append-only rules')
+    parser.add_argument('--no-prepend', action='store_true', help='Remove prepend-only rules')
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format='%(levelname)s - %(message)s')
