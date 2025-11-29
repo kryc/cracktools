@@ -183,15 +183,44 @@ def difference(rules1: list, rules2: list) -> list:
     set2 = {tuple(rule) for rule in rules2}
     return list(set1 - set2)
 
-def filter_rules(rules: list, remove_append: bool, remove_prepend: bool) -> list:
+
+def _is_pure_rotate_noop(rule: list[tuple[str, ...]]) -> bool:
+    """Return True if rule is only rotates with zero net effect."""
+
+    if not rule:
+        return False
+
+    # All ops must be single-character '{' or '}'
+    if not all(len(op) == 1 and op[0] in ('{', '}') for op in rule):
+        return False
+
+    # Net rotation: +1 for '{', -1 for '}'
+    return sum(1 if op[0] == '{' else -1 for op in rule) == 0
+
+def filter_redundant_rules(rules: list) -> list:
+    """Filter obviously redundant rules."""
+    filtered_rules = []
+    for rule in rules:
+        if _is_pure_rotate_noop(rule):
+            continue
+        filtered_rules.append(rule)
+    return filtered_rules
+
+def _append_only(rule: list) -> bool:
+    """Return True if rule is only appends characters."""
+    return rule[0] == 'r' and rule[-1] == 'r' and all(r[0] == 'i' and r[1] == str(x) for x,r in enumerate(rule[1:-1]))
+
+def filter_rules(rules: list, enable_reject_plains: bool, remove_append: bool, remove_prepend: bool) -> list:
     """
     Remove append-only and/or prepend-only rules from the list.
     """
+    reject_plain_fns = '<>_!/()=%Q'
     filtered_rules = []
     for rule in rules:
-        is_append_only = all(r[0] == '$' for r in rule)
-        is_prepend_only = all(r[0] == '^' for r in rule)
-        if (remove_append and is_append_only) or (remove_prepend and is_prepend_only):
+        is_append_only = all(r[0] == '$' for r in rule) or _append_only(rule)
+        is_prepend_only = all(r[0] == '^' for r in rule) or all(r[0] == 'i' and r[1] == str(x) for x,r in enumerate(rule))
+        is_reject_plain = any(r[0] in reject_plain_fns for r in rule)
+        if (remove_append and is_append_only) or (remove_prepend and is_prepend_only) or (not enable_reject_plains and is_reject_plain):
             continue
         filtered_rules.append(rule)
     return filtered_rules
@@ -202,6 +231,7 @@ def main():
     parser.add_argument('files', nargs='+', help='Input file')
     parser.add_argument('--output', '-o', help='Output file')
     parser.add_argument('--separator', '-s', default=' ', help='Separator for output rules')
+    parser.add_argument('--enable-reject-plains', action='store_true', help='Enable reject plains rules')
     parser.add_argument('--no-append', action='store_true', help='Remove append-only rules')
     parser.add_argument('--no-prepend', action='store_true', help='Remove prepend-only rules')
     args = parser.parse_args()
@@ -210,7 +240,8 @@ def main():
     
     if args.action == 'clean':
         rules = parse_rule_file(args.files[0])
-        rules = filter_rules(rules, args.no_append, args.no_prepend)
+        rules = filter_rules(rules, args.enable_reject_plains, args.no_append, args.no_prepend)
+        rules = filter_redundant_rules(rules)
         formatted_rules = format_rules(rules, args.separator)
         if args.output is None:
             print(formatted_rules)
@@ -219,10 +250,10 @@ def main():
                 output_file.write(formatted_rules)
     elif args.action == 'difference':
         rules = parse_rule_file(args.files[0])
-        rules = filter_rules(rules, args.no_append, args.no_prepend)
+        rules = filter_rules(rules, args.enable_reject_plains, args.no_append, args.no_prepend)
         for file in args.files[1:]:
             rules2 = parse_rule_file(file)
-            rules2 = filter_rules(rules2, args.no_append, args.no_prepend)
+            rules2 = filter_rules(rules2, args.enable_reject_plains, args.no_append, args.no_prepend)
             rules = difference(rules, rules2)
         formatted_diff_rules = format_rules(rules, args.separator)
         if args.output is None:
@@ -234,10 +265,10 @@ def main():
         all_rules = []
         for file in args.files:
             rules = parse_rule_file(file)
-            rules = filter_rules(rules, args.no_append, args.no_prepend)
+            rules = filter_rules(rules, args.enable_reject_plains, args.no_append, args.no_prepend)
             all_rules.extend(rules)
-        unique_rules = list({tuple(rule) for rule in all_rules})
-        formatted_rules = format_rules(unique_rules, args.separator)
+        merged_rules = filter_redundant_rules(all_rules)
+        formatted_rules = format_rules(merged_rules, args.separator)
         if args.output is None:
             print(formatted_rules)
         else:

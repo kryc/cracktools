@@ -41,6 +41,7 @@ set(CMAKE_CXX_FLAGS_DEBUG "-g -ggdb -O0 -fno-omit-frame-pointer -fsanitize=addre
 add_executable(unittest EXCLUDE_FROM_ALL
     HashListUnittest.cpp
     ReduceUnittest.cpp
+    LineReaderUnittest.cpp
     UnsafeBufferUnittest.cpp
     UtilUnittest.cpp
     WordGeneratorTest.cpp
