@@ -47,10 +47,12 @@ TEST(LineReader, ReadLine)
             collected.emplace_back(line->data(), line->size());
             line = readerBoundary.readLine();
         }
-        ASSERT_EQ(collected.size(), 7);
+        ASSERT_EQ(collected.size(), 9);
         EXPECT_EQ(collected[0], "1");
         EXPECT_EQ(collected[1], "22");
         EXPECT_EQ(collected[6], "7777777");
+        EXPECT_EQ(collected[7], "88888888");
+        EXPECT_EQ(collected[8], "999999999");
     }
 
     // Handle the other side of the buffer boundary
@@ -63,7 +65,7 @@ TEST(LineReader, ReadLine)
             collected.emplace_back(line->data(), line->size());
             line = readerOtherBoundary.readLine();
         }
-        ASSERT_EQ(collected.size(), 8u);
+        ASSERT_EQ(collected.size(), 9u);
         EXPECT_EQ(collected[0], "1");
         EXPECT_EQ(collected[1], "22");
         EXPECT_EQ(collected[2], "333");
@@ -72,5 +74,6 @@ TEST(LineReader, ReadLine)
         EXPECT_EQ(collected[5], "666666");
         EXPECT_EQ(collected[6], "7777777");
         EXPECT_EQ(collected[7], "88888888");
+        EXPECT_EQ(collected[8], "999999999");
     }
 }

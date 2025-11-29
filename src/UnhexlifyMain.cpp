@@ -12,8 +12,8 @@
 #include <string>
 #include <string_view>
 
+#include "LineReader.hpp"
 #include "Util.hpp"
-
 #include "UnsafeBuffer.hpp"
 
 #define ARGCHECK() \
@@ -57,12 +57,18 @@ Unhexlify(
         output = &outfile;
     }
 
-    std::string line;
-    while (std::getline(*input, line))
+    LineReader<> reader(input);
+    auto line = reader.readLine();
+    while (line.has_value())
     {
-        // If it is already a strictly valid $HEX[] line then pass through
-        Util::MaybeUnHexlifyInPlace(line);
-        *output << line << std::endl;
+        if (!Util::IsHexlified(*line)) {
+            *output << *line << std::endl;
+            
+        }
+        else {
+            *output << Util::UnHexlify(*line) << std::endl;
+        }
+        line = reader.readLine();
     }
 }
 
@@ -85,6 +91,14 @@ int main(
         else if (input_file.empty() && std::filesystem::exists(arg))
         {
             input_file = arg;
+        }
+        else if (arg == "--help" || arg == "-h")
+        {
+            std::cout << "Usage: " << args[0] << " [options] [input_file]" << std::endl;
+            std::cout << "Options:" << std::endl;
+            std::cout << "  --output, -o <file>  Specify the output file" << std::endl;
+            std::cout << "  --help, -h           Show this help message" << std::endl;
+            return 0;
         }
         else
         {

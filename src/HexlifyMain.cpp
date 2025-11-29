@@ -12,8 +12,8 @@
 #include <string>
 #include <string_view>
 
+#include "LineReader.hpp"
 #include "Util.hpp"
-
 #include "UnsafeBuffer.hpp"
 
 #define ARGCHECK() \
@@ -57,16 +57,20 @@ Hexlify(
         output = &outfile;
     }
 
-    std::string line;
-    while (std::getline(*input, line))
+    LineReader<> reader(input);
+    auto line = reader.readLine();
+    while (line.has_value())
     {
         // If it is already a strictly valid $HEX[] line then pass through
-        if (Util::IsHexlified(line))
+        if (!Util::NeedsHexlify(*line) || Util::IsHexlified(*line))
         {
-            *output << line << std::endl;
-            continue;
+            *output << *line << std::endl;
         }
-        *output << Util::Hexlify(line) << std::endl;
+        else
+        {
+            *output << Util::Hexlify(*line) << std::endl;
+        }
+        line = reader.readLine();
     }
 }
 
@@ -81,15 +85,22 @@ int main(
     for (int i = 1; i < argc; i++)
     {
         const std::string_view arg = args[i];
-        if (arg == "--input" || arg == "-i")
-        {
-            ARGCHECK();
-            input_file = args[++i];
-        }
-        else if (arg == "--output" || arg == "-o")
+        if (arg == "--output" || arg == "-o")
         {
             ARGCHECK();
             output_file = args[++i];
+        }
+        else if (input_file.empty() && std::filesystem::exists(arg))
+        {
+            input_file = arg;
+        }
+        else if (arg == "--help" || arg == "-h")
+        {
+            std::cout << "Usage: hexlify [options] [input_file]\n";
+            std::cout << "Options:\n";
+            std::cout << "  --output, -o <file>  Output file (default: stdout)\n";
+            std::cout << "  --help, -h           Display this help message\n";
+            return 0;
         }
         else
         {
