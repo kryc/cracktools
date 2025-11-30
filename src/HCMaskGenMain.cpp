@@ -133,6 +133,13 @@ int main(
             ARGCHECK();
             max_word_length = Util::ParseNumber<size_t>(args[++i]);
         }
+        else if (arg == "--length" || arg == "-l")
+        {
+            ARGCHECK();
+            auto length = Util::ParseNumber<size_t>(args[++i]);
+            min_word_length = length;
+            max_word_length = length;
+        }
         else if (arg == "--counts" || arg == "-c")
         {
             counts = true;
@@ -167,6 +174,7 @@ int main(
             std::cout << "  --output, -o <file>  Specify the output file" << std::endl;
             std::cout << "  --min, -m <#>      Specify the minimum word length" << std::endl;
             std::cout << "  --max, -M <#>      Specify the maximum word length" << std::endl;
+            std::cout << "  --length, -l <#>   Specify the word length" << std::endl;
             std::cout << "  --ks-max, -K <#|m> Specify the maximum keyspace" << std::endl;
             std::cout << "  --counts, -c       Output the count of each mask" << std::endl;
             std::cout << "  --help, -h         Show this help message" << std::endl;
