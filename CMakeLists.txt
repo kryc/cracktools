@@ -175,3 +175,16 @@ target_include_directories(checkcracked
                                 ./SimdHash/src/
                         )
 target_link_libraries(checkcracked simdhash gmp gmpxx)
+
+# HCMaskGen
+set(HCMASKGEN_SOURCES
+    src/HCMaskGenMain.cpp
+    src/Util.cpp
+)
+add_executable(hcmaskgen ${HCMASKGEN_SOURCES})
+target_include_directories(hcmaskgen
+                            PUBLIC
+                                ./src/
+                                ./SimdHash/src/
+                        )
+target_link_libraries(hcmaskgen gmp gmpxx)

@@ -135,3 +135,43 @@ TEST(Util, ParseHexInplace)
     expected = "ello, World!"; // Should ignore the invalid character
     EXPECT_EQ(std::string(strInvalid.data(), bytesParsedInvalid), expected);
 }
+
+TEST(Util, CalculateKeyspaceForMask)
+{
+    std::string mask = "l";
+    size_t keyspace = Util::CalculateKeyspaceForMask(mask);
+    EXPECT_EQ(keyspace, 26);
+
+    mask = "u";
+    keyspace = Util::CalculateKeyspaceForMask(mask);
+    EXPECT_EQ(keyspace, 26);
+
+    mask = "d";
+    keyspace = Util::CalculateKeyspaceForMask(mask);
+    EXPECT_EQ(keyspace, 10);
+
+    mask = "s";
+    keyspace = Util::CalculateKeyspaceForMask(mask);
+    EXPECT_EQ(keyspace, 32);
+
+    mask = "lud";
+    keyspace = Util::CalculateKeyspaceForMask(mask);
+    EXPECT_EQ(keyspace, 26*26*10);
+}
+
+TEST(Util, GetMask)
+{
+    std::string input = "Hello, World!";
+    auto mask = Util::GetMask(input);
+    EXPECT_TRUE(mask.has_value());
+    EXPECT_EQ(mask.value(), "?u?l?l?l?l?s?s?u?l?l?l?l?s");
+
+    input = "1234567890";
+    mask = Util::GetMask(input);
+    EXPECT_TRUE(mask.has_value());
+    EXPECT_EQ(mask.value(), "?d?d?d?d?d?d?d?d?d?d");
+
+    input = "InvalidASCII\x01";
+    mask = Util::GetMask(input);
+    EXPECT_FALSE(mask.has_value());
+}

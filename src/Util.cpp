@@ -290,6 +290,36 @@ IsPrintableASCII(
 }
 
 const bool
+IsNumeric(
+    const std::string_view Value
+)
+{
+	for (char c : Value)
+	{
+		if (!isdigit(c))
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
+const bool
+IsMask(
+    const std::string_view Value
+)
+{
+	for (char c : Value)
+	{
+		if (c != '?' && c != 'l' && c != 'u' && c != 'd')
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
+const bool
 NeedsHexlify(
     const std::string_view Value,
 	const char Separator,
@@ -523,6 +553,95 @@ ReadLines(
 	}
 
 	return {File.fail() ? std::string("fail") : std::string(), lines};
+}
+
+const __uint128_t
+CalculateKeyspaceForMask(
+    const std::string_view Mask
+)
+{
+	__uint128_t keyspace = 1;
+	__uint128_t temp;
+	for (char c : Mask)
+	{
+		switch (c)
+		{
+			case 'u':
+			case 'l':
+				temp = keyspace * 26;
+				if (temp < keyspace)
+				{
+					return 0; // Overflow detected
+				}
+				keyspace = temp;
+				break;
+			case 'd':
+				temp = keyspace * 10;
+				if (temp < keyspace)
+				{
+					return 0; // Overflow detected
+				}
+				keyspace = temp;
+				break;
+			case 's':
+				temp = keyspace * 32;
+				if (temp < keyspace)
+				{
+					return 0; // Overflow detected
+				}
+				keyspace = temp;
+				break;
+			case '?':
+			default:
+				// Ignore other characters
+				break;
+		}
+	}
+	return keyspace;
+}
+
+std::array<char, 256> MASK_MAP = {
+    /* 0x00 - 0x0f */  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,
+    /* 0x10 - 0x1f */  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,
+    /* 0x20 - 0x2f */ 's', 's', 's', 's', 's', 's', 's', 's', 's', 's', 's', 's', 's', 's', 's', 's',
+    /* 0x30 - 0x3f */ 'd', 'd', 'd', 'd', 'd', 'd', 'd', 'd', 'd', 'd', 's', 's', 's', 's', 's', 's',
+    /* 0x40 - 0x4f */ 's', 'u', 'u', 'u', 'u', 'u', 'u', 'u', 'u', 'u', 'u', 'u', 'u', 'u', 'u', 'u',
+    /* 0x50 - 0x5f */ 'u', 'u', 'u', 'u', 'u', 'u', 'u', 'u', 'u', 'u', 'u', 's', 's', 's', 's', 's',
+    /* 0x60 - 0x6f */ 's', 'l', 'l', 'l', 'l', 'l', 'l', 'l', 'l', 'l', 'l', 'l', 'l', 'l', 'l', 'l',
+    /* 0x70 - 0x7f */ 'l', 'l', 'l', 'l', 'l', 'l', 'l', 'l', 'l', 'l', 'l', 's', 's', 's', 's', -1,
+    /* 0x80 - 0x8f */ -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,
+    /* 0x90 - 0x9f */ -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,
+    /* 0xa0 - 0xaf */ -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,
+    /* 0xb0 - 0xbf */ -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,
+    /* 0xc0 - 0xcf */ -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,
+    /* 0xd0 - 0xdf */ -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,
+    /* 0xe0 - 0xef */ -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,
+    /* 0xf0 - 0xff */ -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1
+};
+
+std::optional<std::string>
+GetMask(
+    const std::string_view Word
+)
+{
+    std::string mask;
+    for (auto c : Word)
+    {
+        // Check if it is a valid ASCII character
+        if (c < ' ' || c > '~')
+        {
+            return std::nullopt;
+        }
+        // Look up the mask character in the map
+        const auto maskchar = MASK_MAP[c];
+        if (maskchar == -1)
+        {
+            return std::nullopt;
+        }
+        mask.push_back('?');
+        mask.push_back(maskchar);
+    }
+    return mask;
 }
 
 }

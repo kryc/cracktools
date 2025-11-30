@@ -98,6 +98,16 @@ IsPrintableASCII(
 );
 
 const bool
+IsNumeric(
+    const std::string_view Value
+);
+
+const bool
+IsMask(
+    const std::string_view Value
+);
+
+const bool
 NeedsHexlify(
     const std::string_view Value,
     const char Separator = ':',
@@ -152,6 +162,16 @@ ParseNumber(
     CHECKA(success.ec == std::errc(), "Failed to parse number from string");
     return result;
 }
+
+const __uint128_t
+CalculateKeyspaceForMask(
+    const std::string_view Mask
+);
+
+std::optional<std::string>
+GetMask(
+    const std::string_view Word
+);
 
 } // namespace Util
 
