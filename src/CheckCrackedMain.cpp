@@ -15,6 +15,7 @@
 
 #include "SimdHash.hpp"
 
+#include "LineReader.hpp"
 #include "UnsafeBuffer.hpp"
 #include "Util.hpp"
 
@@ -45,41 +46,61 @@ CheckCracked(
         input = &infile;
     }
 
-    std::string line;
-    for (; std::getline(*input, line); )
+    LineReader<> reader(input);
+    auto line = reader.readLine();
+    size_t count = 0;
+    size_t malformed = 0;
+    size_t incorrect = 0;
+    std::string temp;   // Temporary buffer for unhexlifying
+    while (line.has_value())
     {
-        std::string_view lineView = line;
-        size_t colonPos = lineView.find(':');
+        size_t colonPos = line->find(':');
         if (colonPos == std::string_view::npos)
         {
-            std::cerr << "Malformed cracked line: " << line << std::endl;
+            std::cerr << "Malformed cracked line: " << *line << std::endl;
+            malformed++;
+            line = reader.readLine();
             continue;
         }
-        std::string_view hashPart = lineView.substr(0, colonPos);
-        std::string_view passwordPart = lineView.substr(colonPos + 1);
-
+        std::string_view hashPart = line->substr(0, colonPos);
+        std::string_view passwordPart = line->substr(colonPos + 1);
         // Detect the hash algorithm
         auto algorithm = DetectHashAlgorithmHex(hashPart.size());
         if (algorithm == HashAlgorithmUndefined)
         {
             std::cout << "Unknown hash algorithm for hash: " << hashPart << std::endl;
+            line = reader.readLine();
             continue;
         }
 
         auto hash = Util::ParseHex(hashPart);
-        std::string password = Util::UnHexlify(passwordPart);
+        if (Util::IsHexlified(passwordPart))
+        {
+             temp = Util::UnHexlify(passwordPart);
+             passwordPart = temp;
+        }
+
         // Do the hash of the password
         SimdHashSingle(
             algorithm,
-            password.size(),
-            reinterpret_cast<const uint8_t*>(password.data()),
+            passwordPart.size(),
+            reinterpret_cast<const uint8_t*>(passwordPart.data()),
             hashBuffer.data()
         );
 
         if (!std::equal(hash.begin(), hash.end(), hashBuffer.begin()))
         {
             std::cout << "Mismatch: " << hashPart << ":" << passwordPart << std::endl;
+            incorrect++;
         }
+        
+        count++;
+        if (count % 1000 == 0)
+        {
+            std::cout << "\r#: " << count << " M: " << malformed << " I: " << incorrect << std::flush;
+        }
+        
+        line = reader.readLine();
     }
 }
 
