@@ -188,3 +188,15 @@ target_include_directories(hcmaskgen
                                 ./SimdHash/src/
                         )
 target_link_libraries(hcmaskgen gmp gmpxx)
+
+# HashlistConvert
+set(HASHLISTCONVERT_SOURCES
+    src/HashlistConvertMain.cpp
+    src/Util.cpp
+)
+add_executable(hashlistconvert ${HASHLISTCONVERT_SOURCES})
+target_include_directories(hashlistconvert
+                            PUBLIC
+                                ./src/
+                        )
+target_link_libraries(hashlistconvert gmp gmpxx)
