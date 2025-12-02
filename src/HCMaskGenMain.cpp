@@ -67,7 +67,7 @@ MaskGen(
     std::unordered_map<std::string, int> word_count;
 
     LineReader<> reader(input);
-    auto line = reader.readLine();
+    auto line = reader.ReadLine();
     std::string unhexlified;
     while (line.has_value())
     {
@@ -85,7 +85,7 @@ MaskGen(
                 }
             }
         }
-        line = reader.readLine();
+        line = reader.ReadLine();
     }
 
     // Sort the map by value in descending order

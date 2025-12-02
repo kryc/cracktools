@@ -58,7 +58,7 @@ Unhexlify(
     }
 
     LineReader<> reader(input);
-    auto line = reader.readLine();
+    auto line = reader.ReadLine();
     while (line.has_value())
     {
         if (!Util::IsHexlified(*line)) {
@@ -68,7 +68,7 @@ Unhexlify(
         else {
             *output << Util::UnHexlify(*line) << std::endl;
         }
-        line = reader.readLine();
+        line = reader.ReadLine();
     }
 }
 

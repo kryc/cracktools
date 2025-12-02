@@ -9,11 +9,11 @@ TEST(LineReader, ReadLine)
     LineReader<> reader("../test/LineReaderTestData.txt");
     {
         std::vector<std::string> collected;
-        auto line = reader.readLine();
+        auto line = reader.ReadLine();
         while (line.has_value())
         {
             collected.emplace_back(line->data(), line->size());
-            line = reader.readLine();
+            line = reader.ReadLine();
         }
         ASSERT_EQ(collected.size(), 9);
         EXPECT_EQ(collected[0], "1");
@@ -25,11 +25,11 @@ TEST(LineReader, ReadLine)
     LineReader<10> readerSmallBuffer("../test/LineReaderTestData.txt");
     {
         std::vector<std::string> collected;
-        auto line = readerSmallBuffer.readLine();
+        auto line = readerSmallBuffer.ReadLine();
         while (line.has_value())
         {
             collected.emplace_back(line->data(), line->size());
-            line = readerSmallBuffer.readLine();
+            line = readerSmallBuffer.ReadLine();
         }
         ASSERT_EQ(collected.size(), 9);
         EXPECT_EQ(collected[0], "1");
@@ -41,11 +41,11 @@ TEST(LineReader, ReadLine)
     LineReader<8> readerBoundary("../test/LineReaderTestData.txt");
     {
         std::vector<std::string> collected;
-        auto line = readerBoundary.readLine();
+        auto line = readerBoundary.ReadLine();
         while (line.has_value())
         {
             collected.emplace_back(line->data(), line->size());
-            line = readerBoundary.readLine();
+            line = readerBoundary.ReadLine();
         }
         ASSERT_EQ(collected.size(), 9);
         EXPECT_EQ(collected[0], "1");
@@ -59,11 +59,11 @@ TEST(LineReader, ReadLine)
     LineReader<9> readerOtherBoundary("../test/LineReaderTestData.txt");
     {
         std::vector<std::string> collected;
-        auto line = readerOtherBoundary.readLine();
+        auto line = readerOtherBoundary.ReadLine();
         while (line.has_value())
         {
             collected.emplace_back(line->data(), line->size());
-            line = readerOtherBoundary.readLine();
+            line = readerOtherBoundary.ReadLine();
         }
         ASSERT_EQ(collected.size(), 9u);
         EXPECT_EQ(collected[0], "1");

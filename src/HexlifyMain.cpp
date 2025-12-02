@@ -58,7 +58,7 @@ Hexlify(
     }
 
     LineReader<> reader(input);
-    auto line = reader.readLine();
+    auto line = reader.ReadLine();
     while (line.has_value())
     {
         // If it is already a strictly valid $HEX[] line then pass through
@@ -70,7 +70,7 @@ Hexlify(
         {
             *output << Util::Hexlify(*line) << std::endl;
         }
-        line = reader.readLine();
+        line = reader.ReadLine();
     }
 }
 

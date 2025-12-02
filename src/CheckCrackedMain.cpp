@@ -47,7 +47,7 @@ CheckCracked(
     }
 
     LineReader<> reader(input);
-    auto line = reader.readLine();
+    auto line = reader.ReadLine();
     size_t count = 0;
     size_t malformed = 0;
     size_t incorrect = 0;
@@ -59,7 +59,7 @@ CheckCracked(
         {
             std::cerr << "Malformed cracked line: " << *line << std::endl;
             malformed++;
-            line = reader.readLine();
+            line = reader.ReadLine();
             continue;
         }
         std::string_view hashPart = line->substr(0, colonPos);
@@ -69,7 +69,7 @@ CheckCracked(
         if (algorithm == HashAlgorithmUndefined)
         {
             std::cout << "Unknown hash algorithm for hash: " << hashPart << std::endl;
-            line = reader.readLine();
+            line = reader.ReadLine();
             continue;
         }
 
@@ -100,7 +100,7 @@ CheckCracked(
             std::cout << "\r#: " << count << " M: " << malformed << " I: " << incorrect << std::flush;
         }
         
-        line = reader.readLine();
+        line = reader.ReadLine();
     }
 }
 

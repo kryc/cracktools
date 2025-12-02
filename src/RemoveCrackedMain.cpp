@@ -54,7 +54,7 @@ RemoveCracked(
     size_t missingCount = 0;
 
     // Prime the cracked file
-    auto crackedLine = crackedReader.readLine();
+    auto crackedLine = crackedReader.ReadLine();
     bool haveCracked = crackedLine.has_value();
     std::string_view crackedHashPart;
     std::string_view crackedPasswordPart;
@@ -71,7 +71,7 @@ RemoveCracked(
         crackedPasswordPart = crackedLine->substr(crackedPos + 1);
     }
 
-    auto hashLine = hashesReader.readLine();
+    auto hashLine = hashesReader.ReadLine();
     while (hashLine.has_value())
     {
         totalHashes++;
@@ -101,7 +101,7 @@ RemoveCracked(
                 // current cracked hash is missing from input hashes
                 missingCount++;
 
-                crackedLine = crackedReader.readLine();
+                crackedLine = crackedReader.ReadLine();
                 if (!crackedLine.has_value())
                 {
                     haveCracked = false;
@@ -135,7 +135,7 @@ RemoveCracked(
             crackedCount++;
 
             // Move to next cracked line for next iteration
-            crackedLine = crackedReader.readLine();
+            crackedLine = crackedReader.ReadLine();
             if (crackedLine.has_value())
             {
                 size_t crackedPos = crackedLine->find(':');
@@ -172,7 +172,7 @@ RemoveCracked(
                     << std::flush;
         }
 
-        hashLine = hashesReader.readLine();
+        hashLine = hashesReader.ReadLine();
     }
 
     std::cout << std::endl;

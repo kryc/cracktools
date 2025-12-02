@@ -40,10 +40,10 @@ public:
             m_FileStream.close();
         }
     }
-    const size_t getBlockSize() const {
+    const size_t GetBlockSize() const {
         return BlockSize;
     }
-    std::optional<std::string_view> readLine() {
+    std::optional<std::string_view> ReadLine() {
         if (m_Pending.empty() && !m_File->eof()) {
             m_File->read(m_Buffer.data(), BlockSize);
             const size_t bytesRead = m_File->gcount();
@@ -87,7 +87,7 @@ public:
                 const size_t bytesRead = m_File->gcount();
                 // Update pending
                 m_Pending = m_BufferView.substr(0, m_Pending.size() + bytesRead);
-                return readLine();
+                return ReadLine();
             }
         }
 
