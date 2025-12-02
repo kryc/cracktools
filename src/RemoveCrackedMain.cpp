@@ -54,44 +54,44 @@ RemoveCracked(
     size_t missingCount = 0;
 
     // Prime the cracked file
-    auto crackedLine = crackedReader.ReadLine();
-    bool haveCracked = crackedLine.has_value();
+    std::string_view crackedLine;
+    bool haveCracked = crackedReader.ReadLine(crackedLine);
     std::string_view crackedHashPart;
     std::string_view crackedPasswordPart;
 
     if (haveCracked)
     {
-        size_t crackedPos = crackedLine->find(':');
+        size_t crackedPos = crackedLine.find(':');
         if (crackedPos == std::string_view::npos)
         {
-            std::cerr << "Malformed cracked line: " << *crackedLine << std::endl;
+            std::cerr << "Malformed cracked line: " << crackedLine << std::endl;
             return;
         }
-        crackedHashPart = crackedLine->substr(0, crackedPos);
-        crackedPasswordPart = crackedLine->substr(crackedPos + 1);
+        crackedHashPart = crackedLine.substr(0, crackedPos);
+        crackedPasswordPart = crackedLine.substr(crackedPos + 1);
     }
 
-    auto hashLine = hashesReader.ReadLine();
-    while (hashLine.has_value())
+    std::string_view hashLine;
+    while (hashesReader.ReadLine(hashLine))
     {
         totalHashes++;
 
         // If there are no cracked lines left, everything else is uncracked
         if (!haveCracked)
         {
-            uncrackedOutFile << hashLine.value() << std::endl;
+            uncrackedOutFile << hashLine << std::endl;
             uncrackedCount++;
             continue;
         }
 
         // The line may contain a hash and a count in the format hash:count
-        size_t colonPos = hashLine->find(':');
+        size_t colonPos = hashLine.find(':');
         if (colonPos != std::string_view::npos)
         {
-            hashLine = hashLine->substr(0, colonPos);
+            hashLine = hashLine.substr(0, colonPos);
         }
 
-        int cmp = hashLine->compare(crackedHashPart); // all hashes same length
+        int cmp = hashLine.compare(crackedHashPart); // all hashes same length
 
         if (cmp > 0)
         {
@@ -101,28 +101,27 @@ RemoveCracked(
                 // current cracked hash is missing from input hashes
                 missingCount++;
 
-                crackedLine = crackedReader.ReadLine();
-                if (!crackedLine.has_value())
+                if (!crackedReader.ReadLine(crackedLine))
                 {
                     haveCracked = false;
                     break;
                 }
 
-                size_t crackedPos = crackedLine->find(':');
+                size_t crackedPos = crackedLine.find(':');
                 if (crackedPos == std::string_view::npos)
                 {
-                    std::cerr << "Malformed cracked line: " << *crackedLine << std::endl;
+                    std::cerr << "Malformed cracked line: " << crackedLine << std::endl;
                     return;
                 }
-                crackedHashPart = crackedLine->substr(0, crackedPos);
-                crackedPasswordPart = crackedLine->substr(crackedPos + 1);
-                cmp = hashLine->compare(crackedHashPart);
+                crackedHashPart = crackedLine.substr(0, crackedPos);
+                crackedPasswordPart = crackedLine.substr(crackedPos + 1);
+                cmp = hashLine.compare(crackedHashPart);
             }
 
             if (!haveCracked)
             {
                 // No more cracked lines; current and remaining hashes are uncracked
-                uncrackedOutFile << hashLine.value() << std::endl;
+                uncrackedOutFile << hashLine << std::endl;
                 uncrackedCount++;
                 continue;
             }
@@ -135,17 +134,16 @@ RemoveCracked(
             crackedCount++;
 
             // Move to next cracked line for next iteration
-            crackedLine = crackedReader.ReadLine();
-            if (crackedLine.has_value())
+            if (crackedReader.ReadLine(crackedLine))
             {
-                size_t crackedPos = crackedLine->find(':');
+                size_t crackedPos = crackedLine.find(':');
                 if (crackedPos == std::string_view::npos)
                 {
-                    std::cerr << "Malformed cracked line: " << *crackedLine << std::endl;
+                    std::cerr << "Malformed cracked line: " << crackedLine << std::endl;
                     return;
                 }
-                crackedHashPart = crackedLine->substr(0, crackedPos);
-                crackedPasswordPart = crackedLine->substr(crackedPos + 1);
+                crackedHashPart = crackedLine.substr(0, crackedPos);
+                crackedPasswordPart = crackedLine.substr(crackedPos + 1);
             }
             else
             {
@@ -155,7 +153,7 @@ RemoveCracked(
         else if (cmp < 0)
         {
             // Uncracked
-            uncrackedOutFile << hashLine.value() << std::endl;
+            uncrackedOutFile << hashLine << std::endl;
             uncrackedCount++;
         }
         else
@@ -171,8 +169,6 @@ RemoveCracked(
                     << " M: " << missingCount
                     << std::flush;
         }
-
-        hashLine = hashesReader.ReadLine();
     }
 
     std::cout << std::endl;

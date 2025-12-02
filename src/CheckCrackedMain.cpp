@@ -47,29 +47,27 @@ CheckCracked(
     }
 
     LineReader<> reader(input);
-    auto line = reader.ReadLine();
+    std::string_view line;
     size_t count = 0;
     size_t malformed = 0;
     size_t incorrect = 0;
     std::string temp;   // Temporary buffer for unhexlifying
-    while (line.has_value())
+    while (reader.ReadLine(line))
     {
-        size_t colonPos = line->find(':');
+        size_t colonPos = line.find(':');
         if (colonPos == std::string_view::npos)
         {
-            std::cerr << "Malformed cracked line: " << *line << std::endl;
+            std::cerr << "Malformed cracked line: " << line << std::endl;
             malformed++;
-            line = reader.ReadLine();
             continue;
         }
-        std::string_view hashPart = line->substr(0, colonPos);
-        std::string_view passwordPart = line->substr(colonPos + 1);
+        std::string_view hashPart = line.substr(0, colonPos);
+        std::string_view passwordPart = line.substr(colonPos + 1);
         // Detect the hash algorithm
         auto algorithm = DetectHashAlgorithmHex(hashPart.size());
         if (algorithm == HashAlgorithmUndefined)
         {
             std::cout << "Unknown hash algorithm for hash: " << hashPart << std::endl;
-            line = reader.ReadLine();
             continue;
         }
 
@@ -99,8 +97,6 @@ CheckCracked(
         {
             std::cout << "\r#: " << count << " M: " << malformed << " I: " << incorrect << std::flush;
         }
-        
-        line = reader.ReadLine();
     }
 }
 

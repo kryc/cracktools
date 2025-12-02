@@ -57,18 +57,18 @@ Unhexlify(
         output = &outfile;
     }
 
+
     LineReader<> reader(input);
-    auto line = reader.ReadLine();
-    while (line.has_value())
+    std::string_view line;
+    while (reader.ReadLine(line))
     {
-        if (!Util::IsHexlified(*line)) {
-            *output << *line << std::endl;
+        if (!Util::IsHexlified(line)) {
+            *output << line << std::endl;
             
         }
         else {
-            *output << Util::UnHexlify(*line) << std::endl;
+            *output << Util::UnHexlify(line) << std::endl;
         }
-        line = reader.ReadLine();
     }
 }
 

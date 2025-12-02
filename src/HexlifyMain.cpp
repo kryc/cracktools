@@ -58,19 +58,18 @@ Hexlify(
     }
 
     LineReader<> reader(input);
-    auto line = reader.ReadLine();
-    while (line.has_value())
+    std::string_view line;
+    while (reader.ReadLine(line))
     {
         // If it is already a strictly valid $HEX[] line then pass through
-        if (!Util::NeedsHexlify(*line) || Util::IsHexlified(*line))
+        if (!Util::NeedsHexlify(line) || Util::IsHexlified(line))
         {
-            *output << *line << std::endl;
+            *output << line << std::endl;
         }
         else
         {
-            *output << Util::Hexlify(*line) << std::endl;
+            *output << Util::Hexlify(line) << std::endl;
         }
-        line = reader.ReadLine();
     }
 }
 
