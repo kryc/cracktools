@@ -77,3 +77,20 @@ TEST(LineReader, ReadLine)
         EXPECT_EQ(collected[8], "999999999");
     }
 }
+
+TEST(LineReader, LineReaderParam)
+{
+    LineReader<> reader("../test/LineReaderTestData.txt");
+    {
+        std::vector<std::string> collected;
+        std::string_view line;
+        while (reader.ReadLine(line))
+        {
+            collected.emplace_back(line.data(), line.size());
+        }
+        ASSERT_EQ(collected.size(), 9);
+        EXPECT_EQ(collected[0], "1");
+        EXPECT_EQ(collected[1], "22");
+        EXPECT_EQ(collected[8], "999999999");
+    }
+}

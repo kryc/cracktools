@@ -43,18 +43,18 @@ public:
     const size_t GetBlockSize() const {
         return BlockSize;
     }
-    std::optional<std::string_view> ReadLine() {
+    const bool ReadLine(std::string_view& Destination) {
         if (m_Pending.empty() && !m_File->eof()) {
             m_File->read(m_Buffer.data(), BlockSize);
             const size_t bytesRead = m_File->gcount();
             if (bytesRead == 0) {
-                return std::nullopt;
+                return false;
             }
             m_Pending = m_BufferView.substr(0, bytesRead);
         }
 
         if (m_Pending.empty()) {
-            return std::nullopt;
+            return false;
         }
         
         size_t lineEnd = m_Pending.find('\n');
@@ -64,10 +64,11 @@ public:
                 // may not be terminated by a newline character).
                 std::string_view line = m_Pending;
                 m_Pending = std::string_view();
-                return line;
+                Destination = line;
+                return true;
             } else if (m_File->eof()) {
                 // At EOF: no more lines to read.
-                return std::nullopt;
+                return false;
             } else if (m_Pending.size() == BlockSize) {
                 // The next line is longer than the buffer size, so
                 // we cannot read it within the buffer. Read the line into a
@@ -78,7 +79,8 @@ public:
                 m_TempLine += remaining;
                 // Clear pending so we read another block of data.
                 m_Pending = std::string_view();
-                return m_TempLine;
+                Destination = m_TempLine;
+                return true;
             } else {
                 // Not at EOF yet. Move the remaining bytes to the
                 // beginning of the buffer and read more data.
@@ -87,13 +89,21 @@ public:
                 const size_t bytesRead = m_File->gcount();
                 // Update pending
                 m_Pending = m_BufferView.substr(0, m_Pending.size() + bytesRead);
-                return ReadLine();
+                return ReadLine(Destination);
             }
         }
 
         auto line = m_Pending.substr(0, lineEnd);
         m_Pending = m_Pending.substr(lineEnd + 1);
-        return line;
+        Destination = line;
+        return true;
+    }
+    std::optional<std::string_view> ReadLine() {
+        std::string_view line;
+        if (ReadLine(line)) {
+            return line;
+        }
+        return std::nullopt;
     }
 private:
     std::istream* m_File = nullptr;
