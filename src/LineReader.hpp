@@ -6,7 +6,6 @@
 //  Copyright © 5 Kryc. All rights reserved.
 //
 
-#include <array>
 #include <fstream>
 #include <iostream>
 #include <string_view>
@@ -18,21 +17,20 @@
 #ifndef LineReader_hpp
 #define LineReader_hpp
 
-template <size_t BlockSize = 16384>
+template <size_t BlockSize = 16384*2>
 class LineReader {
 public:
     LineReader(std::istream* FileStream) : m_File(FileStream) {
-        if (!*m_File) {
-            throw std::runtime_error("File is not open");
-        }
+        m_Buffer.resize(BlockSize);
         m_BufferView = cracktools::AsStringView(m_Buffer);
     }
-    LineReader(const std::string_view filename) {
-        m_FileStream.open(filename.data(), std::ios::in | std::ios::binary);
-        if (!m_FileStream.is_open()) {
-            throw std::runtime_error("File is not open");
-        }
-        m_File = &m_FileStream;
+    LineReader(const std::string_view Filename) {
+        SetInputFile(Filename);
+        m_Buffer.resize(BlockSize);
+        m_BufferView = cracktools::AsStringView(m_Buffer);
+    }
+    LineReader(void) {
+        m_Buffer.resize(BlockSize);
         m_BufferView = cracktools::AsStringView(m_Buffer);
     }
     ~LineReader() {
@@ -40,8 +38,31 @@ public:
             m_FileStream.close();
         }
     }
+    void SetInputFile(const std::string_view Filename) {
+        if (m_FileStream.is_open()) {
+            m_FileStream.close();
+        }
+        m_FileStream.open(Filename.data(), std::ios::in | std::ios::binary);
+        if (!m_FileStream.is_open()) {
+            throw std::runtime_error("File is not open");
+        }
+        m_File = &m_FileStream;
+        m_BufferView = cracktools::AsStringView(m_Buffer);
+    }
+    void SetFileStream(std::istream* FileStream) {
+        if (m_FileStream.is_open()) {
+            m_FileStream.close();
+        }
+        m_File = FileStream;
+        if (!*m_File) {
+            throw std::runtime_error("File is not open");
+        }
+    }
     const size_t GetBlockSize() const {
         return BlockSize;
+    }
+    const bool IsEof() const {
+        return m_File->eof();
     }
     const bool ReadLine(std::string_view& Destination) {
         if (m_Pending.empty() && !m_File->eof()) {
@@ -85,8 +106,7 @@ public:
                 // Not at EOF yet. Move the remaining bytes to the
                 // beginning of the buffer and read more data.
                 std::copy(m_Pending.begin(), m_Pending.end(), m_Buffer.begin());
-                m_File->read(m_Buffer.data() + m_Pending.size(), BlockSize - m_Pending.size());
-                const size_t bytesRead = m_File->gcount();
+                const size_t bytesRead = cracktools::ReadStream(m_File, m_Buffer, BlockSize - m_Pending.size(), m_Pending.size());
                 // Update pending
                 m_Pending = m_BufferView.substr(0, m_Pending.size() + bytesRead);
                 return ReadLine(Destination);
@@ -108,7 +128,7 @@ public:
 private:
     std::istream* m_File = nullptr;
     std::ifstream m_FileStream;
-    std::array<char, BlockSize> m_Buffer;
+    std::vector<char> m_Buffer;
     std::string_view m_BufferView;
     std::string_view m_Pending;
     std::string m_TempLine;

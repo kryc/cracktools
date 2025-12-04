@@ -19,7 +19,6 @@
 #include <tuple>
 #include <vector>
 
-#include "simdhash.h"
 #include "SimdHashBuffer.hpp"
 
 #include "CrackList.hpp"
@@ -27,7 +26,51 @@
 #include "LineReader.hpp"
 #include "Util.hpp"
 
-#define MAX_STRING_LENGTH 128
+constexpr size_t kLinkedInIgnoreBytes = 6;
+
+const size_t
+CrackList::ReadBlock(
+    SimdHashBufferFixed<MAX_STRING_LENGTH>& Words
+)
+{
+    static const size_t lanes = SimdLanes();
+    std::string_view line;
+    size_t count = 0;
+    std::string temp;
+
+    // Loop until the block is full or the input is exhausted
+    for (size_t i = 0; i < lanes; i++)
+    {
+        if (m_LineReader.IsEof())
+        {
+            m_Exhausted = true;
+            break;
+        }
+
+        m_LineReader.ReadLine(line);
+
+#if 0
+        // Strip carriage return if present at the end
+        if (!line.empty() && line.back() == '\r')
+        {
+            line = line.substr(0, line.size() - 1);
+        }
+#endif
+
+        if (Util::IsHexlified(line) && m_ParseHexInput)
+        {
+            temp = Util::UnHexlify(line);
+            line = temp;
+        }
+
+        Words.Set(i, line);
+        count++;
+    }
+
+    m_WordsProcessed += count;
+
+    return count;
+}
 
 const bool
 CrackList::CrackLinear(
@@ -41,7 +84,6 @@ CrackList::CrackLinear(
 
     auto start = std::chrono::system_clock::now();
 
-    const size_t lanes = SimdLanes();
     const size_t hashWidth = GetHashWidth(m_Algorithm);
     SimdHashBufferFixed<MAX_STRING_LENGTH> words;
     std::array<uint8_t, MAX_HASH_SIZE * MAX_LANES> hashes;
@@ -49,72 +91,41 @@ CrackList::CrackLinear(
 
     while (!m_Exhausted)
     {
-        auto block = ReadBlock();
+        auto count = ReadBlock(words);
 
         // Can be empty if the input is blocksize aligned
-        if (block.empty())
+        if (count == 0)
         {
             continue;
         }
 
-        // Check if we need to unhexlify the input
-        if (m_ParseHexInput)
+        SimdHash(
+            m_Algorithm,
+            words.GetLengths(),
+            words.ConstBuffers(),
+            &hashes[0]
+        );
+
+        for (size_t h = 0; h < count; h++)
         {
-            for (auto& word : block)
+            auto hash = hashspan.subspan(h * hashWidth, hashWidth);
+            std::span<uint8_t> lookupHash = m_LinkedIn ? hash.subspan(kLinkedInIgnoreBytes) : hash;
+
+            if (m_HashList.Lookup(lookupHash))
             {
-                Util::MaybeUnHexlifyInPlace(word);
+                auto hex = Util::ToHex(hash);
+                m_Cracked++;
+                output << hex << m_Separator << Util::Hexlify(words.GetStringView(h)) << std::endl;
+                last_cracked = words.GetStringView(h);
             }
         }
 
-        for (size_t i = 0; i < block.size(); i+=lanes)
-        {
-            const size_t remaining = std::min(lanes, block.size() - i);
-            for (size_t h = 0; h < remaining; h++)
-            {
-                words.Set(h, block[i + h]);
-            }
-
-            SimdHash(
-                m_Algorithm,
-                words.GetLengths(),
-                words.ConstBuffers(),
-                &hashes[0]
-            );
-
-            for (size_t h = 0; h < remaining; h++)
-            {
-                auto hash = hashspan.subspan(h * hashWidth, hashWidth);
-                if (m_HashList.Lookup(hash))
-                {
-                    auto hex = Util::ToHex(hash);
-                    m_Cracked++;
-                    output << hex << m_Separator << Util::Hexlify(words.GetString(h)) << std::endl;
-                    last_cracked = block[h];
-                } else if (m_LinkedIn)
-                {
-                    // In linkedin mode we need to try again with
-                    // the high order bytes masked out. We output the original
-                    // hash without the masking
-                    std::vector<uint8_t> hashcopy(hash.data(), hash.data() + hash.size());
-                    hashcopy[0] = 0;
-                    hashcopy[1] = 0;
-                    hashcopy[2] &= 0x0f;
-                    if (m_HashList.Lookup(hashcopy))
-                    {
-                        auto hex = Util::ToHex(hash);
-                        m_Cracked++;
-                        output << hex << m_Separator << Util::Hexlify(words.GetString(h)) << std::endl;
-                        last_cracked = block[h];
-                    }
-                }
-            }
-        }
-
+        std::string back(words.GetStringView(count - 1));
         m_BlocksProcessed++;
 
         auto end = std::chrono::system_clock::now();
         auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-        ThreadPulse(0, elapsed_ms.count(), last_cracked, block.back());
+        ThreadPulse(0, elapsed_ms.count(), std::move(last_cracked), std::move(back));
         start = std::chrono::system_clock::now();
 
         if (m_Cracked == m_Count)
@@ -253,47 +264,22 @@ CrackList::CrackWorker(
     const size_t Id
 )
 {
-    std::vector<std::string> block;
-    std::string last_cracked;
-
+    static const size_t lanes = SimdLanes();
     srand(Id);
 
     // Check if all input is done
+    if (m_Finished || m_Exhausted)
     {
-        std::lock_guard<std::mutex> lock(m_InputMutex);
-        if (m_Finished && m_InputCache.empty())
-        {
-            // Track the completion of this worker
-            dispatch::PostTaskToDispatcher(
-                "main",
-                std::bind(
-                    &CrackList::WorkerFinished,
-                    this
-                )
-            );
-            // Terminate our current queue
-            dispatch::CurrentQueue()->Stop();
-            return;
-        }
-
-        if (!m_InputCache.empty())
-        {
-            block = std::move(m_InputCache.front());
-            m_InputCache.pop();
-        }
-    }
-
-    // We need to wait for more input
-    if (block.empty())
-    {
-        std::this_thread::sleep_for(std::chrono::milliseconds(rand() % 100));
-        dispatch::PostTaskFast(
-            dispatch::bind(
-                &CrackList::CrackWorker,
-                this,
-                Id
+        // Track the completion of this worker
+        dispatch::PostTaskToDispatcher(
+            "main",
+            std::bind(
+                &CrackList::WorkerFinished,
+                this
             )
         );
+        // Terminate our current queue
+        dispatch::CurrentQueue()->Stop();
         return;
     }
 
@@ -301,27 +287,24 @@ CrackList::CrackWorker(
 
     auto start = std::chrono::system_clock::now();
 
-    const size_t lanes = SimdLanes();
     const size_t hashWidth = GetHashWidth(m_Algorithm);
     SimdHashBufferFixed<MAX_STRING_LENGTH> words;
     std::array<uint8_t, MAX_HASH_SIZE * MAX_LANES> hashes;
     std::span<uint8_t, MAX_HASH_SIZE * MAX_LANES> hashspan(hashes);
+    std::string last_cracked, back;
 
-    // Check if we need to unhexlify input
-    if (m_ParseHexInput)
+    for (size_t block = 0; block < m_BlockSize && !m_Exhausted; block += lanes)
     {
-        for (auto& word : block)
+        // Read a block of words
+        size_t count = 0;
         {
-            Util::MaybeUnHexlifyInPlace(word);
+            std::lock_guard<std::mutex> lock(m_InputMutex);
+            count = ReadBlock(words);
         }
-    }
 
-    for (size_t i = 0; i < block.size(); i+=lanes)
-    {
-        const size_t remaining = std::min(lanes, block.size() - i);
-        for (size_t h = 0; h < remaining; h++)
+        if (count == 0)
         {
-            words.Set(h, block[i + h]);
+            continue;
         }
 
         SimdHash(
@@ -331,27 +314,26 @@ CrackList::CrackWorker(
             &hashes[0]
         );
 
-        for (size_t h = 0; h < remaining; h++)
+        for (size_t h = 0; h < count; h++)
         {
-            auto hash = hashspan.subspan(h * hashWidth, hashWidth);
-            // In linkedin mode we need to mask
-            // the high order bytes
-            if (m_LinkedIn)
-            {
-                hash[0] = 0;
-                hash[1] = 0;
-                hash[2] &= 0x0f;
-            }
-            if (m_HashList.Lookup(hash))
+            std::span<uint8_t> hash = hashspan.subspan(h * hashWidth, hashWidth);
+            std::span<uint8_t> lookupHash = m_LinkedIn ? hash.subspan(kLinkedInIgnoreBytes) : hash;
+
+            if (m_HashList.Lookup(lookupHash))
             {
                 auto hex = Util::ToHex(hash);
                 hex = Util::ToLower(hex);
                 cracked.push_back({
                     {hash.begin(), hash.end()},
                     hex,
-                    Util::Hexlify(words.GetString(h))
+                    Util::Hexlify(words.GetStringView(h))
                 });
             }
+        }
+
+        if (count > 0)
+        {
+            back = words.GetStringView(count - 1);
         }
     }
 
@@ -363,18 +345,6 @@ CrackList::CrackWorker(
         std::lock_guard<std::mutex> lock(m_ResultsMutex);
         last_cracked = std::get<2>(cracked.back());
         OutputResultsInternal(cracked);
-        // bool willupdate = m_Results.size() < 8192;
-        // m_Results.insert(m_Results.end(), cracked.begin(), cracked.end());
-        // if (m_Results.size() > 8192 && willupdate)
-        // {
-        //     dispatch::PostTaskToDispatcher(
-        //         "io",
-        //         std::bind(
-        //             &CrackList::OutputResults,
-        //             this
-        //         )
-        //     );
-        // }
     }
 
     m_BlocksProcessed++;
@@ -386,8 +356,8 @@ CrackList::CrackWorker(
             this,
             Id,
             elapsed_ms.count(),
-            last_cracked,
-            block.back()
+            std::move(last_cracked),
+            std::move(back)
         )
     );
 
@@ -396,97 +366,6 @@ CrackList::CrackWorker(
             &CrackList::CrackWorker,
             this,
             Id
-        )
-    );
-}
-
-std::vector<std::string>
-CrackList::ReadBlock(
-    void
-)
-{
-    std::istream& input = m_WordlistFileStream.is_open() ? m_WordlistFileStream : std::cin;
-    std::vector<std::string> block;
-    std::string line;
-
-    block.reserve(m_BlockSize);
-
-    // Loop until the block is full or the input is exhausted
-    while(block.size() < m_BlockSize)
-    {
-        if (input.eof())
-        {
-            m_Exhausted = true;
-            break;
-        }
-
-        std::getline(input, line);
-
-        // Strip carriage return if present at the end
-        if (!line.empty() && line.back() == '\r')
-        {
-            line.pop_back();
-        }
-
-        if (line.empty() || line == m_LastLine)
-        {
-            continue;
-        }
-
-        m_LastLine = line;
-        block.push_back(std::move(line));
-        m_WordsProcessed++;
-    }
-
-    return block;
-}
-
-void
-CrackList::ReadInput(
-    void
-)
-{
-    // Terminate our current queue
-    if (m_Exhausted)
-    {
-        // Signal to stop reading input
-        m_Finished = true;
-        // Kill the IO thread
-        dispatch::CurrentQueue()->Stop();
-        return;
-    }
-
-    bool cache_full = false;
-
-    while(!m_Exhausted && !cache_full)
-    {
-        auto block = ReadBlock();
-
-        if (!block.empty())
-        {
-            std::lock_guard<std::mutex> lock(m_InputMutex);
-
-            m_InputCache.push(
-                std::move(block)
-            );
-            
-            if (m_InputCache.size() >= m_CacheSizeBlocks)
-            {
-                cache_full = true;
-            }
-        }
-    }
-
-    if (cache_full)
-    {
-        std::this_thread::sleep_for(std::chrono::milliseconds(20));
-    }
-
-    // Post the next task
-    dispatch::PostTaskFast(
-        dispatch::bind(
-            &CrackList::ReadInput,
-            this
         )
     );
 }
@@ -519,7 +398,11 @@ CrackList::Crack(
             std::cerr << "Error: Wordlist file does not exist" << std::endl;
             return false;
         }
-        m_WordlistFileStream.open(m_Wordlist, std::ios::in);
+        m_LineReader.SetInputFile(m_Wordlist);
+    }
+    else
+    {
+        m_LineReader.SetFileStream(&std::cin);
     }
 
     if (m_OutFile != "")
@@ -550,6 +433,13 @@ CrackList::Crack(
     }
 
     m_HashList.SetBitmaskSize(m_BitmaskSize);
+
+    // Set some values for linkedin mode
+    if (m_LinkedIn)
+    {
+        m_Algorithm = HashAlgorithmSHA1;
+        m_DigestLength = GetHashWidth(m_Algorithm) - kLinkedInIgnoreBytes;
+    }
 
     // Open the hash file
     if (m_HashType == InputTypeBinary)
@@ -586,9 +476,15 @@ CrackList::Crack(
                 std::cerr << HashAlgorithmToString(m_Algorithm) << " detected" << std::endl;
                 m_DigestLength = GetHashWidth(m_Algorithm);
             }
-            else
+            else if (m_DigestLength == 0)
             {
                 m_DigestLength = GetHashWidth(m_Algorithm);
+            }
+
+            if (m_LinkedIn)
+            {
+                // In linkedin mode we strip the first kLinkedInIgnoreBytes bytes
+                line = line.substr(kLinkedInIgnoreBytes * 2);
             }
             
             if (line.size() != m_DigestLength * 2)
@@ -634,15 +530,6 @@ CrackList::Crack(
         {
             m_Threads = std::thread::hardware_concurrency();
         }
-
-        // Create our IO thread
-        m_IoThread = dispatch::CreateDispatcher(
-            "io",
-            dispatch::bind(
-                &CrackList::ReadInput,
-                this
-            )
-        );
 
         m_DispatchPool = dispatch::CreateDispatchPool("worker", m_Threads);
         m_ActiveWorkers = m_Threads;

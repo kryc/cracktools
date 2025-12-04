@@ -413,6 +413,20 @@ bool UnmapFileSpan(
     return result == 0;
 }
 
+// A wrapper around std::istream::read
+inline static
+size_t ReadStream(
+    std::istream* Stream,
+    std::span<char> Buffer,
+    const size_t Length = 0,
+    const size_t Offset = 0
+)
+{
+    CHECKA(Offset + Length <= Buffer.size(), "Buffer size is less than length + offset");
+    Stream->read(Buffer.data() + Offset, Length);
+    return Stream->gcount();
+}
+
 #pragma clang unsafe_buffer_usage end
 
 } // namespace cracktools

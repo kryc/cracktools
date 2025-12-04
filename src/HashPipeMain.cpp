@@ -14,6 +14,7 @@
 #include <string_view>
 #include <vector>
 
+#include "LineReader.hpp"
 #include "SimdHash.hpp"
 #include "SimdHashBuffer.hpp"
 #include "Util.hpp"
@@ -71,21 +72,21 @@ void HashPipe(
         output = &outfile;
     }
 
-    // Read the input line by line, hash each line with each algorithm, and write the results to the output
-    std::string line;
-
     const size_t lanes = SimdLanes();
     
     SimdHashBufferFixed<MaxSize> words;
     std::array<uint8_t, MAX_HASH_SIZE * MAX_LANES> hashes;
     std::span<uint8_t, MAX_HASH_SIZE * MAX_LANES> hashspan(hashes);
 
+    LineReader<> reader(input);
+    std::string_view line;
+    
     for (;;)
     {
         // Read the next block of words
         size_t count = 0;
         for (size_t i = 0; 
-            i < lanes && std::getline(*input, line);
+            i < lanes && reader.ReadLine(line);
             i++, count++)
         {
             // Handle parsing "$HEX[]" input.

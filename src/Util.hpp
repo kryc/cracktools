@@ -154,11 +154,13 @@ ParseNumber(
 )
 {
     T result{};
+#pragma clang unsafe_buffer_usage begin
     auto success = std::from_chars(
         String.data(),
         String.data() + String.size(),
         result
     );
+#pragma clang unsafe_buffer_usage end
     CHECKA(success.ec == std::errc(), "Failed to parse number from string");
     return result;
 }

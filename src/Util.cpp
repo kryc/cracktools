@@ -22,7 +22,7 @@
 namespace Util
 {
 
-static const int8_t HEX_LOOKUP[256] = {
+static const std::array<int8_t, 256> HEX_LOOKUP = {
 	/* 0x00-0x0f*/ -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
 	/* 0x10-0x1f*/ -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
 	/* 0x20-0x2f*/ -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
@@ -492,67 +492,6 @@ SizeFactor(
     }
 	HumanFactor = "";
     return value;
-}
-
-const std::tuple<std::string, std::vector<std::string_view>>
-ReadLines(
-	std::ifstream& File,
-	const size_t BlockSize
-)
-{
-	std::vector<std::string_view> lines;
-	std::string buffer;
-	size_t pos = 0;
-	size_t last_pos = 0;
-
-	while (true)
-	{
-		// Read a block of data from the file
-		buffer.resize(BlockSize);
-		File.read(&buffer[0], BlockSize);
-		size_t bytes_read = File.gcount();
-		buffer.resize(bytes_read);
-
-		// If we reached the end of the file, break the loop
-		if (bytes_read == 0)
-		{
-			break;
-		}
-
-		// Find all newline characters in the block
-		while (pos < bytes_read)
-		{
-			if (buffer[pos] == '\n')
-			{
-				// Extract the line from the buffer
-				std::string_view line(&buffer[0] + last_pos, pos - last_pos);
-				lines.push_back(line);
-
-				// Move past the newline character
-				pos++;
-				last_pos = pos;
-			}
-			else
-			{
-				pos++;
-			}
-		}
-
-		// If we reached the end of the buffer, break the loop
-		if (pos == bytes_read)
-		{
-			break;
-		}
-	}
-
-	// If there's any remaining text in the buffer, add it as a line
-	if (last_pos < buffer.size())
-	{
-		std::string_view line(&buffer[0] + last_pos, buffer.size() - last_pos);
-		lines.push_back(line);
-	}
-
-	return {File.fail() ? std::string("fail") : std::string(), lines};
 }
 
 const __uint128_t

@@ -22,9 +22,10 @@
 #include <tuple>
 
 #include "DispatchQueue.hpp"
-#include "simdhash.h"
+#include "SimdHashBuffer.hpp"
 
 #include "HashList.hpp"
+#include "LineReader.hpp"
 
 typedef enum
 {
@@ -33,6 +34,8 @@ typedef enum
     InputTypeBinary,
     InputTypeSingle
 } HashFileType;
+
+constexpr size_t MAX_STRING_LENGTH = 128;
 
 class CrackList
 {
@@ -71,8 +74,7 @@ private:
     void CrackWorker(const size_t Id);
     void ThreadPulse(const size_t ThreadId, const uint64_t BlockTime, const std::string LastCracked, const std::string LastTry);
     void WorkerFinished(void);
-    void ReadInput(void);
-    std::vector<std::string> ReadBlock(void);
+    const size_t ReadBlock(SimdHashBufferFixed<MAX_STRING_LENGTH>& Words);
     void OutputResults(void);
     void OutputResultsInternal(std::vector<std::tuple<std::vector<uint8_t>,std::string,std::string>>& Results);
     bool m_Hexlify = true;
@@ -83,12 +85,12 @@ private:
     std::filesystem::path m_OutFile;
     std::string m_Wordlist;
     HashAlgorithm m_Algorithm = HashAlgorithmUndefined;
-    size_t m_DigestLength;
+    size_t m_DigestLength = 0;
     HashList m_HashList;
     std::ifstream m_WordlistFileStream;
+    LineReader<> m_LineReader;
     std::ofstream m_OutputFileStream;
     std::string m_Separator = ":";
-    std::string m_LastLine;
     std::string m_LastCracked;
     size_t m_Count;
     std::atomic<size_t> m_WordsProcessed = 0;
@@ -101,13 +103,10 @@ private:
     std::mutex m_InputMutex;
     std::mutex m_ResultsMutex;
     std::vector<std::tuple<std::vector<uint8_t>,std::string,std::string>> m_Results;
-    std::queue<std::vector<std::string>> m_InputCache;
-    size_t m_CacheSizeBlocks = 4096;
     bool m_Exhausted = false;
     bool m_Finished = false;
     size_t m_Threads = 1;
     dispatch::DispatcherBasePtr m_MainThread;
-    dispatch::DispatcherBasePtr m_IoThread;
     dispatch::DispatcherPoolPtr m_DispatchPool;
     size_t m_ActiveWorkers;
     size_t m_BlockSize = 8192;
