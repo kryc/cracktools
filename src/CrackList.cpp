@@ -12,6 +12,7 @@
 #include <format>
 #include <filesystem>
 #include <iostream>
+#include <span>
 #include <string>
 #include <string.h>
 #include <thread>
@@ -23,6 +24,7 @@
 
 #include "CrackList.hpp"
 #include "HashList.hpp"
+#include "LineReader.hpp"
 #include "Util.hpp"
 
 #define MAX_STRING_LENGTH 128
@@ -82,21 +84,28 @@ CrackList::CrackLinear(
             for (size_t h = 0; h < remaining; h++)
             {
                 auto hash = hashspan.subspan(h * hashWidth, hashWidth);
-                // In linkedin mode we need to mask
-                // the high order bytes
-                if (m_LinkedIn)
-                {
-                    hash[0] = 0;
-                    hash[1] = 0;
-                    hash[2] &= 0x0f;
-                }
                 if (m_HashList.Lookup(hash))
                 {
                     auto hex = Util::ToHex(hash);
-                    hex = Util::ToLower(hex);
                     m_Cracked++;
                     output << hex << m_Separator << Util::Hexlify(words.GetString(h)) << std::endl;
                     last_cracked = block[h];
+                } else if (m_LinkedIn)
+                {
+                    // In linkedin mode we need to try again with
+                    // the high order bytes masked out. We output the original
+                    // hash without the masking
+                    std::vector<uint8_t> hashcopy(hash.data(), hash.data() + hash.size());
+                    hashcopy[0] = 0;
+                    hashcopy[1] = 0;
+                    hashcopy[2] &= 0x0f;
+                    if (m_HashList.Lookup(hashcopy))
+                    {
+                        auto hex = Util::ToHex(hash);
+                        m_Cracked++;
+                        output << hex << m_Separator << Util::Hexlify(words.GetString(h)) << std::endl;
+                        last_cracked = block[h];
+                    }
                 }
             }
         }
@@ -562,9 +571,9 @@ CrackList::Crack(
     {
         std::cerr << "Parsing hash list" << std::endl;
 
-        std::ifstream infile(m_HashFile);
-        std::string line;
-        while (std::getline(infile, line))
+        LineReader<> infile(m_HashFile);
+        std::string_view line;
+        while (infile.ReadLine(line))
         {
             if (m_Algorithm == HashAlgorithmUndefined)
             {
@@ -581,6 +590,7 @@ CrackList::Crack(
             {
                 m_DigestLength = GetHashWidth(m_Algorithm);
             }
+            
             if (line.size() != m_DigestLength * 2)
             {
                 std::cerr << "Invalid hash found, ignoring " << line.size() << "!=" << m_DigestLength * 2 << ": \"" << line << "\"" << std::endl;
