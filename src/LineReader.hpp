@@ -62,7 +62,7 @@ public:
         return BlockSize;
     }
     const bool IsEof() const {
-        return m_File->eof();
+        return m_File->eof() && m_Pending.empty();
     }
     const bool ReadLine(std::string_view& Destination) {
         if (m_Pending.empty() && !m_File->eof()) {
