@@ -1,5 +1,9 @@
 cmake_minimum_required(VERSION 3.28)
 
+# specify clang
+SET(CMAKE_C_COMPILER clang)
+SET(CMAKE_CXX_COMPILER clang++)
+
 # set the project name
 project(cracktools VERSION 0.1)
 
@@ -14,17 +18,14 @@ add_subdirectory(./SimdHash/)
 add_subdirectory(./libdispatchqueue/)
 add_subdirectory(./test/)
 
-# specify clang
-SET(CMAKE_C_COMPILER clang)
-SET(CMAKE_CXX_COMPILER clang++)
-
 # specify the C++ standard
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 
 set(CMAKE_CXX_FLAGS "-Wall -Werror -Wno-deprecated-declarations -Wno-ignored-optimization-argument -Wno-deprecated-declarations -Wno-vla-cxx-extension")
-if(!APPLE)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-exceptions")
+if (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+else ()
+    # set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-exceptions")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wunsafe-buffer-usage -Wunsafe-buffer-usage-in-container")
 endif()
 
