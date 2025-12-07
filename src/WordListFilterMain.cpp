@@ -1,8 +1,8 @@
 //
-//  HexlifyMain.cpp
-//  Hexlify
+//  WordListFilterMain.cpp
+//  WordListFilter
 //
-//  Created by Kryc on 29/08/2025.
+//  Created by Kryc on 07/12/2025.
 //  Copyright © 2025 Kryc. All rights reserved.
 //
 
@@ -25,11 +25,13 @@
     }
 
 void
-Unhexlify(
+WordlistFilter(
     const std::string_view InputFile,
     const std::string_view OutputFile,
     const size_t Min = 1,
-    const size_t Max = std::numeric_limits<size_t>::max()
+    const size_t Max = std::numeric_limits<size_t>::max(),
+    const bool PrintableOnly = false,
+    const bool ASCIIOnly = false
 )
 {
     // Check if the input file exists, if not read from stdin
@@ -74,11 +76,17 @@ Unhexlify(
             if (unhex_size < Min || unhex_size > Max) {
                 continue;
             }
-            *output << Util::UnHexlify(line) << std::endl;
         } else if(line_size > Max) {
             continue;
         }
-    
+        // PrintableASCII is a subset of PrintableUTF8 so check that first
+        // and we can skip the second check if ASCIIOnly is set.
+        if (ASCIIOnly && !Util::IsPrintableASCIIHexlified(line)) {
+            continue;
+        }
+        else if (PrintableOnly && !Util::IsPrintableUTF8Hexlified(line)) {
+            continue;
+        }
         *output << line << std::endl;
     }
 }
@@ -92,6 +100,8 @@ int main(
     std::string_view input_file, output_file;
     size_t min = 1;
     size_t max = std::numeric_limits<size_t>::max();
+    bool printable_only = false;
+    bool ascii_only = false;
 
     for (int i = 1; i < argc; i++)
     {
@@ -115,13 +125,23 @@ int main(
             ARGCHECK();
             max = Util::ParseNumber<size_t>(args[++i]);
         }
+        else if (arg == "--printable" || arg == "-p")
+        {
+            printable_only = true;
+        }
+        else if (arg == "--ascii" || arg == "-a")
+        {
+            ascii_only = true;
+        }
         else if (arg == "--help" || arg == "-h")
         {
             std::cout << "Usage: " << args[0] << " [options] [input_file]" << std::endl;
             std::cout << "Options:" << std::endl;
             std::cout << "  --output, -o <file>  Specify the output file" << std::endl;
-            std::cout << "  --min <number>       Specify the minimum number of bytes to unhexlify" << std::endl;
-            std::cout << "  --max <number>       Specify the maximum number of bytes to unhexlify" << std::endl;
+            std::cout << "  --min, -m <number>   Specify the minimum number of bytes" << std::endl;
+            std::cout << "  --max, -M <number>   Specify the maximum number of bytes" << std::endl;
+            std::cout << "  --printable, -p      Only include lines with printable UTF-8 characters" << std::endl;
+            std::cout << "  --ascii, -a          Only include lines with printable ASCII characters" << std::endl;
             std::cout << "  --help, -h           Show this help message" << std::endl;
             return 0;
         }
@@ -132,5 +152,5 @@ int main(
         }
     }
 
-    Unhexlify(input_file, output_file, min, max);
+    WordlistFilter(input_file, output_file, min, max, printable_only, ascii_only);
 }

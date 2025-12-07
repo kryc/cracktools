@@ -426,6 +426,14 @@ ParseCharset(
     {
         return ALPHANUMERIC;
     }
+    else if (Name == "lowernumeric" || Name == "lownum")
+    {
+        return LOWERNUMERIC;
+    }
+    else if (Name == "uppernumeric" || Name == "upnum")
+    {
+        return UPPERNUMERIC;
+    }
     else if (Name == "common")
     {
         return COMMON;

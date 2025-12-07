@@ -201,3 +201,15 @@ target_include_directories(hashlistconvert
                                 ./src/
                         )
 target_link_libraries(hashlistconvert gmp gmpxx)
+
+# WordListFilter
+set(WORDLISTFILTER_SOURCES
+    src/WordListFilterMain.cpp
+    src/Util.cpp
+)
+add_executable(wordlistfilter ${WORDLISTFILTER_SOURCES})
+target_include_directories(wordlistfilter
+                            PUBLIC
+                                ./src/
+                        )
+target_link_libraries(wordlistfilter gmp gmpxx)

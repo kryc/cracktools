@@ -142,21 +142,13 @@ IsHex(
 	const std::string_view String
 )
 {
-	// Detect an odd length string
-	if (String.size() & 1)
-	{
-		return false;
-	}
-
-	for (char c : String)
-	{
-		if (!isxdigit(c))
-		{
-			return false;
-		}
-	}
-	
-	return true;
+	return String.size() > 0 && 
+		(String.size() & 1) == 0 &&	// Even length
+		std::all_of(
+			String.begin(),
+			String.end(),
+			[](const char c) { return isxdigit(c); }
+		);
 }
 
 std::string
@@ -182,16 +174,26 @@ ToLower(
 }
 
 const bool
-IsHexlified(
+CouldBeHexlified(
     const std::string_view Value
 )
 {
 	return Value.size() >= 6 &&
-		   (Value.size() & 1) == 0 &&
+		   cracktools::LoadUint32LittleEndian(Value) == 'XEH$';
+}
+
+const bool
+IsHexlified(
+    const std::string_view Value
+)
+{
+	const size_t len = Value.size();
+	return len >= 6 &&
+		   (len & 1) == 0 &&
 		   cracktools::LoadUint32LittleEndian(Value) == 'XEH$' &&
 		   Value[4] == '[' &&
 		   Value.ends_with("]") &&
-		   IsHex(Value.substr(5, Value.size() - 6));
+		   IsHex(Value.substr(5, len - 6));
 }
 
 const bool
@@ -265,18 +267,26 @@ IsPrintableUTF8(
 }
 
 const bool
-IsPrintableASCII(
-	std::span<const uint8_t> Value
+IsPrintableUTF8Hexlified(
+    const std::string_view Value
 )
 {
-	for (auto c : Value)
+	if (!IsHexlified(Value))
 	{
-		if (c < 0x20 || c > 0x7E)
-		{
-			return false;
-		}
+		return IsPrintableUTF8(Value);
 	}
-	return true;
+	auto vec = ParseHex(Value.substr(5, Value.size() - 6));
+	return IsPrintableUTF8(vec);
+}
+
+const bool
+IsPrintableASCII(std::span<const uint8_t> Value)
+{
+    return std::all_of(
+        Value.begin(),
+        Value.end(),
+        [](const uint8_t c) { return c >= ' ' && c <= '~'; }
+    );
 }
 
 const bool
@@ -290,13 +300,24 @@ IsPrintableASCII(
 }
 
 const bool
-IsNumeric(
+IsPrintableASCIIHexlified(
     const std::string_view Value
 )
 {
-	for (char c : Value)
+	if (!IsHexlified(Value))
 	{
-		if (!isdigit(c))
+		return IsPrintableASCII(Value);
+	}
+	// We can avoid an expensive UnHexlify by checking the hex characters directly
+	// The printable range is 0x20 to 0x7E, which in hex is 20 to 7E
+	const std::string_view hexPart = Value.substr(5, Value.size() - 6);
+	for (size_t i = 0; i < hexPart.size(); i += 2)
+	{
+		if (hexPart[i] < '2' || hexPart[i] > '7')
+		{
+			return false;
+		}
+		if (hexPart[i] == '7' && hexPart[i + 1] > 'E')
 		{
 			return false;
 		}
@@ -305,18 +326,27 @@ IsNumeric(
 }
 
 const bool
+IsNumeric(
+    const std::string_view Value
+)
+{
+	return Value.size() > 0 && std::all_of(
+		Value.begin(),
+		Value.end(),
+		[](const char c) { return isdigit(c); }
+	);
+}
+
+const bool
 IsMask(
     const std::string_view Value
 )
 {
-	for (char c : Value)
-	{
-		if (c != '?' && c != 'l' && c != 'u' && c != 'd')
-		{
-			return false;
-		}
-	}
-	return true;
+	return Value.size() > 0 && std::all_of(
+		Value.begin(),
+		Value.end(),
+		[](const char c) { return c == '?' || c == 'l' || c == 'u' || c == 'd' || c == 's'; }
+	);
 }
 
 const bool

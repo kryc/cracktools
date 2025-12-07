@@ -73,6 +73,11 @@ ToLower(
 );
 
 const bool
+CouldBeHexlified(
+    const std::string_view Value
+);
+
+const bool
 IsHexlified(
     const std::string_view Value
 );
@@ -88,6 +93,11 @@ IsPrintableUTF8(
 );
 
 const bool
+IsPrintableUTF8Hexlified(
+    const std::string_view Value
+);
+
+const bool
 IsPrintableASCII(
 	std::span<const uint8_t> Value
 );
@@ -95,6 +105,11 @@ IsPrintableASCII(
 const bool
 IsPrintableASCII(
 	std::string_view Value
+);
+
+const bool
+IsPrintableASCIIHexlified(
+    const std::string_view Value
 );
 
 const bool

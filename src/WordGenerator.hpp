@@ -29,6 +29,8 @@ static const std::string ASCII_SPECIAL_MH = "[\\]^_`";
 static const std::string ASCII_SPECIAL_HI = "{|}~";
 static const std::string ASCII_SPECIAL = ASCII_SPECIAL_LO + ASCII_SPECIAL_ML + ASCII_SPECIAL_MH + ASCII_SPECIAL_HI;
 static const std::string ALPHANUMERIC = NUMERIC + UPPER + LOWER;
+static const std::string LOWERNUMERIC = NUMERIC + LOWER;
+static const std::string UPPERNUMERIC = NUMERIC + UPPER;
 static const std::string ASCII = ASCII_SPECIAL_LO + NUMERIC + ASCII_SPECIAL_ML + UPPER + ASCII_SPECIAL_MH + LOWER + ASCII_SPECIAL_HI;
 // Based on an analysis of cracked passwords
 static const std::string COMMON = "a1e20ion9r3sl85746tumdychbkgfpvjwzxqAE._SRMNILTODCBKPHG-UF!YJVWZ@QX*$#?& :+/";

@@ -4,6 +4,58 @@
 
 #include "Util.hpp"
 
+TEST(Util, IsNumeric)
+{
+    EXPECT_TRUE(Util::IsNumeric("1234567890"));
+    EXPECT_FALSE(Util::IsNumeric("12345a67890"));
+    EXPECT_FALSE(Util::IsNumeric("12 34567890"));
+    EXPECT_FALSE(Util::IsNumeric(""));
+}
+
+TEST(Util, IsHex)
+{
+    EXPECT_TRUE(Util::IsHex("48656C6C6F2C20576F726C6421"));
+    EXPECT_TRUE(Util::IsHex("48656c6c6f2c20576f726c6421"));
+    EXPECT_FALSE(Util::IsHex("48656C6C6F2C20576F726C642Z"));
+    EXPECT_FALSE(Util::IsHex("48656C6C6F2C20576F726C642"));
+    EXPECT_FALSE(Util::IsHex(""));
+}
+
+TEST(Util, IsPrintableASCII)
+{
+    EXPECT_TRUE(Util::IsPrintableASCII("Hello, World!"));
+    EXPECT_FALSE(Util::IsPrintableASCII("Hello,\nWorld!"));
+    EXPECT_FALSE(Util::IsPrintableASCII("Hello,\x01World!"));
+    EXPECT_TRUE(Util::IsPrintableASCII(std::span<const uint8_t>{(const uint8_t*)"Hello, World!", 13}));
+    EXPECT_FALSE(Util::IsPrintableASCII(std::span<const uint8_t>{(const uint8_t*)"Hello,\nWorld!", 14}));
+}
+
+TEST(Util, IsPrintableASCIIHexlified)
+{
+    EXPECT_TRUE(Util::IsPrintableASCIIHexlified("$HEX[48656C6C6F2C20576F726C6421]")); // "Hello, World!"
+    EXPECT_TRUE(Util::IsPrintableASCIIHexlified("$HEX[48656C6C6F2C20576F726C6420]")); // "Hello, World " (space at end)
+    EXPECT_TRUE(Util::IsPrintableASCIIHexlified("NotAHexlifiedString")); // Fallthrough to IsPrintableASCII case
+    EXPECT_FALSE(Util::IsPrintableASCIIHexlified("$HEX[48656C6C6F2C20576F726C6421FF]")); // "Hello, World!" + 0xFF
+    EXPECT_FALSE(Util::IsPrintableASCIIHexlified("$HEX[48656C6C6F2C20576F726C64217F]")); // "Hello, World!" + 0x7F
+}
+
+TEST(Util, IsPrintableUTF8)
+{
+    EXPECT_TRUE(Util::IsPrintableUTF8("Hello, World!"));
+    EXPECT_TRUE(Util::IsPrintableUTF8("こんにちは")); // "Hello" in Japanese
+    EXPECT_FALSE(Util::IsPrintableUTF8("Hello,\nWorld!"));
+    EXPECT_FALSE(Util::IsPrintableUTF8("Hello,\x01World!"));
+}
+
+TEST(Util, IsPrintableUTF8Hexlified)
+{
+    EXPECT_TRUE(Util::IsPrintableUTF8Hexlified("$HEX[E38193E38293E381ABE381A1E381AF]")); // "こんにちは"
+    EXPECT_TRUE(Util::IsPrintableUTF8Hexlified("$HEX[48656C6C6F2C20576F726C6421]")); // "Hello, World!"
+    EXPECT_TRUE(Util::IsPrintableUTF8Hexlified("NotAHexlifiedString")); // Fallthrough to IsPrintableUTF8 case
+    EXPECT_FALSE(Util::IsPrintableUTF8Hexlified("$HEX[E38193E38293E381ABE381A1E381AF80]")); // "こんにちは" + invalid byte 0x80
+    EXPECT_FALSE(Util::IsPrintableUTF8Hexlified("$HEX[48656C6C6F2C20576F726C6421FF]")); // "Hello, World!" + invalid byte 0xFF
+}
+
 TEST(Util, NeedsHexlify)
 {
     EXPECT_TRUE(Util::NeedsHexlify("$HEX[48656C6C6F2C20576F726C6421]"));
@@ -38,7 +90,7 @@ TEST(Util, IsHexlified)
     EXPECT_TRUE(Util::IsHexlified("$HEX[48656c6c6f2c20576f726c6421]"));
     EXPECT_TRUE(Util::IsHexlified("$HEX[3030]"));
     EXPECT_FALSE(Util::IsHexlified("$HEX[303]"));
-    EXPECT_TRUE(Util::IsHexlified("$HEX[]"));
+    EXPECT_FALSE(Util::IsHexlified("$HEX[]"));
     EXPECT_FALSE(Util::IsHexlified("$HEX["));
     EXPECT_FALSE(Util::IsHexlified("$HEX010203]"));
     EXPECT_FALSE(Util::IsHexlified("$HEX[ZZZZ]"));
@@ -174,4 +226,13 @@ TEST(Util, GetMask)
     input = "InvalidASCII\x01";
     mask = Util::GetMask(input);
     EXPECT_FALSE(mask.has_value());
+}
+
+TEST(Util, IsMask)
+{
+    EXPECT_TRUE(Util::IsMask("?u?l?l?l?l?s?s?u?l?l?l?l?s"));
+    EXPECT_TRUE(Util::IsMask("?d?d?d?d?d?d?d?d?d?d"));
+    EXPECT_FALSE(Util::IsMask("?x?y?z"));
+    EXPECT_FALSE(Util::IsMask("invalidmask"));
+    EXPECT_FALSE(Util::IsMask(""));
 }

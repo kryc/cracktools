@@ -79,6 +79,7 @@ int main(
     std::string_view charset = ASCII;
     std::string_view prefix;
     std::string_view postfix;
+    std::string_view additional;
 
     for (int i = 1; i < argc; i++)
 	{
@@ -102,6 +103,11 @@ int main(
         {
             ARGCHECK();
             charset = ParseCharset(args[++i]);
+        }
+        else if (arg == "--additional" || arg == "-a")
+        {
+            ARGCHECK();
+            additional = ParseCharset(args[++i]);
         }
         else if (arg == "--length" || arg == "-l")
         {
@@ -158,7 +164,14 @@ int main(
     }
 
     // Create a WordGenerator instance
-    WordGenerator generator(charset, prefix, postfix);
+    
+    std::string usedCharset = std::string(charset);
+    if (!additional.empty())
+    {
+        // Append additional characters to the charset
+        usedCharset += std::string(additional);
+    }
+    WordGenerator generator(usedCharset, prefix, postfix);
 
     // Work out the max length for a uint64 in the given charset
     if (max == std::numeric_limits<size_t>::max())
