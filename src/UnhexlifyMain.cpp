@@ -29,7 +29,8 @@ Unhexlify(
     const std::string_view InputFile,
     const std::string_view OutputFile,
     const size_t Min = 1,
-    const size_t Max = std::numeric_limits<size_t>::max()
+    const size_t Max = std::numeric_limits<size_t>::max(),
+    const bool Rehexlify = false
 )
 {
     // Check if the input file exists, if not read from stdin
@@ -79,7 +80,7 @@ Unhexlify(
             continue;
         }
     
-        *output << line << std::endl;
+        *output << (Rehexlify ? Util::Hexlify(line) : line) << std::endl;
     }
 }
 
@@ -92,6 +93,7 @@ int main(
     std::string_view input_file, output_file;
     size_t min = 1;
     size_t max = std::numeric_limits<size_t>::max();
+    bool rehexlify = false;
 
     for (int i = 1; i < argc; i++)
     {
@@ -115,6 +117,10 @@ int main(
             ARGCHECK();
             max = Util::ParseNumber<size_t>(args[++i]);
         }
+        else if (arg == "--rehexlify" || arg == "-r")
+        {
+            rehexlify = true;
+        }
         else if (arg == "--help" || arg == "-h")
         {
             std::cout << "Usage: " << args[0] << " [options] [input_file]" << std::endl;
@@ -122,6 +128,7 @@ int main(
             std::cout << "  --output, -o <file>  Specify the output file" << std::endl;
             std::cout << "  --min <number>       Specify the minimum number of bytes to unhexlify" << std::endl;
             std::cout << "  --max <number>       Specify the maximum number of bytes to unhexlify" << std::endl;
+            std::cout << "  --rehexlify, -r      Re-hexlify words (used for input standardisation)" << std::endl;
             std::cout << "  --help, -h           Show this help message" << std::endl;
             return 0;
         }
@@ -132,5 +139,5 @@ int main(
         }
     }
 
-    Unhexlify(input_file, output_file, min, max);
+    Unhexlify(input_file, output_file, min, max, rehexlify);
 }
