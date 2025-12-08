@@ -23,10 +23,8 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 
 set(CMAKE_CXX_FLAGS "-Wall -Werror -Wno-deprecated-declarations -Wno-ignored-optimization-argument -Wno-deprecated-declarations -Wno-vla-cxx-extension")
-if (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
-else ()
-    # set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-exceptions")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wunsafe-buffer-usage -Wunsafe-buffer-usage-in-container")
+if (NOT CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-exceptions -Wunsafe-buffer-usage -Wunsafe-buffer-usage-in-container")
 endif()
 
 set(CMAKE_CXX_FLAGS_RELEASE "-O3 -funroll-loops")

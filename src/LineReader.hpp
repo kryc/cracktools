@@ -38,25 +38,27 @@ public:
             m_FileStream.close();
         }
     }
-    void SetInputFile(const std::string_view Filename) {
+    bool SetInputFile(const std::string_view Filename) {
         if (m_FileStream.is_open()) {
             m_FileStream.close();
         }
         m_FileStream.open(Filename.data(), std::ios::in | std::ios::binary);
         if (!m_FileStream.is_open()) {
-            throw std::runtime_error("File is not open");
+            return false;
         }
         m_File = &m_FileStream;
         m_BufferView = cracktools::AsStringView(m_Buffer);
+        return true;
     }
-    void SetFileStream(std::istream* FileStream) {
+    bool SetFileStream(std::istream* FileStream) {
         if (m_FileStream.is_open()) {
             m_FileStream.close();
         }
         m_File = FileStream;
         if (!*m_File) {
-            throw std::runtime_error("File is not open");
+            return false;
         }
+        return true;
     }
     const size_t GetBlockSize() const {
         return BlockSize;
