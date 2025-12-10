@@ -28,7 +28,8 @@
 
 void
 CheckCracked(
-    const std::string_view InputCrackedFile
+    const std::string_view InputCrackedFile,
+    const std::string_view OutputFile = ""
 )
 {
     std::array<uint8_t, MAX_HASH_SIZE> hashBuffer;
@@ -46,6 +47,17 @@ CheckCracked(
         input = &infile;
     }
 
+    std::ofstream outfile;
+    if (!OutputFile.empty())
+    {
+        outfile.open(OutputFile.data(), std::ios::out | std::ios::binary);
+        if (!outfile.is_open())
+        {
+            std::cerr << "Error opening output file: " << OutputFile << std::endl;
+            return;
+        }
+    }
+
     LineReader<> reader(input);
     std::string_view line;
     size_t count = 0;
@@ -57,7 +69,7 @@ CheckCracked(
         size_t colonPos = line.find(':');
         if (colonPos == std::string_view::npos)
         {
-            std::cerr << "Malformed cracked line: " << line << std::endl;
+            std::cerr << "\rMalformed cracked line: " << line << std::endl;
             malformed++;
             continue;
         }
@@ -67,7 +79,7 @@ CheckCracked(
         auto algorithm = DetectHashAlgorithmHex(hashPart.size());
         if (algorithm == HashAlgorithmUndefined)
         {
-            std::cout << "Unknown hash algorithm for hash: " << hashPart << std::endl;
+            std::cerr << "\rUnknown hash algorithm for hash: " << hashPart << std::endl;
             continue;
         }
 
@@ -88,8 +100,12 @@ CheckCracked(
 
         if (!std::equal(hash.begin(), hash.end(), hashBuffer.begin()))
         {
-            std::cout << "Mismatch: " << hashPart << ":" << passwordPart << std::endl;
+            std::cerr << "\rMismatch: " << hashPart << ":" << passwordPart << std::endl;
             incorrect++;
+        }
+        else if (outfile.is_open())
+        {
+            outfile << line << std::endl;
         }
         
         count++;
@@ -106,12 +122,33 @@ int main(
 )
 {
     auto args = cracktools::ParseArgv(argv, argc);
-    std::string_view input_cracked_file;
+    std::string_view input_cracked, output_file;
     
     if (args.size() > 1)
     {
-        input_cracked_file = args[1];
+        input_cracked = args[1];
     }
 
-    CheckCracked(input_cracked_file);
+    for (int i = 1; i < argc; i++)
+    {
+        const std::string_view arg = args[i];
+        if (arg == "--output" || arg == "-o")
+        {
+            ARGCHECK();
+            output_file = args[++i];
+        }
+        else if (arg == "--help" || arg == "-h")
+        {
+            std::cout << "Usage: " << args[0] << " [options] [input_cracked]" << std::endl;
+            std::cout << "Options:" << std::endl;
+            std::cout << "  -o, --output <file>    Output file (default: stdout)" << std::endl;
+            return 0;
+        }
+        else if (input_cracked.empty() && std::filesystem::exists(arg))
+        {
+            input_cracked = arg;
+        }
+    }
+
+    CheckCracked(input_cracked, output_file);
 }
