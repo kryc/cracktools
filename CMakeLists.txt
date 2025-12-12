@@ -211,3 +211,15 @@ target_include_directories(wordlistfilter
                                 ./src/
                         )
 target_link_libraries(wordlistfilter gmp gmpxx)
+
+# WordlistLengthSplit
+set(WORDLISTLENGTHSPLIT_SOURCES
+    src/WordlistLengthSplit.cpp
+    src/Util.cpp
+)
+add_executable(wordlistlengthsplit ${WORDLISTLENGTHSPLIT_SOURCES})
+target_include_directories(wordlistlengthsplit
+                            PUBLIC
+                                ./src/
+                        )
+target_link_libraries(wordlistlengthsplit gmp gmpxx)
