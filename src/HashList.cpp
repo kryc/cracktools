@@ -17,6 +17,7 @@
 #include <cstring>
 #include <sys/mman.h>
 
+#include "Check.hpp"
 #include "HashList.hpp"
 #include "UnsafeBuffer.hpp"
 
@@ -287,6 +288,24 @@ HashList::InitializeInternal(
 
     std::cerr << std::endl;
 
+    // Build the quick lookup table if needed
+    if (m_QuickLookupEnabled)
+    {
+        CHECKA(m_DigestLength >= 8, "Hash size too small for quick lookup");
+        m_QuickLookupTable.clear();
+        m_QuickLookupTable.resize(GetCount(), 0);
+        for (size_t i = 0; i < GetCount(); i++)
+        {
+            auto hash = GetHash(i);
+            hash = hash.subspan(m_DigestLength - 8, 8);
+            m_QuickLookupTable[i] = cracktools::LoadUint64LittleEndian(hash);
+        }
+        std::sort(
+            m_QuickLookupTable.begin(),
+            m_QuickLookupTable.end()
+        );
+    }
+
     return true;
 }
 
@@ -343,6 +362,25 @@ HashList::LookupBinary(
         m_Data,
         Hash
     ).has_value();
+}
+
+const bool
+HashList::LookupQuick(
+    std::span<const uint8_t> Hash
+) const
+{
+    DCHECKA(m_DigestLength >= 8, "Hash size too small for quick lookup");
+    if (!m_QuickLookupEnabled)
+    {
+        return false;
+    }
+    auto hashPart = Hash.subspan(m_DigestLength - 8, 8);
+    const uint64_t hashValue = cracktools::LoadUint64LittleEndian(hashPart);
+    return std::binary_search(
+        m_QuickLookupTable.begin(),
+        m_QuickLookupTable.end(),
+        hashValue
+    );
 }
 
 std::optional<size_t>

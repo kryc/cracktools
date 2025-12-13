@@ -54,6 +54,7 @@ public:
     void SetParseHexInput(const bool ParseHexInput) { m_ParseHexInput = ParseHexInput; }
     void SetAutohex(const bool Autohex) { m_Hexlify = Autohex; }
     void SetBitmaskSize(const size_t BitmaskSize) { m_BitmaskSize = BitmaskSize; }
+    void SetQuickLookupEnabled(const bool Enable) { m_QuickLookupEnabled = Enable; }
     void SetLinkedIn(const bool LinkedIn) { m_LinkedIn = LinkedIn; }
     const std::string GetHashFile(void) const { return m_HashFile; }
     const std::filesystem::path GetOutFile(void) const { return m_OutFile; }
@@ -65,6 +66,7 @@ public:
     const bool GetBinary(void) const { return m_HashType == InputTypeBinary; }
     const size_t GetTerminalWidth(void) const { return m_TerminalWidth; }
     const size_t GetBitmaskSize(void) const { return m_BitmaskSize; }
+    const bool GetQuickLookupEnabled(void) const { return m_QuickLookupEnabled; }
     const bool GetAutohex(void) const { return m_Hexlify; }
     const bool GetParseHexInput(void) const { return m_ParseHexInput; }
     const bool GetLinkedIn(void) const { return m_LinkedIn; }
@@ -79,6 +81,7 @@ private:
     void OutputResultsInternal(std::vector<std::tuple<std::vector<uint8_t>,std::string,std::string>>& Results);
     bool m_Hexlify = true;
     size_t m_BitmaskSize = 16;
+    bool m_QuickLookupEnabled = false;
     std::vector<uint8_t> m_Hashes;
     std::string m_HashFile;
     HashFileType m_HashType = InputTypeUnknown;

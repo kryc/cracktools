@@ -433,6 +433,7 @@ CrackList::Crack(
     }
 
     m_HashList.SetBitmaskSize(m_BitmaskSize);
+    m_HashList.EnableQuickLookup(m_QuickLookupEnabled);
 
     // Set some values for linkedin mode
     if (m_LinkedIn)

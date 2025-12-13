@@ -34,13 +34,18 @@ public:
     const bool LookupFast(std::span<const uint8_t> Hash) const;
     const bool LookupLinear(std::span<const uint8_t> Hash) const;
     const bool LookupBinary(std::span<const uint8_t> Hash) const;
-    inline const bool Lookup(std::span<const uint8_t> Hash) const { return LookupFast(Hash); }
+    const bool LookupQuick(std::span<const uint8_t> Hash) const;
+    inline const bool Lookup(std::span<const uint8_t> Hash) const { 
+        return (m_QuickLookupEnabled ? LookupQuick(Hash) && LookupFast(Hash) : LookupFast(Hash));
+    }
     std::optional<size_t> FindLinear(std::span<const uint8_t> Hash) const;
     std::optional<size_t> FindBinary(std::span<const uint8_t> Hash) const;
     std::optional<size_t> Find(std::span<const uint8_t> Hash) const { return FindBinary(Hash); }
     const size_t GetCount(void) const { return m_Data.size() / m_RowWidth; };
     const bool SetBitmaskSize(const size_t BitmaskSize);
     const size_t GetBitmaskSize(void) const { return m_BitmaskSize; };
+    void EnableQuickLookup(const bool Enable) { m_QuickLookupEnabled = Enable; };
+    const bool QuickLookupEnabled(void) const { return m_QuickLookupEnabled; }
     inline std::span<const uint8_t> GetRow(std::span<const uint8_t> Span, const size_t Index) const {
         return Span.subspan(Index * m_RowWidth, m_RowWidth);
     }
@@ -67,6 +72,8 @@ private:
     std::span<const uint8_t> m_Data;
     size_t m_BitmaskSize = 16;
     std::vector<std::span<const uint8_t>> m_LookupTable;
+    bool m_QuickLookupEnabled = false;
+    std::vector<uint64_t> m_QuickLookupTable;
 };
 
 #endif //HashList_hpp
