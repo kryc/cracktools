@@ -11,6 +11,7 @@
 #include <iostream>
 #include <unordered_map>
 #include <string>
+#include <sstream>
 #include <string_view>
 
 #include "LineReader.hpp"
@@ -23,6 +24,28 @@
         std::cerr << "No value specified for " << arg << std::endl; \
         return 1; \
     }
+
+constexpr size_t kDefaultIntWidth = 4;
+
+const size_t
+GuessIntWidth(
+    const size_t MaxValue
+)
+{
+    if (MaxValue < 10)
+    {
+        return 1;
+    }
+    else if (MaxValue < 100)
+    {
+        return 2;
+    }
+    else if (MaxValue < 1000)
+    {
+        return 3;
+    }
+    return kDefaultIntWidth;
+}
 
 void
 CheckCracked(
@@ -101,17 +124,21 @@ CheckCracked(
         // Open output file for this length if not already opened
         if (outputFiles.find(length) == outputFiles.end())
         {
-            std::string outputFileName;
-            outputFileName = OutputDirectory;;
-            if (outputFileName.back() != '/' && outputFileName.back() != '\\')
+            static const size_t intWidth = GuessIntWidth(MaxLength);
+            std::stringstream outputFilePath;
+
+            outputFilePath << OutputDirectory;
+            if (outputFilePath.str().back() != '/' && outputFilePath.str().back() != '\\')
             {
-                outputFileName += '/';
+                outputFilePath << '/';
             }
-            outputFileName += "word_" + std::to_string(length) + ".txt";
-            outputFiles[length].open(outputFileName, std::ios::out | std::ios::binary);
+            
+            outputFilePath << "word_" << std::setw(intWidth) << std::setfill('0') << length << ".txt";
+
+            outputFiles[length].open(outputFilePath.str(), std::ios::out | std::ios::binary);
             if (!outputFiles[length].is_open())
             {
-                std::cerr << "Error opening output file: " << outputFileName << std::endl;
+                std::cerr << "Error opening output file: " << outputFilePath.str() << std::endl;
                 return;
             }
         }
