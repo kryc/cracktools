@@ -105,6 +105,10 @@ int main(
         {
             cracklist.SetBinary(true);
         }
+        else if (arg == "--quick-lookup" || arg == "-q")
+        {
+            cracklist.SetQuickLookupEnabled(true);
+        }
         else if (arg == "--bitmask" || arg == "--masksize" || arg == "-m")
         {
             ARGCHECK();

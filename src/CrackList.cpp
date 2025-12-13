@@ -26,8 +26,6 @@
 #include "LineReader.hpp"
 #include "Util.hpp"
 
-constexpr size_t kLinkedInIgnoreBytes = 6;
-
 const size_t
 CrackList::ReadBlock(
     SimdHashBufferFixed<MAX_STRING_LENGTH>& Words
@@ -109,14 +107,29 @@ CrackList::CrackLinear(
         for (size_t h = 0; h < count; h++)
         {
             auto hash = hashspan.subspan(h * hashWidth, hashWidth);
-            std::span<uint8_t> lookupHash = m_LinkedIn ? hash.subspan(kLinkedInIgnoreBytes) : hash;
 
-            if (m_HashList.Lookup(lookupHash))
+            if (m_HashList.Lookup(hash))
             {
                 auto hex = Util::ToHex(hash);
                 m_Cracked++;
                 output << hex << m_Separator << Util::Hexlify(words.GetStringView(h)) << std::endl;
                 last_cracked = words.GetStringView(h);
+            }
+            else if (m_LinkedIn && hashWidth == SHA1_SIZE)
+            {
+                // Try again with the first bytes set to zero
+                std::array<uint8_t, SHA1_SIZE> modifiedHash;
+                std::copy(hash.begin(), hash.end(), modifiedHash.begin());
+                modifiedHash[0] = 0;
+                modifiedHash[1] = 0;
+                modifiedHash[2] &= 0x0f;
+                if (m_HashList.Lookup(modifiedHash))
+                {
+                    auto hex = Util::ToHex(hash);
+                    m_Cracked++;
+                    output << hex << m_Separator << Util::Hexlify(words.GetStringView(h)) << std::endl;
+                    last_cracked = words.GetStringView(h);
+                }
             }
         }
 
@@ -317,9 +330,8 @@ CrackList::CrackWorker(
         for (size_t h = 0; h < count; h++)
         {
             std::span<uint8_t> hash = hashspan.subspan(h * hashWidth, hashWidth);
-            std::span<uint8_t> lookupHash = m_LinkedIn ? hash.subspan(kLinkedInIgnoreBytes) : hash;
 
-            if (m_HashList.Lookup(lookupHash))
+            if (m_HashList.Lookup(hash))
             {
                 auto hex = Util::ToHex(hash);
                 hex = Util::ToLower(hex);
@@ -328,6 +340,25 @@ CrackList::CrackWorker(
                     hex,
                     Util::Hexlify(words.GetStringView(h))
                 });
+            }
+            else if (m_LinkedIn && hashWidth == SHA1_SIZE)
+            {
+                // Try again with the first bytes set to zero
+                std::array<uint8_t, SHA1_SIZE> modifiedHash;
+                std::copy(hash.begin(), hash.end(), modifiedHash.begin());
+                modifiedHash[0] = 0;
+                modifiedHash[1] = 0;
+                modifiedHash[2] &= 0x0f;
+                if (m_HashList.Lookup(modifiedHash))
+                {
+                    auto hex = Util::ToHex(hash);
+                    hex = Util::ToLower(hex);
+                    cracked.push_back({
+                        {hash.begin(), hash.end()},
+                        hex,
+                        Util::Hexlify(words.GetStringView(h))
+                    });
+                }
             }
         }
 
@@ -435,11 +466,11 @@ CrackList::Crack(
     m_HashList.SetBitmaskSize(m_BitmaskSize);
     m_HashList.EnableQuickLookup(m_QuickLookupEnabled);
 
-    // Set some values for linkedin mode
     if (m_LinkedIn)
     {
+        std::cerr << "LinkedIn mode enabled" << std::endl;
         m_Algorithm = HashAlgorithmSHA1;
-        m_DigestLength = GetHashWidth(m_Algorithm) - kLinkedInIgnoreBytes;
+        m_DigestLength = SHA1_SIZE;
     }
 
     // Open the hash file
@@ -480,12 +511,6 @@ CrackList::Crack(
             else if (m_DigestLength == 0)
             {
                 m_DigestLength = GetHashWidth(m_Algorithm);
-            }
-
-            if (m_LinkedIn)
-            {
-                // In linkedin mode we strip the first kLinkedInIgnoreBytes bytes
-                line = line.substr(kLinkedInIgnoreBytes * 2);
             }
             
             if (line.size() != m_DigestLength * 2)

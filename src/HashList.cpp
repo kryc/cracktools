@@ -292,6 +292,7 @@ HashList::InitializeInternal(
     if (m_QuickLookupEnabled)
     {
         CHECKA(m_DigestLength >= 8, "Hash size too small for quick lookup");
+        std::cerr << "Building quick lookup table." << std::endl;
         m_QuickLookupTable.clear();
         m_QuickLookupTable.resize(GetCount(), 0);
         for (size_t i = 0; i < GetCount(); i++)
