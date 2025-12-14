@@ -80,6 +80,7 @@ void HashPipe(
 
     LineReader<> reader(input);
     std::string_view line;
+    std::string temp;
     
     for (;;)
     {
@@ -90,7 +91,11 @@ void HashPipe(
             i++, count++)
         {
             // Handle parsing "$HEX[]" input.
-            line = Util::UnHexlify(line);
+            if (Util::IsHexlified(line))
+            {
+                temp = Util::UnHexlify(line);
+                line = std::string_view(temp);
+            }
             // Ignore lines that are too long
             if (line.size() > MaxSize)
             {
