@@ -339,6 +339,27 @@ const std::vector<std::string_view> ParseArgv(
     return Args;
 }
 
+inline static
+const int Memcmp(
+    std::span<const uint8_t> Span1,
+    std::span<const uint8_t> Span2
+)
+{
+    CHECKA(Span1.size() == Span2.size(), "Span sizes do not match for Memcmp");
+    return std::memcmp(Span1.data(), Span2.data(), Span1.size());
+}
+
+inline static
+const int Memcmp(
+    const uint8_t* const Ptr1,
+    const uint8_t* const Ptr2,
+    const size_t Size
+)
+{
+    CHECKA(Size > 0, "Size is zero for Memcmp");
+    return std::memcmp(Ptr1, Ptr2, Size);
+}
+
 // A wrapper around mmap given a type returning an optional
 // tuple of span and file descriptor.
 // Will check that the filesize is a multiple of the type size

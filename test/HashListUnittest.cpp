@@ -46,7 +46,7 @@ TEST(HashList, BasicLookup) {
         EXPECT_TRUE(hashlist.Lookup(hash));
         EXPECT_EQ(hashlist.Find(hash).value(), i);
     }
-    std::vector<uint8_t> invalid_hash = {32, 0};
+    std::vector<uint8_t> invalid_hash(32, 0);
     invalid_hash[1] = 255;
     EXPECT_FALSE(hashlist.LookupBinary(invalid_hash));
 }
@@ -72,7 +72,7 @@ TEST(HashList, BinaryLookup) {
         EXPECT_TRUE(hashlist.LookupBinary(hash));
         EXPECT_EQ(hashlist.Find(hash).value(), i);
     }
-    std::vector<uint8_t> invalid_hash = {32, 0};
+    std::vector<uint8_t> invalid_hash(32, 0);
     invalid_hash[1] = 255;
     EXPECT_FALSE(hashlist.LookupBinary(invalid_hash));
 }
@@ -86,7 +86,7 @@ TEST(HashList, LinearLookup) {
         EXPECT_TRUE(hashlist.LookupLinear(hash));
         EXPECT_EQ(hashlist.Find(hash).value(), i);
     }
-    std::vector<uint8_t> invalid_hash = {32, 0};
+    std::vector<uint8_t> invalid_hash(32, 0);
     invalid_hash[1] = 255;
     EXPECT_FALSE(hashlist.LookupLinear(invalid_hash));
 }
@@ -101,10 +101,12 @@ TEST(HashList, QuickLookup) {
         EXPECT_TRUE(hashlist.LookupQuick(hash));
         EXPECT_EQ(hashlist.Find(hash).value(), i);
     }
-    // Expect that we dont find the hash if we modify a byte
-    std::vector<uint8_t> invalid_hash = {32, 0};
+    // Modifying a byte at the start of the hash will match the quick lookup
+    std::vector<uint8_t> invalid_hash(32, 0);
     invalid_hash[1] = 255;
-    EXPECT_FALSE(hashlist.LookupQuick(invalid_hash));
+    EXPECT_TRUE(hashlist.LookupQuick(invalid_hash));
+    // But the full lookup should fail
+    EXPECT_FALSE(hashlist.Lookup(invalid_hash));
 }
 
 TEST(HashList, InvalidLookup) {

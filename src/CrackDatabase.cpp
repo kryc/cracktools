@@ -28,7 +28,7 @@ Compare(
 {
     const DatabaseRecord* r1 = reinterpret_cast<const DatabaseRecord*>(Value1);
     const DatabaseRecord* r2 = reinterpret_cast<const DatabaseRecord*>(Value2);
-    return memcmp(r1->Hash, r2->Hash, HASH_BYTES);
+    return cracktools::Memcmp(r1->Hash, r2->Hash);
 }
 
 CrackDatabase::CrackDatabase(
@@ -325,7 +325,7 @@ CrackDatabase::CheckResult(
     // a matching initial hash bytes
     std::array<uint8_t, MAX_HASH_SIZE> temp_hash;
     for (size_t i = Index;
-        Index >= 0 && memcmp(Mapping[i].Hash, &Target[0], HASH_BYTES) == 0;
+        Index >= 0 && cracktools::Memcmp(Mapping[i].Hash, &Target[0], HASH_BYTES) == 0;
         --i
     )
     {
@@ -336,7 +336,7 @@ CrackDatabase::CheckResult(
             {
                 // Check the hash
                 SimdHashSingle(Algorithm, word.size(), (uint8_t*)&word[0], temp_hash.data());
-                if (memcmp(temp_hash.data(), &Target[0], TargetSize) == 0)
+                if (cracktools::Memcmp(temp_hash.data(), &Target[0], TargetSize) == 0)
                 {
                     return std::string(&word[0], word.size());
                 }
@@ -347,7 +347,7 @@ CrackDatabase::CheckResult(
     // Seek forwards
     for (
         size_t i = Index + 1;
-        i < Mapping.size() && memcmp(Mapping[i].Hash, &Target[0], HASH_BYTES) == 0;
+        i < Mapping.size() && cracktools::Memcmp(Mapping[i].Hash, &Target[0], HASH_BYTES) == 0;
         ++i
     )
     {
@@ -358,7 +358,7 @@ CrackDatabase::CheckResult(
             {
                 // Check the hash
                 SimdHashSingle(Algorithm, word.size(), (uint8_t*)&word[0], temp_hash.data());
-                if (memcmp(temp_hash.data(), &Target[0], TargetSize) == 0)
+                if (cracktools::Memcmp(temp_hash.data(), &Target[0], TargetSize) == 0)
                 {
                     return std::string(&word[0], word.size());
                 }
@@ -435,7 +435,7 @@ CrackDatabase::Lookup(
     while (low <= high)
     {
         const ssize_t mid = low + (high - low) / 2;
-        int cmp = std::memcmp(Mapping[mid].Hash, Hash, HASH_BYTES);
+        const int cmp = cracktools::Memcmp(Mapping[mid].Hash, Hash, HASH_BYTES);
         if (cmp == 0)
         {
             auto result = CheckResult(

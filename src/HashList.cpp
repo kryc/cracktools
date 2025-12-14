@@ -56,7 +56,7 @@ HashList::FindBinaryInternal(
     {
         const ssize_t mid = low + (high - low) / 2;
         auto midhash = GetHash(HashList, mid);
-        int cmp = std::memcmp(midhash.data(), Hash.data(), m_DigestLength);
+        const int cmp = cracktools::Memcmp(midhash, Hash);
         if (cmp == 0)
         {
             return mid;
