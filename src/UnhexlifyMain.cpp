@@ -64,23 +64,33 @@ Unhexlify(
 
     LineReader<> reader(input);
     std::string_view line;
+    size_t count = 0;
+    size_t ignored = 0;
     while (reader.ReadLine(line))
     {
+        count++;
         const size_t line_size = line.size();
         if (line_size < Min) {
+            ignored++;
             continue;
         }
         if (Util::IsHexlified(line)) {
             const size_t unhex_size = (line_size - 6) / 2;
             if (unhex_size < Min || unhex_size > Max) {
+                ignored++;
                 continue;
             }
             *output << Util::UnHexlify(line) << std::endl;
         } else if(line_size > Max) {
+            ignored++;
             continue;
         }
     
         *output << (Rehexlify ? Util::Hexlify(line) : line) << std::endl;
+        
+        if (count % 1000 == 0 && !OutputFile.empty()) {
+            std::cerr << "\r#: " << count << " I: " << ignored << std::flush;
+        }
     }
 }
 
