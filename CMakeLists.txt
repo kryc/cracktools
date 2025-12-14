@@ -23,9 +23,9 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 
 set(CMAKE_CXX_FLAGS "-Wall -Werror -Wno-deprecated-declarations -Wno-ignored-optimization-argument -Wno-deprecated-declarations -Wno-vla-cxx-extension")
-if (NOT CMAKE_SYSTEM_NAME STREQUAL "Darwin")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-exceptions -Wunsafe-buffer-usage -Wunsafe-buffer-usage-in-container")
-endif()
+# if (NOT CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+#     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-exceptions -Wunsafe-buffer-usage -Wunsafe-buffer-usage-in-container")
+# endif()
 
 set(CMAKE_CXX_FLAGS_RELEASE "-O3 -funroll-loops")
 set(CMAKE_CXX_FLAGS_DEBUG "-g -ggdb -O0 -fno-omit-frame-pointer -fsanitize=address -DDEBUG -DDEBUGINFO")
@@ -223,3 +223,26 @@ target_include_directories(wordlistlengthsplit
                                 ./src/
                         )
 target_link_libraries(wordlistlengthsplit gmp gmpxx)
+
+# Create a set of all targets
+set(ALL_TARGETS
+    cracklist
+    crackdb++
+    simdcrack
+    simdrainbowcrack
+    wordgen
+    hashpipe
+    hexlify
+    unhexlify
+    removecracked
+    checkcracked
+    hcmaskgen
+    hashlistconvert
+    wordlistfilter
+    wordlistlengthsplit
+)
+
+# Create install targets
+install(TARGETS ${ALL_TARGETS}
+    RUNTIME DESTINATION bin
+)
