@@ -65,29 +65,46 @@ WordlistFilter(
 
     LineReader<> reader(input);
     std::string_view line;
+    size_t count = 0;
+    size_t small = 0;
+    size_t large = 0;
+    size_t nonprintable = 0;
     while (reader.ReadLine(line))
     {
+        count++;
         const size_t line_size = line.size();
         if (line_size < Min) {
+            small++;
             continue;
         }
         if (Util::IsHexlified(line)) {
             const size_t unhex_size = (line_size - 6) / 2;
-            if (unhex_size < Min || unhex_size > Max) {
+            if (unhex_size < Min) {
+                small++;
+                continue;
+            }
+            if (unhex_size > Max) {
+                large++;
                 continue;
             }
         } else if(line_size > Max) {
+            large++;
             continue;
         }
         // PrintableASCII is a subset of PrintableUTF8 so check that first
         // and we can skip the second check if ASCIIOnly is set.
         if (ASCIIOnly && !Util::IsPrintableASCIIHexlified(line)) {
+            nonprintable++;
             continue;
         }
         else if (PrintableOnly && !Util::IsPrintableUTF8Hexlified(line)) {
+            nonprintable++;
             continue;
         }
         *output << line << std::endl;
+        if (count % 1000 == 0 && !OutputFile.empty()) {
+            std::cerr << "\r#: " << count << " <: " << small << " >: " << large << " NP: " << nonprintable << std::flush;
+        }
     }
 }
 
