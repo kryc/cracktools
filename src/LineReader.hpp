@@ -38,19 +38,28 @@ public:
             m_FileStream.close();
         }
     }
+    const bool Open(void) {
+        return m_Opened;
+    }
     bool SetInputFile(const std::string_view Filename) {
         if (m_FileStream.is_open()) {
             m_FileStream.close();
         }
+        m_Opened = false;
         m_FileStream.open(Filename.data(), std::ios::in | std::ios::binary);
         if (!m_FileStream.is_open()) {
             return false;
         }
         m_File = &m_FileStream;
         m_BufferView = cracktools::AsStringView(m_Buffer);
+        m_Opened = true;
         return true;
     }
     bool SetFileStream(std::istream* FileStream) {
+        if (FileStream == nullptr) {
+            return false;
+        }
+        m_Opened = false;
         if (m_FileStream.is_open()) {
             m_FileStream.close();
         }
@@ -58,6 +67,7 @@ public:
         if (!*m_File) {
             return false;
         }
+        m_Opened = true;
         return true;
     }
     const size_t GetBlockSize() const {
@@ -134,5 +144,6 @@ private:
     std::string_view m_BufferView;
     std::string_view m_Pending;
     std::string m_TempLine;
+    bool m_Opened = false;
 };
 #endif

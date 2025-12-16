@@ -414,6 +414,11 @@ CrackList::Crack(
         std::cerr << "Error: no hash file specified" << m_HashFile << std::endl;
         return false;
     }
+    else if (!std::filesystem::exists(m_HashFile))
+    {
+        std::cerr << "Error: hash file does not exist" << std::endl;
+        return false;
+    }
 
     if (m_BlockSize % SimdLanes() != 0)
     {
@@ -429,11 +434,19 @@ CrackList::Crack(
             std::cerr << "Error: Wordlist file does not exist" << std::endl;
             return false;
         }
-        m_LineReader.SetInputFile(m_Wordlist);
+        if (!m_LineReader.SetInputFile(m_Wordlist))
+        {
+            std::cerr << "Error: Unable to open wordlist file" << std::endl;
+            return false;
+        }
     }
     else
     {
-        m_LineReader.SetFileStream(&std::cin);
+        if (!m_LineReader.SetFileStream(&std::cin))
+        {
+            std::cerr << "Error: Unable to read from stdin" << std::endl;
+            return false;
+        }
     }
 
     if (m_OutFile != "")
@@ -494,6 +507,11 @@ CrackList::Crack(
         std::cerr << "Parsing hash list" << std::endl;
 
         LineReader<> infile(m_HashFile);
+        if (infile.Open() == false)
+        {
+            std::cerr << "Error: unable to open hash list file" << std::endl;
+            return false;
+        }
         std::string_view line;
         while (infile.ReadLine(line))
         {

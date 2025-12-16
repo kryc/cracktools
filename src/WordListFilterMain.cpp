@@ -94,7 +94,8 @@ WordlistFilter(
             small++;
             continue;
         }
-        if (Util::IsHexlified(line)) {
+        const bool is_hexlified = Util::IsHexlified(line);
+        if (is_hexlified) {
             const size_t unhex_size = (line_size - 6) / 2;
             if (unhex_size < Min) {
                 small++;
@@ -103,12 +104,6 @@ WordlistFilter(
             else if (unhex_size > Max) {
                 large++;
                 continue;
-            }
-            // Check if we need to normalize the hexlified line
-            if (HexlifyContainsUpperCaseHex(line)) {
-                temp = "$HEX[" + Util::ToLower(line.substr(5, line.size() - 6)) + "]";
-                line = std::string_view(temp);
-                lowered++;
             }
         } else if(line_size > Max) {
             large++;
@@ -124,6 +119,14 @@ WordlistFilter(
             nonprintable++;
             continue;
         }
+
+        // Check if we need to normalize the hexlified line
+        if (is_hexlified && HexlifyContainsUpperCaseHex(line)) {
+            temp = "$HEX[" + Util::ToLower(line.substr(5, line.size() - 6)) + "]";
+            line = std::string_view(temp);
+            lowered++;
+        }
+
         *output << line << std::endl;
         if (count % 1000 == 0 && !OutputFile.empty()) {
             std::cerr << "\r#: " << count << " <: " << small << " >: " << large << " NP: " << nonprintable << " L: " << lowered << std::flush;
