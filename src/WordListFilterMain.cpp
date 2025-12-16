@@ -24,6 +24,21 @@
         return 1; \
     }
 
+static inline const bool
+HexlifyContainsUpperCaseHex(
+    const std::string_view Line
+)
+{
+    std::string_view hexpart = Line.substr(5, Line.size() - 6); // Skip the "$HEX[" prefix and "]" suffix
+    return std::any_of(
+        hexpart.begin(),
+        hexpart.end(),
+        [](const char c) {
+            return (c >= 'A' && c <= 'F');
+        }
+    );
+}
+
 void
 WordlistFilter(
     const std::string_view InputFile,
@@ -65,10 +80,12 @@ WordlistFilter(
 
     LineReader<> reader(input);
     std::string_view line;
+    std::string temp;
     size_t count = 0;
     size_t small = 0;
     size_t large = 0;
     size_t nonprintable = 0;
+    size_t lowered = 0;
     while (reader.ReadLine(line))
     {
         count++;
@@ -83,9 +100,15 @@ WordlistFilter(
                 small++;
                 continue;
             }
-            if (unhex_size > Max) {
+            else if (unhex_size > Max) {
                 large++;
                 continue;
+            }
+            // Check if we need to normalize the hexlified line
+            if (HexlifyContainsUpperCaseHex(line)) {
+                temp = "$HEX[" + Util::ToLower(line.substr(5, line.size() - 6)) + "]";
+                line = std::string_view(temp);
+                lowered++;
             }
         } else if(line_size > Max) {
             large++;
@@ -103,8 +126,12 @@ WordlistFilter(
         }
         *output << line << std::endl;
         if (count % 1000 == 0 && !OutputFile.empty()) {
-            std::cerr << "\r#: " << count << " <: " << small << " >: " << large << " NP: " << nonprintable << std::flush;
+            std::cerr << "\r#: " << count << " <: " << small << " >: " << large << " NP: " << nonprintable << " L: " << lowered << std::flush;
         }
+    }
+
+    if (!OutputFile.empty()) {
+        std::cerr << "\r#: " << count << " <: " << small << " >: " << large << " NP: " << nonprintable << " L: " << lowered << std::endl;
     }
 }
 
@@ -141,6 +168,13 @@ int main(
         {
             ARGCHECK();
             max = Util::ParseNumber<size_t>(args[++i]);
+        }
+        else if (arg == "--length" || arg == "-l")
+        {
+            ARGCHECK();
+            const size_t length = Util::ParseNumber<size_t>(args[++i]);
+            min = length;
+            max = length;
         }
         else if (arg == "--printable" || arg == "-p")
         {
