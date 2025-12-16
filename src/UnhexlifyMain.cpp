@@ -92,6 +92,10 @@ Unhexlify(
             std::cerr << "\r#: " << count << " I: " << ignored << std::flush;
         }
     }
+
+    if (!OutputFile.empty()) {
+        std::cerr << "\r#: " << count << " I: " << ignored << std::endl;
+    }
 }
 
 int main(
