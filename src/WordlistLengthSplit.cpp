@@ -60,7 +60,7 @@ CheckCracked(
     // Check if the input file exists, if not read from stdin
     std::istream* input = &std::cin;
     std::ifstream infile;
-    if (!InputWords.empty())
+    if (!InputWords.empty() && InputWords != "-")
     {
         infile.open(InputWords.data(), std::ios::in | std::ios::binary);
         if (!infile.is_open())
@@ -79,6 +79,15 @@ CheckCracked(
     {
         std::cerr << "No output directory specified." << std::endl;
         return;
+    }
+
+    // Get the number of lines in the input file
+    size_t totalLines = 0;
+    if (!InputWords.empty() && std::filesystem::exists(InputWords))
+    {
+        std::cerr << "Counting input lines..." << std::flush;
+        LineCounter<> lineCounter(InputWords);
+        totalLines = lineCounter.CountLines();
     }
 
     std::unordered_map<size_t, std::ofstream> outputFiles;
@@ -147,8 +156,26 @@ CheckCracked(
 
         if (count % 1000 == 0)
         {
-            std::cout << "\r#: " << count << " <: " << toosmall << " >: " << toobig << " F: " << filtered << std::flush;
+            if (totalLines > 0)
+            {
+                std::cerr << "\r#: " << count << "/" << totalLines << "(" << (count * 100 / totalLines) << "%) "
+                          << "<: " << toosmall << " >: " << toobig << " F: " << filtered << std::flush;
+            }
+            else
+            {
+                std::cerr << "\r#: " << count << " <: " << toosmall << " >: " << toobig << " F: " << filtered << std::flush;
+            }
         }
+    }
+
+    if (totalLines > 0)
+    {
+        std::cerr << "\r#: " << count << "/" << totalLines << "(" << (count * 100 / totalLines) << "%) "
+                  << "<: " << toosmall << " >: " << toobig << " F: " << filtered << std::endl;
+    }
+    else
+    {
+        std::cerr << "\r#: " << count << " <: " << toosmall << " >: " << toobig << " F: " << filtered << std::endl;
     }
 }
 

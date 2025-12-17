@@ -64,6 +64,17 @@ std::span<T> SpanCast(
     return std::span<T>((T*)Span.data(), Span.size_bytes() / sizeof(T));
 }
 
+template <typename T>
+inline static
+std::span<T> SpanCast(
+    std::string_view String
+)
+{
+    CHECKA(String.size() % sizeof(T) == 0, "String size not a multiple of T");
+    DCHECKA(String.data() != nullptr, "String data is null");
+    return std::span<T>((T*)String.data(), String.size() / sizeof(T));
+}
+
 template <typename T, typename T2=const uint8_t>
 inline static
 std::span<T2>

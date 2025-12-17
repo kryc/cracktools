@@ -43,6 +43,14 @@ HashlistConvert(
         output = &outfile;
     }
 
+    // Get the number of lines in the input file
+    size_t totalLines = 0;
+    if (!InputFile.empty() && std::filesystem::exists(InputFile))
+    {
+        std::cerr << "Counting input lines..." << std::flush;
+        LineCounter<> lineCounter(InputFile);
+        totalLines = lineCounter.CountLines();
+    }
 
     LineReader<> reader(InputFile);
     std::string_view line;
@@ -80,11 +88,25 @@ HashlistConvert(
 
         if (hashes % 10000 == 0)
         {
-            std::cerr << "\r#: " << hashes << " E: " << errors << std::flush;
+            if (totalLines > 0)
+            {
+                std::cerr << "\r#: " << hashes << "/" << totalLines << "(" << (hashes * 100 / totalLines) << "%) E: " << errors << std::flush;
+            }
+            else
+            {
+                std::cerr << "\r#: " << hashes << " E: " << errors << std::flush;
+            }
         }
     }
 
-    std::cerr << "\r#: " << hashes << " E: " << errors << std::endl;
+    if (totalLines > 0)
+    {
+        std::cerr << "\r#: " << hashes << "/" << totalLines << "(" << (hashes * 100 / totalLines) << "%) E: " << errors << std::endl;
+    }
+    else
+    {
+        std::cerr << "\r#: " << hashes << " E: " << errors << std::endl;
+    }
 }
 
 int main(

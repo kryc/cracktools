@@ -48,7 +48,16 @@ RemoveCracked(
         return;
     }
 
+    // Get the number of lines in the input hashes file
     size_t totalHashes = 0;
+    if (!InputHashesFile.empty() && std::filesystem::exists(InputHashesFile))
+    {
+        std::cerr << "Counting input lines..." << std::flush;
+        LineCounter<> lineCounter(InputHashesFile);
+        totalHashes = lineCounter.CountLines();
+    }
+
+    size_t parsedHashes = 0;
     size_t crackedCount = 0;
     size_t uncrackedCount = 0;
     size_t missingCount = 0;
@@ -74,7 +83,7 @@ RemoveCracked(
     std::string_view hashLine;
     while (hashesReader.ReadLine(hashLine))
     {
-        totalHashes++;
+        parsedHashes++;
 
         // If there are no cracked lines left, everything else is uncracked
         if (!haveCracked)
@@ -161,9 +170,11 @@ RemoveCracked(
             std::cerr << "Logic error in hash comparison" << std::endl;
         }
 
-        if (totalHashes % 1000 == 0)
+        if (parsedHashes % 1000 == 0)
         {
-            std::cout << "\rH: " << totalHashes
+            std::cout << "\rH: " << parsedHashes
+                    << "/" << totalHashes
+                    << "(" << (parsedHashes * 100 / totalHashes) << "%)"
                     << " C: " << crackedCount
                     << " U: " << uncrackedCount
                     << " M: " << missingCount

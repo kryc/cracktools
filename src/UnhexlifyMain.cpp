@@ -61,6 +61,14 @@ Unhexlify(
         output = &outfile;
     }
 
+    // Get the number of lines in the input file
+    size_t totalLines = 0;
+    if (!InputFile.empty() && std::filesystem::exists(InputFile))
+    {
+        std::cerr << "Counting input lines..." << std::flush;
+        LineCounter<> lineCounter(InputFile);
+        totalLines = lineCounter.CountLines();
+    }
 
     LineReader<> reader(input);
     std::string_view line;
@@ -89,12 +97,26 @@ Unhexlify(
         *output << (Rehexlify ? Util::Hexlify(line) : line) << std::endl;
         
         if (count % 1000 == 0 && !OutputFile.empty()) {
-            std::cerr << "\r#: " << count << " I: " << ignored << std::flush;
+            if (totalLines > 0)
+            {
+                std::cerr << "\r#: " << count << "/" << totalLines << "(" << (count * 100 / totalLines) << "%) I: " << ignored << std::flush;
+            }
+            else
+            {
+                std::cerr << "\r#: " << count << " I: " << ignored << std::flush;
+            }
         }
     }
 
     if (!OutputFile.empty()) {
-        std::cerr << "\r#: " << count << " I: " << ignored << std::endl;
+        if (totalLines > 0)
+        {
+            std::cerr << "\r#: " << count << "/" << totalLines << "(" << (count * 100 / totalLines) << "%) I: " << ignored << std::endl;
+        }
+        else
+        {
+            std::cerr << "\r#: " << count << " I: " << ignored << std::endl;
+        }
     }
 }
 

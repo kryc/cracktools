@@ -77,6 +77,14 @@ WordlistFilter(
         output = &outfile;
     }
 
+    // Get the number of lines in the input file
+    size_t totalLines = 0;
+    if (!InputFile.empty() && std::filesystem::exists(InputFile))
+    {
+        std::cerr << "Counting input lines..." << std::flush;
+        LineCounter<> lineCounter(InputFile);
+        totalLines = lineCounter.CountLines();
+    }
 
     LineReader<> reader(input);
     std::string_view line;
@@ -129,12 +137,28 @@ WordlistFilter(
 
         *output << line << std::endl;
         if (count % 1000 == 0 && !OutputFile.empty()) {
-            std::cerr << "\r#: " << count << " <: " << small << " >: " << large << " NP: " << nonprintable << " L: " << lowered << std::flush;
+            if (totalLines > 0)
+            {
+                std::cerr << "\r#: " << count << "/" << totalLines << "(" << (count * 100 / totalLines) << "%) "
+                          << "<: " << small << " >: " << large << " NP: " << nonprintable << " L: " << lowered << std::flush;
+            }
+            else
+            {
+                std::cerr << "\r#: " << count << " <: " << small << " >: " << large << " NP: " << nonprintable << " L: " << lowered << std::flush;
+            }
         }
     }
 
     if (!OutputFile.empty()) {
-        std::cerr << "\r#: " << count << " <: " << small << " >: " << large << " NP: " << nonprintable << " L: " << lowered << std::endl;
+        if (totalLines > 0)
+        {
+            std::cerr << "\r#: " << count << "/" << totalLines << "(" << (count * 100 / totalLines) << "%) "
+                      << "<: " << small << " >: " << large << " NP: " << nonprintable << " L: " << lowered << std::endl;
+        }
+        else
+        {
+            std::cerr << "\r#: " << count << " <: " << small << " >: " << large << " NP: " << nonprintable << " L: " << lowered << std::endl;
+        }
     }
 }
 
