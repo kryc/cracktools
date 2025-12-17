@@ -193,9 +193,14 @@ int main(
         }
         else if (arg == "--help" || arg == "-h")
         {
-            std::cout << "Usage: " << args[0] << " [options] [input_words]" << std::endl;
-            std::cout << "Options:" << std::endl;
-            std::cout << "  -o, --output <file>    Output file (default: stdout)" << std::endl;
+            std::cout << "Usage: WordlistLengthSplit [options] <input_words> <output_directory>\n"
+                      << "Options:\n"
+                      << "  -m, --min <length>        Minimum word length to include\n"
+                      << "  -M, --max <length>        Maximum word length to include\n"
+                      << "  -l, --length <length>     Exact word length to include\n"
+                      << "  -a, --ascii               Include only ASCII printable words\n"
+                      << "  -p, --printable           Include only UTF-8 printable words\n"
+                      << "  -h, --help                Show this help message\n";
             return 0;
         }
         else if (input_words.empty() && std::filesystem::exists(arg))
