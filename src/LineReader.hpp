@@ -12,6 +12,10 @@
 #include <optional>
 #include <vector>
 
+#if (defined(__AVX512F__) || defined(__AVX2__))
+#include <immintrin.h>
+#endif
+
 #include "UnsafeBuffer.hpp"
 
 #ifndef LineReader_hpp
@@ -146,4 +150,94 @@ private:
     std::string m_TempLine;
     bool m_Opened = false;
 };
+
+template <size_t BlockSize = 16384*2>
+class LineCounter {
+public:
+    LineCounter(std::string_view Filename) {
+        m_FileStream.open(Filename.data(), std::ios::in |  std::ios::binary);
+        m_Buffer.resize(BlockSize);
+        m_BufferView = cracktools::AsStringView(m_Buffer);
+    }
+    ~LineCounter() {
+        if (m_FileStream.is_open()) {
+            m_FileStream.close();
+        }
+    }
+
+#if defined(__AVX512F__) || defined(__AVX2__)
+    static_assert(BlockSize % 32 == 0, "BlockSize must be a multiple of 32 for AVX2");
+    const size_t CountLines(void) {
+        static const __m256i newline = _mm256_set1_epi8('\n');
+        auto bufferSpan = cracktools::SpanCast<__m256i>(m_BufferView);
+        size_t lineCount = 0;
+        while (!m_FileStream.eof()) {
+            m_FileStream.read(m_Buffer.data(), BlockSize);
+            const size_t bytesRead = m_FileStream.gcount();
+            if (bytesRead == 0) {
+                break;
+            }
+            // Fill the remainder of the buffer with zeros if needed
+            if (bytesRead < BlockSize) {
+                std::fill(m_Buffer.begin() + bytesRead, m_Buffer.end(), 0);
+            }
+            for (auto chunk : bufferSpan) {
+                // Compare each byte in the chunk to '\n'
+                __m256i cmp = _mm256_cmpeq_epi8(chunk, newline);
+                // Create a bitmask from the comparison result
+                uint32_t mask = _mm256_movemask_epi8(cmp);
+                // Count the number of set bits in the mask
+                lineCount += __builtin_popcount(mask);
+            }
+        }
+        return lineCount;
+    }
+#elif defined(__arm64__) || defined(__aarch64__)
+    static_assert(BlockSize % 16 == 0, "BlockSize must be a multiple of 16 for NEON");
+    const size_t CountLines(void) {
+        static const uint8x16_t newline = vdupq_n_u8('\n');
+        auto bufferSpan = cracktools::SpanCast<uint8x16_t>(m_BufferView);
+        size_t lineCount = 0;
+        while (!m_FileStream.eof()) {
+            m_FileStream.read(m_Buffer.data(), BlockSize);
+            const size_t bytesRead = m_FileStream.gcount();
+            if (bytesRead == 0) {
+                break;
+            }
+            // Fill the remainder of the buffer with zeros if needed
+            if (bytesRead < BlockSize) {
+                std::fill(m_Buffer.begin() + bytesRead, m_Buffer.end(), 0);
+            }
+            for (auto chunk : bufferSpan) {
+                // Compare each byte in the chunk to '\n'
+                uint8x16_t cmp = vceqq_u8(chunk, newline);
+                // Create a bitmask from the comparison result
+                uint64_t mask = vmovq_u64(vreinterpretq_u64_u8(cmp));
+                // Count the number of set bits in the mask
+                lineCount += __builtin_popcountll(mask);
+            }
+        }
+        return lineCount;
+    }
+#else
+    const size_t CountLines(void) {
+        size_t lineCount = 0;
+        while (!m_FileStream.eof()) {
+            m_FileStream.read(m_Buffer.data(), BlockSize);
+            const size_t bytesRead = m_FileStream.gcount();
+            if (bytesRead == 0) {
+                break;
+            }
+            auto bufferView = m_BufferView.substr(0, bytesRead);
+            lineCount += std::count(bufferView.begin(), bufferView.end(), '\n');
+        }
+        return lineCount;
+    }
+#endif
+private:
+    std::ifstream m_FileStream;
+    std::vector<char> m_Buffer;
+    std::string_view m_BufferView;
+};
+
 #endif
