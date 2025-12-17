@@ -29,6 +29,7 @@ Options:
   --linkedin                    Enable LinkedIn hash processing mode.
   --binary, -b                  Treat input hashes as binary.
   --bitmask, --masksize, -m     Set the bitmask size.
+  --quick-lookup, -q            Enable quick lookup mode for small hashlists.
   --autohex, -a                 Automatically convert input to hexadecimal.
   --no-autohex, -A              Disable automatic hexadecimal conversion.
   --parse-hex, -p               Parse input hashes as hexadecimal.
