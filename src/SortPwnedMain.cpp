@@ -35,18 +35,15 @@ SortPwned(
     const size_t Max = std::numeric_limits<size_t>::max()
 )
 {
-    // Check if the input file exists, if not read from stdin
-    std::istream* input = &std::cin;
-    std::ifstream infile;
-    if (!InputFile.empty())
+    if (InputFile.empty())
     {
-        infile.open(InputFile.data(), std::ios::in | std::ios::binary);
-        if (!infile.is_open())
-        {
-            std::cerr << "Error opening input file: " << InputFile << std::endl;
-            return;
-        }
-        input = &infile;
+        std::cerr << "No input file specified." << std::endl;
+        return;
+    }
+    if (!std::filesystem::exists(InputFile))
+    {
+        std::cerr << "Input file does not exist: " << InputFile << std::endl;
+        return;
     }
 
     // Open the output file if specified, otherwise write to stdout
@@ -72,9 +69,9 @@ SortPwned(
         totalLines = lineCounter.CountLines();
     }
 
-    std::unordered_map<std::size_t, std::vector<std::pair<std::vector<uint8_t>, size_t>>> length_buckets;
+    std::unordered_map<std::size_t, std::vector<std::string_view>> length_buckets;
 
-    LineReader<> reader(input);
+    MmapLineReader reader(InputFile);
     std::string_view line;
     size_t count = 0;
     size_t small = 0;
@@ -89,7 +86,7 @@ SortPwned(
             std::cerr << "Malformed line (missing ':'): " << line << std::endl;
             continue;
         }
-        std::string_view hashPart = line.substr(0, delimiterPos);
+        // std::string_view hashPart = line.substr(0, delimiterPos);
         std::string_view countPart = line.substr(delimiterPos + 1);
 
         size_t hashcount = Util::ParseNumber<size_t>(countPart);
@@ -101,10 +98,9 @@ SortPwned(
             large++;
             continue;
         }
-        auto hash = Util::ParseHex(hashPart);
 
         // Add it to the appropriate length bucket
-        length_buckets[hashcount].emplace_back(std::move(hash), hashcount);
+        length_buckets[hashcount].emplace_back(std::move(line));
         
         if (count % 1000 == 0 && !OutputFile.empty()) {
             if (totalLines > 0)
@@ -143,8 +139,8 @@ SortPwned(
     // Write sorted entries to output
     for (const auto& count : counts) {
         auto& vec = length_buckets[count];
-        for (const auto& [hash, hashcount] : vec) {
-            *output << Util::ToHex(hash) << ":" << hashcount << std::endl;
+        for (const auto& line : vec) {
+            *output << line << std::endl;
         }
     }
 }
