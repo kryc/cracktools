@@ -37,6 +37,26 @@ ParseHex(
     const size_t MaxBytes = MAX
 );
 
+const uint16_t
+ParseHexUint16(
+    const std::string_view HexString
+);
+
+const uint32_t
+ParseHexUint32(
+    const std::string_view HexString
+);
+
+const uint64_t
+ParseHexUint64(
+	const std::string_view HexString
+);
+
+const __uint128_t
+ParseHexUint128(
+	const std::string_view HexString
+);
+
 const size_t
 ParseHexInplace(
 	std::span<char> HexString,

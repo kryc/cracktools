@@ -224,6 +224,30 @@ target_include_directories(wordlistlengthsplit
                         )
 target_link_libraries(wordlistlengthsplit gmp gmpxx)
 
+# SortPwned
+set(SORTPWNED_SOURCES
+    src/SortPwnedMain.cpp
+    src/Util.cpp
+)
+add_executable(sortpwned ${SORTPWNED_SOURCES})
+target_include_directories(sortpwned
+                            PUBLIC
+                                ./src/
+                        )
+target_link_libraries(sortpwned gmp gmpxx)
+
+# HashListLookup
+set(HASHLISTLOOKUP_SOURCES
+    src/HashListLookupMain.cpp
+    src/Util.cpp
+)
+add_executable(hashlistlookup ${HASHLISTLOOKUP_SOURCES})
+target_include_directories(hashlistlookup
+                            PUBLIC
+                                ./src/
+                        )
+target_link_libraries(hashlistlookup gmp gmpxx)
+
 # Create a set of all targets
 set(ALL_TARGETS
     cracklist
@@ -240,6 +264,8 @@ set(ALL_TARGETS
     hashlistconvert
     wordlistfilter
     wordlistlengthsplit
+    sortpwned
+    hashlistlookup
 )
 
 # Create install targets

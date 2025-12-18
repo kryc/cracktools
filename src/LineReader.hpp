@@ -151,6 +151,66 @@ private:
     bool m_Opened = false;
 };
 
+class MmapLineReader {
+public:
+    MmapLineReader(const std::string_view Filename) {
+        auto mapping = cracktools::MmapFileSpan<const char>(
+            Filename,
+            PROT_READ,
+            MAP_SHARED
+        );
+        if (!mapping.has_value()) {
+            m_Opened = false;
+            return;
+        }
+        m_Span = std::get<std::span<const char>>(mapping.value());
+        m_FileHandle = std::get<FILE*>(mapping.value());
+        m_FileView = cracktools::AsStringView(m_Span);
+        m_Opened = true;
+    }
+    ~MmapLineReader() {
+        if (m_Opened) {
+            cracktools::UnmapFileSpan(m_Span, m_FileHandle);
+        }
+    }
+    const bool Open(void) const {
+        return m_Opened;
+    }
+    const bool IsEof() const {
+        return m_Offset >= m_Span.size();
+    }
+    const bool ReadLine(std::string_view& Destination) {
+        if (IsEof()) {
+            return false;
+        }
+
+        size_t lineEnd = m_FileView.find('\n', m_Offset);
+        if (lineEnd == std::string_view::npos) {
+            // Last line (may not be newline-terminated)
+            Destination = m_FileView.substr(m_Offset);
+            m_Offset = m_Span.size();
+            return true;
+        }
+
+        Destination = m_FileView.substr(m_Offset, lineEnd - m_Offset);
+        m_Offset = lineEnd + 1;
+        return true;
+    }
+    std::optional<std::string_view> ReadLine() {
+        std::string_view line;
+        if (ReadLine(line)) {
+            return line;
+        }
+        return std::nullopt;
+    }
+private:
+    std::span<const char> m_Span;
+    FILE* m_FileHandle = nullptr;
+    std::string_view m_FileView;
+    size_t m_Offset = 0;
+    bool m_Opened = false;
+};
+
 template <size_t BlockSize = 16384*2>
 class LineCounter {
 public:

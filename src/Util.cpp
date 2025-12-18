@@ -67,6 +67,70 @@ ParseHex(
 	return vec;
 }
 
+const uint16_t
+ParseHexUint16(
+	const std::string_view HexString
+)
+{
+	DCHECKA(HexString.size() <= 4, "Hex string too long to fit in uint16_t");
+	uint16_t result = 0;
+	for (size_t i = 0; i < HexString.size(); i++)
+	{
+		uint8_t value = HEX_LOOKUP[(uint8_t)HexString[i]];
+		CHECKA(value != (uint8_t)-1, "Invalid hex character encountered");
+		result = (result << 4) | value;
+	}
+	return result;
+}
+
+const uint32_t
+ParseHexUint32(
+	const std::string_view HexString
+)
+{
+	DCHECKA(HexString.size() <= 8, "Hex string too long to fit in uint32_t");
+	uint32_t result = 0;
+	for (size_t i = 0; i < HexString.size(); i++)
+	{
+		uint8_t value = HEX_LOOKUP[(uint8_t)HexString[i]];
+		CHECKA(value != (uint8_t)-1, "Invalid hex character encountered");
+		result = (result << 4) | value;
+	}
+	return result;
+}
+
+const uint64_t
+ParseHexUint64(
+	const std::string_view HexString
+)
+{
+	DCHECKA(HexString.size() <= 16, "Hex string too long to fit in uint64_t");
+	uint64_t result = 0;
+	for (size_t i = 0; i < HexString.size(); i++)
+	{
+		uint8_t value = HEX_LOOKUP[(uint8_t)HexString[i]];
+		CHECKA(value != (uint8_t)-1, "Invalid hex character encountered");
+		result = (result << 4) | value;
+	}
+	return result;
+}
+
+const __uint128_t
+ParseHexUint128(
+	const std::string_view HexString
+)
+{
+	DCHECKA(HexString.size() <= 32, "Hex string too long to fit in uint128_t");
+	__uint128_t result = 0;
+	for (size_t i = 0; i < HexString.size(); i++)
+	{
+		uint8_t value = HEX_LOOKUP[(uint8_t)HexString[i]];
+		CHECKA(value != (uint8_t)-1, "Invalid hex character encountered");
+		result = (result << 4) | value;
+	}
+	return result;
+}
+
 const size_t
 ParseHexInplace(
 	std::span<char> HexString,
