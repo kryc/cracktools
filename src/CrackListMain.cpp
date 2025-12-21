@@ -98,6 +98,10 @@ int main(
             }
             cracklist.SetAlgorithm(algorithm);
         }
+        else if (arg == "--password-only" || arg == "-P")
+        {
+            cracklist.SetPasswordOnly(true);
+        }
         else if (arg == "--linkedin")
         {
             cracklist.SetLinkedIn(true);

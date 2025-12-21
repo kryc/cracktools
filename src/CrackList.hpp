@@ -56,6 +56,7 @@ public:
     void SetBitmaskSize(const size_t BitmaskSize) { m_BitmaskSize = BitmaskSize; }
     void SetQuickLookupEnabled(const bool Enable) { m_QuickLookupEnabled = Enable; }
     void SetLinkedIn(const bool LinkedIn) { m_LinkedIn = LinkedIn; }
+    void SetPasswordOnly(const bool PasswordOnly) { m_PasswordOnly = PasswordOnly; }
     const std::string GetHashFile(void) const { return m_HashFile; }
     const std::filesystem::path GetOutFile(void) const { return m_OutFile; }
     const std::string GetWordlist(void) const { return m_Wordlist; }
@@ -70,15 +71,17 @@ public:
     const bool GetAutohex(void) const { return m_Hexlify; }
     const bool GetParseHexInput(void) const { return m_ParseHexInput; }
     const bool GetLinkedIn(void) const { return m_LinkedIn; }
+    const bool GetPasswordOnly(void) const { return m_PasswordOnly; }
     const bool Crack(void);
     const bool CrackLinear(void);
 private:
     void CrackWorker(const size_t Id);
-    void ThreadPulse(const size_t ThreadId, const uint64_t BlockTime, const std::string LastCracked, const std::string LastTry);
+    void ThreadPulse(const size_t ThreadId, const uint64_t BlockTime);
     void WorkerFinished(void);
     const size_t ReadBlock(SimdHashBufferFixed<MAX_STRING_LENGTH>& Words);
-    void OutputResults(void);
-    void OutputResultsInternal(std::vector<std::tuple<std::vector<uint8_t>,std::string,std::string>>& Results);
+    void OutputResultInternal(const std::string_view Hash, const std::string_view Cracked, std::ostream& Output, const bool SetLastCracked = true);
+    void OutputResultsInternal(std::vector<std::tuple<std::vector<uint8_t>,std::string,std::string>> Results);
+    bool m_PasswordOnly = false;
     bool m_Hexlify = true;
     size_t m_BitmaskSize = 16;
     bool m_QuickLookupEnabled = false;
@@ -105,7 +108,6 @@ private:
     // Threading
     std::mutex m_InputMutex;
     std::mutex m_ResultsMutex;
-    std::vector<std::tuple<std::vector<uint8_t>,std::string,std::string>> m_Results;
     bool m_Exhausted = false;
     bool m_Finished = false;
     size_t m_Threads = 1;

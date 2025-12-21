@@ -47,13 +47,13 @@ CrackList::ReadBlock(
 
         m_LineReader.ReadLine(line);
 
-#if 0
-        // Strip carriage return if present at the end
-        if (!line.empty() && line.back() == '\r')
+        // Handle hashcat output wordlists, take the part after the separator
+        const size_t sepPos = line.find(m_Separator);
+        if (sepPos != std::string_view::npos &&
+            Util::IsHex(line.substr(0, sepPos)))
         {
-            line = line.substr(0, line.size() - 1);
+            line = line.substr(sepPos + m_Separator.size());
         }
-#endif
 
         if (Util::IsHexlified(line) && m_ParseHexInput)
         {
@@ -111,8 +111,7 @@ CrackList::CrackLinear(
             if (m_HashList.Lookup(hash))
             {
                 auto hex = Util::ToHex(hash);
-                m_Cracked++;
-                output << hex << m_Separator << Util::Hexlify(words.GetStringView(h)) << std::endl;
+                OutputResultInternal(hex, Util::Hexlify(words.GetStringView(h)), output);
                 last_cracked = words.GetStringView(h);
             }
             else if (m_LinkedIn && hashWidth == SHA1_SIZE)
@@ -127,18 +126,17 @@ CrackList::CrackLinear(
                 {
                     auto hex = Util::ToHex(hash);
                     m_Cracked++;
-                    output << hex << m_Separator << Util::Hexlify(words.GetStringView(h)) << std::endl;
+                    OutputResultInternal(hex, Util::Hexlify(words.GetStringView(h)), output);
                     last_cracked = words.GetStringView(h);
                 }
             }
         }
 
-        std::string back(words.GetStringView(count - 1));
         m_BlocksProcessed++;
 
         auto end = std::chrono::system_clock::now();
         auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-        ThreadPulse(0, elapsed_ms.count(), std::move(last_cracked), std::move(back));
+        ThreadPulse(0, elapsed_ms.count());
         start = std::chrono::system_clock::now();
 
         if (m_Cracked == m_Count)
@@ -150,17 +148,26 @@ CrackList::CrackLinear(
 }
 
 void
-CrackList::OutputResultsInternal(
-    std::vector<std::tuple<std::vector<uint8_t>,std::string,std::string>>& Results
+CrackList::OutputResultInternal(
+    const std::string_view Hash,
+    const std::string_view Cracked,
+    std::ostream& Output,
+    const bool SetLastCracked
 )
 {
-    std::ostream& output = m_OutputFileStream.is_open() ? m_OutputFileStream : std::cout;
-
-    for (auto& [h,x,v] : Results)
+    m_Cracked++;
+    if (m_PasswordOnly)
     {
-        m_Cracked++;
-        output << x << m_Separator << v << std::endl;
-        m_LastCracked = v;
+        Output << Cracked << std::endl;
+    }
+    else
+    {
+        Output << Hash << m_Separator << Cracked << std::endl;
+    }
+
+    if (SetLastCracked)
+    {
+        m_LastCracked = Cracked;
     }
 
     // Check if we have found all the tarets
@@ -171,41 +178,33 @@ CrackList::OutputResultsInternal(
 }
 
 void
-CrackList::OutputResults(
-    void
+CrackList::OutputResultsInternal(
+    std::vector<std::tuple<std::vector<uint8_t>,std::string,std::string>> Results
 )
 {
-    // Take a copy of the results
-    std::vector<std::tuple<std::vector<uint8_t>,std::string,std::string>> copy;
+    std::ostream& output = m_OutputFileStream.is_open() ? m_OutputFileStream : std::cout;
+
+    for (auto& [h,x,v] : Results)
     {
-        std::lock_guard<std::mutex> lock(m_ResultsMutex);
-        copy = std::move(m_Results);
+        OutputResultInternal(x, v, output, false);
     }
 
-    OutputResultsInternal(copy);
+    if (!Results.empty())
+    {
+        m_LastCracked = std::get<2>(Results.back());
+    }
 }
 
 void
 CrackList::ThreadPulse(
     const size_t ThreadId,
-    const uint64_t BlockTime,
-    const std::string LastCracked,
-    const std::string LastTry
+    const uint64_t BlockTime
 )
 {
     m_LastBlockMs[ThreadId] = BlockTime;
 
-    if (!LastCracked.empty())
-    {
-        m_LastCracked = LastCracked;
-    }
-
     std::string printable_cracked = Util::Hexlify(m_LastCracked);
     std::transform(printable_cracked.begin(), printable_cracked.end(), printable_cracked.begin(),
-        [](unsigned char c){ return c > ' ' && c < '~' ? c : ' ' ; });
-
-    std::string printable_last = Util::Hexlify(LastTry);
-    std::transform(printable_last.begin(), printable_last.end(), printable_last.begin(),
         [](unsigned char c){ return c > ' ' && c < '~' ? c : ' ' ; });
 
     // Output the status if we are not printing to stdout
@@ -229,15 +228,14 @@ CrackList::ThreadPulse(
         double percent = ((double)m_Cracked / hashcount) * 100.f;
 
         std::string status = std::format(
-            "H/s:{:.1f}{} C:{}/{} ({:.1f}%) T:{} C:\"{}\" L:\"{}\"",
+            "H/s:{:.1f}{} C:{}/{} ({:.1f}%) T:{} C:\"{}\"",
             hashesPerSec,
             hps_ch,
             m_Cracked,
             hashcount,
             percent,
             m_WordsProcessed.load(),
-            printable_cracked,
-            printable_last
+            printable_cracked
         );
 
         if (status.size() > m_TerminalWidth)
@@ -304,7 +302,6 @@ CrackList::CrackWorker(
     SimdHashBufferFixed<MAX_STRING_LENGTH> words;
     std::array<uint8_t, MAX_HASH_SIZE * MAX_LANES> hashes;
     std::span<uint8_t, MAX_HASH_SIZE * MAX_LANES> hashspan(hashes);
-    std::string last_cracked, back;
 
     for (size_t block = 0; block < m_BlockSize && !m_Exhausted; block += lanes)
     {
@@ -361,11 +358,6 @@ CrackList::CrackWorker(
                 }
             }
         }
-
-        if (count > 0)
-        {
-            back = words.GetStringView(count - 1);
-        }
     }
 
     auto end = std::chrono::system_clock::now();
@@ -374,8 +366,7 @@ CrackList::CrackWorker(
     if (cracked.size() > 0)
     {
         std::lock_guard<std::mutex> lock(m_ResultsMutex);
-        last_cracked = std::get<2>(cracked.back());
-        OutputResultsInternal(cracked);
+        OutputResultsInternal(std::move(cracked));
     }
 
     m_BlocksProcessed++;
@@ -386,9 +377,7 @@ CrackList::CrackWorker(
             &CrackList::ThreadPulse,
             this,
             Id,
-            elapsed_ms.count(),
-            std::move(last_cracked),
-            std::move(back)
+            elapsed_ms.count()
         )
     );
 
@@ -515,6 +504,12 @@ CrackList::Crack(
         std::string_view line;
         while (infile.ReadLine(line))
         {
+            // If there is a colon in the line, take only the part before it
+            auto colon_pos = line.find(':');
+            if (colon_pos != std::string_view::npos)
+            {
+                line = line.substr(0, colon_pos);
+            }
             if (m_Algorithm == HashAlgorithmUndefined)
             {
                 m_Algorithm = DetectHashAlgorithmHex(line.size());
