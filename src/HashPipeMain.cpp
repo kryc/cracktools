@@ -41,7 +41,10 @@ void HashPipe(
     const std::string_view Input,
     const std::string_view Output,
     const std::span<const HashAlgorithm> Algorithms,
-    const OutputCase Case
+    const OutputCase Case,
+    const bool StatusUpdates = false,
+    const size_t Min = 0,
+    const size_t Max = std::numeric_limits<size_t>::max()
 )
 {
     // Check if the input file exists, if not read from stdin
@@ -72,6 +75,16 @@ void HashPipe(
         output = &outfile;
     }
 
+    // If we are writing to a file, lets get the number of lines
+    // first so we can show progress
+    size_t totalLines = 0;
+    if ((!Output.empty() && !Input.empty() && std::filesystem::exists(Input)) || StatusUpdates)
+    {
+        std::cerr << "\rCounting input lines..." << std::flush;
+        LineCounter counter(Input);
+        totalLines = counter.CountLines();
+    }
+
     const size_t lanes = SimdLanes();
     
     SimdHashBufferFixed<MaxSize> words;
@@ -81,7 +94,9 @@ void HashPipe(
     LineReader<> reader(input);
     std::string_view line;
     std::string temp;
-    
+    size_t processedLines = 0;
+    size_t small = 0;
+    size_t large = 0;
     for (;;)
     {
         // Read the next block of words
@@ -90,6 +105,7 @@ void HashPipe(
             i < lanes && reader.ReadLine(line);
             i++, count++)
         {
+            processedLines++;
             // Handle parsing "$HEX[]" input.
             if (Util::IsHexlified(line))
             {
@@ -102,8 +118,26 @@ void HashPipe(
                 i--, count--;
                 continue;
             }
+            if (line.size() < Min)
+            {
+                small++;
+                i--, count--;
+                continue;
+            }
+            if (line.size() > Max)
+            {
+                large++;
+                i--, count--;
+                continue;
+            }
             // Add them to the simd buffer
             words.Set(i, line);
+
+            // Show progress if writing to a file
+            if ((totalLines > 0 || StatusUpdates) && processedLines % 1000 == 0)
+            {
+                std::cerr << "\r" << processedLines << "/" << totalLines << " (" << (processedLines * 100 / totalLines) << "%) <: " << small << " >: " << large << std::flush;
+            }
         }
 
         // If we didn't read any more then exit
@@ -148,6 +182,11 @@ void HashPipe(
             }
         }
     }
+
+    if ((totalLines > 0 || StatusUpdates))
+    {
+        std::cerr << "\r" << processedLines << "/" << totalLines << " (" << (processedLines * 100 / totalLines) << "%) <: " << small << " >: " << large << std::endl;
+    }
 }
 
 int main(
@@ -160,6 +199,9 @@ int main(
     auto args = cracktools::ParseArgv(argv, argc);
     std::string_view input_file, output_file;
     OutputCase output_case = OutputCase::Lower;
+    bool status_updates = false;
+    size_t min = 0;
+    size_t max = std::numeric_limits<size_t>::max();
 
     for (int i = 1; i < argc; i++)
     {
@@ -192,7 +234,17 @@ int main(
         {
             algorithms.push_back(HashAlgorithmNTLM);
         }
-        else if (arg == "--case")
+        else if (arg == "--min" || arg == "-m")
+        {
+            ARGCHECK();
+            min = std::stoul(std::string(args[++i]));
+        }
+        else if (arg == "--max" || arg == "-M")
+        {
+            ARGCHECK();
+            max = std::stoul(std::string(args[++i]));
+        }
+        else if (arg == "--case" || arg == "-c")
         {
             ARGCHECK();
             const std::string_view case_arg = args[++i];
@@ -214,6 +266,10 @@ int main(
                 return 1;
             }
         }
+        else if (arg == "--status" || arg == "--progress" || arg == "-s")
+        {
+            status_updates = true;
+        }
         else if (arg == "--input" || arg == "-i")
         {
             ARGCHECK();
@@ -231,6 +287,8 @@ int main(
                       << "Options:\n"
                       << "  --input, -i <file>       Input file (default: stdin)\n"
                       << "  --output, -o <file>      Output file (default: stdout)\n"
+                      << "  --min, -m <number>       Minimum count to include (default: 0)\n"
+                      << "  --max, -M <number>       Maximum count to include (default: unlimited)\n"
                       << "  --md4                    Include MD4 algorithm\n"
                       << "  --md5                    Include MD5 algorithm\n"
                       << "  --sha1                   Include SHA1 algorithm\n"
@@ -239,6 +297,7 @@ int main(
                       << "  --sha512                 Include SHA512 algorithm\n"
                       << "  --ntlm                   Include NTLM algorithm\n"
                       << "  --case <lower|upper|both> Output case format (default: lower)\n"
+                      << "  --status, --progress, -s Show status updates\n"
                       << "  --help, -h               Show this help message\n";
             return 0;
         }
@@ -255,6 +314,6 @@ int main(
         algorithms.insert(algorithms.end(), simdhash::SimdHashAlgorithms.begin(), simdhash::SimdHashAlgorithms.end());
     }
 
-    HashPipe(input_file, output_file, algorithms, output_case);
+    HashPipe(input_file, output_file, algorithms, output_case, status_updates, min, max);
 
 }
