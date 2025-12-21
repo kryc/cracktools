@@ -213,15 +213,30 @@ private:
 
 template <size_t BlockSize = 16384*2>
 class LineCounter {
+#if defined(__AVX512F__) || defined(__AVX2__)
+    using VecType = __m256i;
+#elif defined(__arm64__) || defined(__aarch64__)
+    using VecType = uint8x16_t;
+#else
+    #error "No suitable vector extension found for LineCounter"
+    using VecType = char;
+#endif
 public:
     LineCounter(std::string_view Filename) {
         m_FileStream.open(Filename.data(), std::ios::in |  std::ios::binary);
-        m_Buffer.resize(BlockSize);
-        m_BufferView = cracktools::AsStringView(m_Buffer);
+        // We need to do some span magic here to ensure the buffer is aligned for AVX access
+        m_Buffer = static_cast<uint8_t*>(std::aligned_alloc(alignof(VecType), BlockSize));
+        m_BufferSpanChars = cracktools::UnsafeSpanEx<char, uint8_t>(m_Buffer, BlockSize);
+        m_BufferSpanVector = cracktools::SpanCast<VecType, char>(m_BufferSpanChars);
+        m_BufferView = cracktools::AsStringView(m_BufferSpanChars);
     }
     ~LineCounter() {
         if (m_FileStream.is_open()) {
             m_FileStream.close();
+        }
+        if (m_Buffer != nullptr) {
+            std::free(m_Buffer);
+            m_Buffer = nullptr;
         }
     }
 
@@ -229,19 +244,18 @@ public:
     static_assert(BlockSize % 32 == 0, "BlockSize must be a multiple of 32 for AVX2");
     const size_t CountLines(void) {
         static const __m256i newline = _mm256_set1_epi8('\n');
-        auto bufferSpan = cracktools::SpanCast<__m256i>(m_BufferView);
         size_t lineCount = 0;
         while (!m_FileStream.eof()) {
-            m_FileStream.read(m_Buffer.data(), BlockSize);
+            m_FileStream.read(m_BufferSpanChars.data(), BlockSize);
             const size_t bytesRead = m_FileStream.gcount();
             if (bytesRead == 0) {
                 break;
             }
             // Fill the remainder of the buffer with zeros if needed
             if (bytesRead < BlockSize) {
-                std::fill(m_Buffer.begin() + bytesRead, m_Buffer.end(), 0);
+                std::fill(m_BufferSpanChars.begin() + bytesRead, m_BufferSpanChars.end(), 0);
             }
-            for (auto chunk : bufferSpan) {
+            for (auto chunk : m_BufferSpanVector) {
                 // Compare each byte in the chunk to '\n'
                 __m256i cmp = _mm256_cmpeq_epi8(chunk, newline);
                 // Create a bitmask from the comparison result
@@ -259,14 +273,14 @@ public:
         auto bufferSpan = cracktools::SpanCast<uint8x16_t>(m_BufferView);
         size_t lineCount = 0;
         while (!m_FileStream.eof()) {
-            m_FileStream.read(m_Buffer.data(), BlockSize);
+            m_FileStream.read(m_BufferSpan.data(), BlockSize);
             const size_t bytesRead = m_FileStream.gcount();
             if (bytesRead == 0) {
                 break;
             }
             // Fill the remainder of the buffer with zeros if needed
             if (bytesRead < BlockSize) {
-                std::fill(m_Buffer.begin() + bytesRead, m_Buffer.end(), 0);
+                std::fill(m_BufferSpan.begin() + bytesRead, m_BufferSpan.end(), 0);
             }
             for (auto chunk : bufferSpan) {
                 // Compare each byte in the chunk to '\n'
@@ -283,7 +297,7 @@ public:
     const size_t CountLines(void) {
         size_t lineCount = 0;
         while (!m_FileStream.eof()) {
-            m_FileStream.read(m_Buffer.data(), BlockSize);
+            m_FileStream.read(m_BufferSpan.data(), BlockSize);
             const size_t bytesRead = m_FileStream.gcount();
             if (bytesRead == 0) {
                 break;
@@ -296,7 +310,9 @@ public:
 #endif
 private:
     std::ifstream m_FileStream;
-    std::vector<char> m_Buffer;
+    uint8_t* m_Buffer = nullptr;
+    std::span<VecType> m_BufferSpanVector;
+    std::span<char> m_BufferSpanChars;
     std::string_view m_BufferView;
 };
 

@@ -43,6 +43,20 @@ std::span<T, Extent> UnsafeSpan(
     return std::span<T, Extent>(Base, Size);
 }
 
+template <
+    typename T,
+    typename T2,
+    std::size_t Extent = std::dynamic_extent>
+inline static
+std::span<T, Extent> UnsafeSpanEx(
+    T2* Base,
+    std::size_t Size
+)
+{
+    CHECKA(sizeof(T) == sizeof(T2), "Types must be the same size for UnsafeSpanEx");
+    return std::span<T, Extent>((T*)Base, Size);
+}
+
 // A simple wrapper to make a span from a string view
 template <typename T>
 inline static
