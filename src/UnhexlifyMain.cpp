@@ -72,26 +72,28 @@ Unhexlify(
 
     LineReader<> reader(input);
     std::string_view line;
+    std::string temp;
     size_t count = 0;
-    size_t ignored = 0;
+    size_t small = 0;
+    size_t large = 0;
     while (reader.ReadLine(line))
     {
         count++;
-        const size_t line_size = line.size();
+        const bool is_hexlified = Util::IsHexlified(line);
+        const size_t line_size = is_hexlified? (line.size() - 6) / 2 : line.size();
+        
         if (line_size < Min) {
-            ignored++;
+            small++;
             continue;
         }
-        if (Util::IsHexlified(line)) {
-            const size_t unhex_size = (line_size - 6) / 2;
-            if (unhex_size < Min || unhex_size > Max) {
-                ignored++;
-                continue;
-            }
-            *output << Util::UnHexlify(line) << std::endl;
-        } else if(line_size > Max) {
-            ignored++;
+        else if (line_size > Max) {
+            large++;
             continue;
+        }
+
+        if (is_hexlified) {
+            temp = Util::UnHexlify(line);
+            line = temp;
         }
     
         *output << (Rehexlify ? Util::Hexlify(line) : line) << std::endl;
@@ -99,11 +101,11 @@ Unhexlify(
         if (count % 1000 == 0 && !OutputFile.empty()) {
             if (totalLines > 0)
             {
-                std::cerr << "\r#: " << count << "/" << totalLines << "(" << (count * 100 / totalLines) << "%) I: " << ignored << std::flush;
+                std::cerr << "\r#: " << count << "/" << totalLines << "(" << (count * 100 / totalLines) << "%) <: " << small << " >: " << large << std::flush;
             }
             else
             {
-                std::cerr << "\r#: " << count << " I: " << ignored << std::flush;
+                std::cerr << "\r#: " << count << " <: " << small << " >: " << large << std::flush;
             }
         }
     }
@@ -111,11 +113,11 @@ Unhexlify(
     if (!OutputFile.empty()) {
         if (totalLines > 0)
         {
-            std::cerr << "\r#: " << count << "/" << totalLines << "(" << (count * 100 / totalLines) << "%) I: " << ignored << std::endl;
+            std::cerr << "\r#: " << count << "/" << totalLines << "(" << (count * 100 / totalLines) << "%) <: " << small << " >: " << large << std::endl;
         }
         else
         {
-            std::cerr << "\r#: " << count << " I: " << ignored << std::endl;
+            std::cerr << "\r#: " << count << " <: " << small << " >: " << large << std::endl;
         }
     }
 }
