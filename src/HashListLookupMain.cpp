@@ -31,7 +31,8 @@ HashListLookup(
     const std::string_view InputHashes,
     const std::string_view InputCracked,
     const std::string_view OutputFile,
-    const bool NoCount = false
+    const bool NoCount = false,
+    const bool PasswordOnly = false
 )
 {    
     if (InputHashes.empty())
@@ -172,7 +173,17 @@ HashListLookup(
                 const int cmp = line.compare(midHash);
                 if (cmp == 0) {
                     // Found the hash
-                    *output << vec[mid] << std::endl;
+                    if (PasswordOnly) {
+                        // Output only the password part
+                        size_t sepPos = vec[mid].find(':');
+                        if (sepPos != std::string_view::npos) {
+                            *output << vec[mid].substr(sepPos + 1) << std::endl;
+                        } else {
+                            *output << vec[mid] << std::endl;
+                        }
+                    } else {
+                        *output << vec[mid] << std::endl;
+                    }
                     found++;
                     foundHash = true;
                     break;
@@ -221,6 +232,7 @@ int main(
     auto args = cracktools::ParseArgv(argv, argc);
     std::string_view input_hashes, input_cracked, output_file;
     bool nocount = false;
+    bool password_only = false;
 
     for (int i = 1; i < argc; i++)
     {
@@ -229,6 +241,10 @@ int main(
         {
             ARGCHECK();
             output_file = args[++i];
+        }
+        else if (arg == "--password-only" || arg == "-P" || arg == "-p")
+        {
+            password_only = true;
         }
         else if (arg == "--nocount" || arg == "-n")
         {
@@ -247,6 +263,8 @@ int main(
             std::cout << "Usage: " << args[0] << " [options] [input_hashes] [input_cracked]" << std::endl;
             std::cout << "Options:" << std::endl;
             std::cout << "  --output, -o <file>  Specify the output file" << std::endl;
+            std::cout << "  --nocount, -n        Do not count lines in input files" << std::endl;
+            std::cout << "  --password-only, -P  Output only the password part of cracked entries" << std::endl;
             std::cout << "  --help, -h           Show this help message" << std::endl;
             return 0;
         }
@@ -257,5 +275,5 @@ int main(
         }
     }
 
-    HashListLookup(input_hashes, input_cracked, output_file, nocount);
+    HashListLookup(input_hashes, input_cracked, output_file, nocount, password_only);
 }
