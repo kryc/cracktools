@@ -46,7 +46,8 @@ WordlistFilter(
     const size_t Min = 1,
     const size_t Max = std::numeric_limits<size_t>::max(),
     const bool PrintableOnly = false,
-    const bool ASCIIOnly = false
+    const bool ASCIIOnly = false,
+    const bool Unique = false
 )
 {
     // Check if the input file exists, if not read from stdin
@@ -89,31 +90,24 @@ WordlistFilter(
     LineReader<> reader(input);
     std::string_view line;
     std::string temp;
+    std::string last_line;
     size_t count = 0;
     size_t small = 0;
     size_t large = 0;
     size_t nonprintable = 0;
     size_t lowered = 0;
+    size_t uniq = 0;
     while (reader.ReadLine(line))
     {
         count++;
-        const size_t line_size = line.size();
+        const bool is_hexlified = Util::IsHexlified(line);
+        const size_t line_size = is_hexlified? (line.size() - 6) / 2 : line.size();
+        
         if (line_size < Min) {
             small++;
             continue;
         }
-        const bool is_hexlified = Util::IsHexlified(line);
-        if (is_hexlified) {
-            const size_t unhex_size = (line_size - 6) / 2;
-            if (unhex_size < Min) {
-                small++;
-                continue;
-            }
-            else if (unhex_size > Max) {
-                large++;
-                continue;
-            }
-        } else if(line_size > Max) {
+        else if(line_size > Max) {
             large++;
             continue;
         }
@@ -134,17 +128,27 @@ WordlistFilter(
             line = std::string_view(temp);
             lowered++;
         }
-
+        
+        // Handle uniqueness
+        if (Unique) {
+            if (line == last_line) {
+                uniq++;
+                continue;
+            }
+            last_line = line;
+        }
+        
         *output << line << std::endl;
+
         if (count % 1000 == 0 && !OutputFile.empty()) {
             if (totalLines > 0)
             {
                 std::cerr << "\r#: " << count << "/" << totalLines << "(" << (count * 100 / totalLines) << "%) "
-                          << "<: " << small << " >: " << large << " NP: " << nonprintable << " L: " << lowered << std::flush;
+                          << "<: " << small << " >: " << large << " NP: " << nonprintable << " L: " << lowered << " U: " << uniq << std::flush;
             }
             else
             {
-                std::cerr << "\r#: " << count << " <: " << small << " >: " << large << " NP: " << nonprintable << " L: " << lowered << std::flush;
+                std::cerr << "\r#: " << count << " <: " << small << " >: " << large << " NP: " << nonprintable << " L: " << lowered << " U: " << uniq << std::flush;
             }
         }
     }
@@ -153,11 +157,11 @@ WordlistFilter(
         if (totalLines > 0)
         {
             std::cerr << "\r#: " << count << "/" << totalLines << "(" << (count * 100 / totalLines) << "%) "
-                      << "<: " << small << " >: " << large << " NP: " << nonprintable << " L: " << lowered << std::endl;
+                      << "<: " << small << " >: " << large << " NP: " << nonprintable << " L: " << lowered << " U: " << uniq << std::endl;
         }
         else
         {
-            std::cerr << "\r#: " << count << " <: " << small << " >: " << large << " NP: " << nonprintable << " L: " << lowered << std::endl;
+            std::cerr << "\r#: " << count << " <: " << small << " >: " << large << " NP: " << nonprintable << " L: " << lowered << " U: " << uniq << std::endl;
         }
     }
 }
@@ -169,10 +173,11 @@ int main(
 {
     auto args = cracktools::ParseArgv(argv, argc);
     std::string_view input_file, output_file;
-    size_t min = 1;
+    size_t min = 0;
     size_t max = std::numeric_limits<size_t>::max();
     bool printable_only = false;
     bool ascii_only = false;
+    bool unique = false;
 
     for (int i = 1; i < argc; i++)
     {
@@ -211,6 +216,10 @@ int main(
         {
             ascii_only = true;
         }
+        else if (arg == "--unique" || arg == "-u")
+        {
+            unique = true;
+        }
         else if (arg == "--help" || arg == "-h")
         {
             std::cout << "Usage: " << args[0] << " [options] [input_file]" << std::endl;
@@ -220,6 +229,7 @@ int main(
             std::cout << "  --max, -M <number>   Specify the maximum number of bytes" << std::endl;
             std::cout << "  --printable, -p      Only include lines with printable UTF-8 characters" << std::endl;
             std::cout << "  --ascii, -a          Only include lines with printable ASCII characters" << std::endl;
+            std::cout << "  --unique, -u         Remove duplicate lines" << std::endl;
             std::cout << "  --help, -h           Show this help message" << std::endl;
             return 0;
         }
@@ -230,5 +240,5 @@ int main(
         }
     }
 
-    WordlistFilter(input_file, output_file, min, max, printable_only, ascii_only);
+    WordlistFilter(input_file, output_file, min, max, printable_only, ascii_only, unique);
 }
