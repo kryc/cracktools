@@ -31,6 +31,16 @@ typedef struct __attribute__((__packed__)) _Record
     uint32_t Index : INDEX_BITS;
     uint32_t Length : LENGTH_BITS;
     uint8_t  Hash[HASH_BYTES];
+    void SetHash(const std::span<const uint8_t, HASH_BYTES> HashSpan) {
+        std::span<uint8_t, HASH_BYTES> dest = cracktools::UnsafeSpan<uint8_t, HASH_BYTES>(Hash, HASH_BYTES);
+        cracktools::SpanCopy<uint8_t, HASH_BYTES>(dest, HashSpan);
+    }
+    std::span<const uint8_t> GetHash(void) const {
+        return cracktools::UnsafeSpan<const uint8_t>(Hash, HASH_BYTES);
+    }
+    bool operator<(const _Record& Other) const {
+        return cracktools::Memcmp(this->GetHash(), Other.GetHash()) < 0;
+    }
 } DatabaseRecord;
 
 typedef std::span<const DatabaseRecord> DatabaseFileMapping;

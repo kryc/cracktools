@@ -257,7 +257,9 @@ RainbowTable::WriteBlock(
     // For uncompressed, we can just write the block
     if (m_TableType == TypeUncompressed)
     {
+#pragma clang unsafe_buffer_usage begin
         fwrite(Block.data(), Block.size_bytes(), sizeof(uint8_t), m_WriteHandle);
+#pragma clang unsafe_buffer_usage end
         fflush(m_WriteHandle);
     }
     // For compressed, we need to reform the data into a single block
@@ -269,7 +271,9 @@ RainbowTable::WriteBlock(
         {
             compressedBlock[i] = Block[i];
         }
+#pragma clang unsafe_buffer_usage begin
         fwrite(compressedBlockSpan.data(), compressedBlockSpan.size_bytes(), sizeof(uint8_t), m_WriteHandle);
+#pragma clang unsafe_buffer_usage end
         fflush(m_WriteHandle);
     }
     m_ChainsWritten += Block.size();
@@ -407,7 +411,9 @@ RainbowTable::StoreTableHeader(
 ) const
 {
     TableHeader hdr;
+#pragma clang unsafe_buffer_usage begin
     memset(&hdr, 0, sizeof(hdr));
+#pragma clang unsafe_buffer_usage end
     hdr.magic = kMagic;
     hdr.type = m_TableType;
     hdr.algorithm = m_Algorithm;
@@ -415,7 +421,9 @@ RainbowTable::StoreTableHeader(
     hdr.max = m_Max;
     hdr.length = m_Length;
     hdr.charsetlen = m_Charset.size();
+#pragma clang unsafe_buffer_usage begin
     strncpy(hdr.charset, &m_Charset[0], sizeof(hdr.charset));
+#pragma clang unsafe_buffer_usage end
 
     std::ofstream fs(m_Path, std::ios::out | std::ios::binary);
     fs.write((const char*)&hdr, sizeof(hdr));
@@ -830,7 +838,7 @@ RainbowTable::CheckIteration(
     auto index = FindStartIndexForEndpoint(endpoint);
     if (index.has_value())
     {
-        return ValidateChain(index.value(), &Target[0]);
+        return ValidateChain(index.value(), Target);
     }
     return std::nullopt;
 }
@@ -1000,11 +1008,12 @@ RainbowTable::Crack(
 std::optional<std::string>
 RainbowTable::ValidateChain(
     const size_t ChainIndex,
-    const uint8_t* Target
+    const std::span<const uint8_t> Target
 ) const
 {
     std::array<uint8_t, MAX_HASH_SIZE> hashBuffer;
-    auto hash = cracktools::UnsafeSpan<uint8_t>(hashBuffer.data(), m_HashWidth);
+    std::span<uint8_t> hashspan = hashBuffer;
+    auto hash = hashspan.subspan(0, m_HashWidth);
     std::vector<char> reduced(m_Max);
     HybridReducer reducer(m_Min, m_Max, m_Charset);
     size_t length;
@@ -1022,7 +1031,7 @@ RainbowTable::ValidateChain(
     for (size_t i = 0; i < m_Length; i++)
     {
         DoHash((uint8_t*)&reduced[0], length, &hash[0]);
-        if (memcmp(Target, &hash[0], m_HashWidth) == 0)
+        if (std::equal(hash.begin(), hash.end(), Target.begin(), Target.end()))
         {
             return std::string(&reduced[0], &reduced[length]);
         }
@@ -1128,7 +1137,7 @@ RainbowTable::ChangeType(
     hdr.max = m_Max;
     hdr.length = m_Length;
     hdr.charsetlen = m_Charset.size();
-    strncpy(hdr.charset, &m_Charset[0], sizeof(hdr.charset));
+    std::copy(m_Charset.begin(), m_Charset.end(), hdr.charset);
     hdr.type = DestinationType;
 
     FILE* fhw = fopen(Destination.c_str(), "w");
@@ -1139,7 +1148,9 @@ RainbowTable::ChangeType(
     }
 
     // Write the header
+#pragma clang unsafe_buffer_usage begin
     fwrite(&hdr, sizeof(hdr), 1, fhw);
+#pragma clang unsafe_buffer_usage end
 
     if (DestinationType == TypeCompressed)
     {
@@ -1154,7 +1165,9 @@ RainbowTable::ChangeType(
         for (const auto& record : compressedTable)
         {
             compressedRecord = record;
+#pragma clang unsafe_buffer_usage begin            
             fwrite(&compressedRecord, sizeof(TableRecordCompressed), 1, fhw);
+#pragma clang unsafe_buffer_usage end
         }
         fclose(fhw);
     }
@@ -1166,7 +1179,9 @@ RainbowTable::ChangeType(
             TableRecord record;
             record.startpoint = i;
             record.endpoint = m_MappedTableRecordsCompressed[i].endpoint;
+#pragma clang unsafe_buffer_usage begin
             fwrite(&record, sizeof(TableRecord), 1, fhw);
+#pragma clang unsafe_buffer_usage end
         }
         fclose(fhw);
     }

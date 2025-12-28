@@ -209,7 +209,7 @@ Wordfile::GetAllStrings(
 
 const size_t
 Wordfile::Add(
-    const std::string& Word
+    const std::string_view Word
 )
 {
     if (!m_Write)
@@ -229,7 +229,9 @@ Wordfile::Add(
         std::cerr << "Fatal error, unable to open wordfile handle" << std::endl;
     }
 
+#pragma clang unsafe_buffer_usage begin
     fwrite(&Word[0], sizeof(char), Word.size(), m_WriteHandle);
+#pragma clang unsafe_buffer_usage end
 
     return m_Count++;
 }

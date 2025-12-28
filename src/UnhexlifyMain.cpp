@@ -129,7 +129,7 @@ int main(
 {
     auto args = cracktools::ParseArgv(argv, argc);
     std::string_view input_file, output_file;
-    size_t min = 1;
+    size_t min = 0;
     size_t max = std::numeric_limits<size_t>::max();
     bool rehexlify = false;
 

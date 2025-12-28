@@ -17,19 +17,9 @@
 #include "SimdHash.hpp"
 
 #include "CrackDatabase.hpp"
+#include "LineReader.hpp"
 #include "UnsafeBuffer.hpp"
 #include "Util.hpp"
-
-static int
-Compare(
-    const void* Value1,
-    const void* Value2
-)
-{
-    const DatabaseRecord* r1 = reinterpret_cast<const DatabaseRecord*>(Value1);
-    const DatabaseRecord* r2 = reinterpret_cast<const DatabaseRecord*>(Value2);
-    return cracktools::Memcmp(r1->Hash, r2->Hash);
-}
 
 CrackDatabase::CrackDatabase(
     const std::filesystem::path Path
@@ -123,7 +113,7 @@ CrackDatabase::Sort(
 
     auto [mapped, fp] = mapping.value();
 
-    qsort(mapped.data(), mapped.size(), sizeof(DatabaseRecord), Compare);
+    std::sort(mapped.begin(), mapped.end());
     
     cracktools::UnmapFileSpan(mapped, fp);
 
@@ -132,8 +122,8 @@ CrackDatabase::Sort(
 
 const bool
 CrackDatabase::Build(
-    const std::vector<HashAlgorithm> Algorithms,
-    const std::filesystem::path InputWords
+    const std::span<HashAlgorithm> Algorithms,
+    const std::string_view InputWords
 )
 {
     std::cerr << "Building database" << std::endl;
@@ -148,7 +138,14 @@ CrackDatabase::Build(
     // Create a map of handles to output databases
     std::map<HashAlgorithm, std::ofstream> dbHandleMap;
 
-    for (auto algorithm : Algorithms)
+    // If the algorithms vector is empty, build all supported algorithms
+    auto algorithms = Algorithms;
+    if (algorithms.size() == 0)
+    {
+        algorithms = simdhash::SimdHashAlgorithms;
+    }
+
+    for (auto algorithm : algorithms)
     {
         if (algorithm == HashAlgorithmUndefined)
         {
@@ -173,30 +170,59 @@ CrackDatabase::Build(
         return false;
     }
 
-    std::ifstream istr;
-
-    if (InputWords != "-")
+    std::istream* input = &std::cin;
+    std::ifstream infile;
+    if (!InputWords.empty() && InputWords != "-")
     {
-        istr.open(InputWords, std::ios::in);
+        infile.open(InputWords.data(), std::ios::in | std::ios::binary);
+        if (!infile.is_open())
+        {
+            std::cerr << "Error opening input words file: " << InputWords << std::endl;
+            return false;
+        }
+        input = &infile;
     }
 
-    std::istream& input = istr.is_open() ? istr : std::cin;
+    LineReader<> istr(input);
+    std::string_view line;
+    std::string temp;
 
-    uint8_t digest[MAX_DIGEST_LENGTH];
-    DatabaseRecord record;
-    for( std::string line; getline(input, line); )
+    // Get the number of lines in the input file
+    size_t totalLines = 0;
+    if (!InputWords.empty() && std::filesystem::exists(InputWords))
     {
-        // Strip cr and nl
-        line.erase(std::remove(line.begin(), line.end(), '\r'), line.end());
-        line.erase(std::remove(line.begin(), line.end(), '\n'), line.end());
+        std::cerr << "Counting input lines..." << std::flush;
+        LineCounter<> lineCounter(InputWords);
+        totalLines = lineCounter.CountLines();
+    }
+
+    std::array<uint8_t, MAX_DIGEST_LENGTH> digest;
+    std::span<uint8_t> digestSpan = digest;
+    std::span<uint8_t, HASH_BYTES> hashSpan = digestSpan.first<HASH_BYTES>();
+    size_t count = 0;
+    size_t small = 0;
+    size_t large = 0;
+
+    DatabaseRecord record;
+    while (istr.ReadLine(line))
+    {
+        count++;
+
+        if (Util::IsHexlified(line))
+        {
+            temp = Util::UnHexlify(line);
+            line = temp;
+        }
 
         if (line.size() < m_Min)
         {
+            small++;
             continue;
         }
 
         if (line.size() > m_Max)
         {
+            large++;
             continue;
         }
 
@@ -228,13 +254,13 @@ CrackDatabase::Build(
             wordIndex = wf.Add(line);
         }
 
-        for (auto algorithm : Algorithms)
+        for (auto algorithm : algorithms)
         {
             // Do the hash
-            SimdHashSingle(algorithm, line.size(), (uint8_t*)&line[0], digest);
+            SimdHashSingle(algorithm, line.size(), (uint8_t*)&line[0], digest.data());
 
             // Copy the hash into the next record
-            memcpy(record.Hash, digest, sizeof(record.Hash));
+            record.SetHash(hashSpan);
 
             // Set the index and the length
             record.Length = line.size();
@@ -243,9 +269,32 @@ CrackDatabase::Build(
             // Write the record to the file
             dbHandleMap[algorithm].write((char*)&record, sizeof(record));
         }
+
+        if (count % 1000 == 0)
+        {
+            if (totalLines > 0)
+            {
+                std::cerr << "\r#: " << count << "/" << totalLines << "(" << (count * 100 / totalLines) << "%) "
+                          << "<: " << small << " >: " << large << std::flush;
+            }
+            else
+            {
+                std::cerr << "\r#: " << count << " <: " << small << " >: " << large << std::flush;
+            }
+        }
     }
 
-    istr.close();
+    if (totalLines > 0)
+    {
+        std::cerr << "\r#: " << count << "/" << totalLines << "(" << (count * 100 / totalLines) << "%) "
+                  << "<: " << small << " >: " << large << std::endl;
+    }
+    else
+    {
+        std::cerr << "\r#: " << count << " <: " << small << " >: " << large << std::endl;
+    }
+
+    std::cerr << "Sorting databases..." << std::endl;
 
     for (auto& [algorithm, handle] : dbHandleMap)
     {
@@ -495,7 +544,7 @@ CrackDatabase::Lookup(
 const std::optional<std::string>
 CrackDatabase::Lookup(
     const HashAlgorithm Algorithm,
-    const std::vector<uint8_t>& Hash
+    const std::span<uint8_t> Hash
 ) const
 {
     return Lookup(Algorithm, &Hash[0], Hash.size());
@@ -503,7 +552,7 @@ CrackDatabase::Lookup(
 
 const std::optional<std::string>
 CrackDatabase::Lookup(
-    const std::vector<uint8_t>& Hash
+    const std::span<uint8_t> Hash
 ) const
 {
     const HashAlgorithm algorithm = DetectHashAlgorithm(Hash.size());
@@ -519,19 +568,25 @@ CrackDatabase::Lookup(
 
 void
 CrackDatabase::OutputResult(
-    const std::string& Hash,
-    const std::string& Value,
+    const std::string_view Hash,
+    std::string_view Value,
     std::ostream& Stream
 ) const
 {
-    auto formatted = m_Hex ? Util::Hexlify(Value) : Value;
+    std::string temp;
+    if (m_Hex && Util::NeedsHexlify(Value))
+    {
+        temp = Util::Hexlify(Value);
+        Value = temp;
+    }
+    
     if (m_PasswordsOnly)
     {
-        Stream << formatted << std::endl;
+        Stream << Value << std::endl;
     }
     else
     {
-        Stream << Util::ToLower(Hash) << m_Separator << formatted << std::endl;
+        Stream << Util::ToLower(Hash) << m_Separator << Value << std::endl;
     }
 }
 

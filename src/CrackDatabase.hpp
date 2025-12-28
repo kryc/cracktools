@@ -40,10 +40,10 @@ public:
     ~CrackDatabase(void);
     bool Exists(void) { return std::filesystem::exists(m_Path) && std::filesystem::is_directory(m_Path); };
     std::filesystem::path GetPath(void) { return m_Path; };
-    const bool Build(const std::vector<HashAlgorithm> Types, const std::filesystem::path InputWords);
-    const std::optional<std::string> Lookup(const HashAlgorithm Algorithm, const std::vector<uint8_t>& Hash) const;
-    const std::optional<std::string> Lookup(const std::vector<uint8_t>& Hash) const;
-    const std::optional<std::string> Lookup(const std::string_view Hash) const { return Lookup(Util::ParseHex(Hash)); };
+    const bool Build(const std::span<HashAlgorithm> Types, const std::string_view InputWords);
+    const std::optional<std::string> Lookup(const HashAlgorithm Algorithm, const std::span<uint8_t> Hash) const;
+    const std::optional<std::string> Lookup(const std::span<uint8_t> Hash) const;
+    const std::optional<std::string> Lookup(const std::string_view Hash) const { auto bytes = Util::ParseHex(Hash); return Lookup(bytes); };
     const bool CrackFile(const std::string_view HashfileInput);
     const std::optional<std::string> Test(const HashAlgorithm Algorithm, const std::string_view Value);
     const bool HasAlgorithm(const HashAlgorithm Algorithm) const;
@@ -74,7 +74,7 @@ private:
     void Sort(const HashAlgorithm Algorithm) const;
     void CrackFileInternal(void);
     const bool CrackFileLinear(void);
-    void OutputResult(const std::string& Hash, const std::string& Value, std::ostream& Stream) const;
+    void OutputResult(const std::string_view Hash, const std::string_view Value, std::ostream& Stream) const;
     const std::optional<std::string> Lookup(const HashAlgorithm Algorithm, const DatabaseFileMapping Mapping, const uint8_t* const Hash, const size_t Length) const;
     const std::optional<std::string> Lookup(const HashAlgorithm Algorithm, const uint8_t* const Hash, const size_t Length) const;
     const std::filesystem::path DatabaseFile(const HashAlgorithm Algorithm) const;

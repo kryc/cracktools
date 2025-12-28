@@ -328,6 +328,17 @@ SpanCopy(
     std::memcpy(Destination.data(), Source.data(), Source.size_bytes());
 }
 
+template <typename T, std::size_t Extent = std::dynamic_extent>
+inline static void
+SpanCopy(
+    std::span<T, Extent> Destination,
+    std::span<const T> Source
+)
+{
+    CHECKA(Destination.size() == Source.size(), "Destination and source size mismatch");
+    std::memcpy(Destination.data(), Source.data(), Source.size_bytes());
+}
+
 inline static void
 SpanCopy(
     std::span<char> Destination,

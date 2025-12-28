@@ -129,7 +129,7 @@ private:
     // General purpose
     void ChangeType(const std::filesystem::path& Destination, const TableType Type);
     std::optional<size_t> FindStartIndexForEndpoint(const uint64_t) const;
-    std::optional<std::string> ValidateChain(const size_t ChainIndex, const uint8_t* Hash) const;
+    std::optional<std::string> ValidateChain(const size_t ChainIndex, const std::span<const uint8_t> Hash) const;
     bool TableMapped(void) { return m_MappedTableFd != nullptr; };
     bool MapTable(const bool ReadOnly = true);
     bool UnmapTable(void);

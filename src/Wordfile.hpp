@@ -28,7 +28,7 @@ public:
     std::vector<std::span<char>> GetAll(const size_t Index) const;
     const std::string GetString(const size_t Index) const;
     std::vector<std::string> GetAllStrings(const size_t Index) const;
-    const size_t Add(const std::string& Word);
+    const size_t Add(const std::string_view Word);
 private:
     void Initialize(const std::filesystem::path& DatabasePath, const size_t Size, const bool Write);
     const size_t CalculateCount(void) const;

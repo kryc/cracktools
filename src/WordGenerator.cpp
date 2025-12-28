@@ -330,10 +330,7 @@ WordGenerator::GenerateParsingLookupTable(
     std::string_view Charset
 )
 {
-    std::vector<uint8_t> table;
-
-    table.resize(257);
-    memset(&table[0], 0, table.size());
+    std::vector<uint8_t> table(257, 0);
     table[256] = Charset.size();
 
     for (const char& c : Charset)

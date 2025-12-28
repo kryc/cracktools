@@ -105,12 +105,12 @@ int main(
         {
             hashes.push_back(HashAlgorithmSHA512);
         }
-        else if (arg == "--min")
+        else if (arg == "--min" || arg == "-m")
         {
             ARGCHECK();
             db.SetMin(Util::ParseNumber<size_t>(args[++i]));
         }
-        else if (arg == "--max")
+        else if (arg == "--max" || arg == "-M")
         {
             ARGCHECK();
             db.SetMax(Util::ParseNumber<size_t>(args[++i]));

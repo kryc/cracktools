@@ -34,7 +34,7 @@ public:
         static_assert(std::is_same_v<T, char> || std::is_same_v<T, const char> ||
                 std::is_same_v<T, uint8_t> || std::is_same_v<T, const uint8_t>,
                 "T must be char, const char, uint8_t, or const uint8_t");
-        std::memcpy((char*)m_Value.data(), NewValue.data(), NewValue.size());
+        std::copy(NewValue.begin(), NewValue.end(), m_Value.begin());
         SetLength(NewValue.size());
     };
     void Set(std::string_view Value) { Set(cracktools::UnsafeSpan<const char>(Value)); };
