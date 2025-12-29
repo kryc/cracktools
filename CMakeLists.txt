@@ -258,6 +258,23 @@ target_include_directories(hashlistlookup
                         )
 target_link_libraries(hashlistlookup gmp gmpxx)
 
+# CredParse
+set(CREDPARSE_SOURCES
+    src/CredParseMain.cpp
+    src/CrackDatabase.cpp
+    src/Wordfile.cpp
+    src/Util.cpp
+)
+add_executable(credparse ${CREDPARSE_SOURCES})
+set_property(TARGET credparse PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
+target_include_directories(credparse
+                            PUBLIC
+                                ./src/
+                                ./SimdHash/src/
+                                ./libdispatchqueue/include/
+                        )
+target_link_libraries(credparse dispatchqueue simdhash crypto gmp gmpxx)
+
 # Create a set of all targets
 set(ALL_TARGETS
     cracklist
@@ -276,6 +293,7 @@ set(ALL_TARGETS
     wordlistlengthsplit
     sortpwned
     hashlistlookup
+    credparse
 )
 
 # Create install targets

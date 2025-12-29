@@ -26,7 +26,8 @@ namespace Util
 enum class Case
 {
     Lower,
-    Upper
+    Upper,
+    Both
 };
 
 constexpr size_t MAX = std::numeric_limits<size_t>::max();
@@ -82,7 +83,12 @@ ToHex(
     const Case OutputCase = Case::Lower
 );
 
-bool
+const bool
+IsHex(
+    const char Character
+);
+
+const bool
 IsHex(
     const std::string_view String
 );
@@ -208,6 +214,42 @@ CalculateKeyspaceForMask(
 std::optional<std::string>
 GetMask(
     const std::string_view Word
+);
+
+const bool
+IsValidEmail(
+    const std::string_view Email
+);
+
+const bool
+IsValidUsername(
+    const std::string_view Username
+);
+
+const bool
+IsValidUsernameOrEmail(
+    const std::string_view Input
+);
+
+const bool
+IsValidIPv4(
+    const std::string_view IPv4
+);
+
+const bool
+IsAlphanumeric(
+    const std::string_view Value,
+    const Case CharCase = Case::Both
+);
+
+const bool
+IsNumericString(
+    const std::string_view Value
+);
+
+const bool
+IsLikelyDateString(
+    const std::string_view Value
 );
 
 } // namespace Util

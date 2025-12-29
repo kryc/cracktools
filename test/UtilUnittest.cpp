@@ -236,3 +236,60 @@ TEST(Util, IsMask)
     EXPECT_FALSE(Util::IsMask("invalidmask"));
     EXPECT_FALSE(Util::IsMask(""));
 }
+
+TEST(Util, IsValidUsername)
+{
+    EXPECT_TRUE(Util::IsValidUsername("user_name123"));
+    EXPECT_FALSE(Util::IsValidUsername("user name"));
+    EXPECT_FALSE(Util::IsValidUsername("user@name"));
+    EXPECT_FALSE(Util::IsValidUsername(""));
+}
+
+TEST(Util, IsValidEmail)
+{
+    EXPECT_TRUE(Util::IsValidEmail("user@example.com"));
+    EXPECT_FALSE(Util::IsValidEmail(".user@example.com"));
+    EXPECT_FALSE(Util::IsValidEmail("user.@example.com"));
+    EXPECT_FALSE(Util::IsValidEmail("user..a@example.com"));
+    EXPECT_FALSE(Util::IsValidEmail("user@.example.com"));
+    EXPECT_FALSE(Util::IsValidEmail("user@example.com."));
+    EXPECT_FALSE(Util::IsValidEmail("user@-example.com"));
+    EXPECT_FALSE(Util::IsValidEmail("user@example.com-"));
+    EXPECT_FALSE(Util::IsValidEmail("user@.com"));
+    EXPECT_FALSE(Util::IsValidEmail("user@com"));
+    EXPECT_FALSE(Util::IsValidEmail("user@exam ple.com"));
+    EXPECT_FALSE(Util::IsValidEmail("userexample.com"));
+    EXPECT_FALSE(Util::IsValidEmail("user@"));
+    EXPECT_FALSE(Util::IsValidEmail("@example.com"));
+    EXPECT_FALSE(Util::IsValidEmail(""));
+}
+
+TEST(Util, IsValidIPv4)
+{
+    EXPECT_TRUE(Util::IsValidIPv4("1.1.1.1"));
+    EXPECT_TRUE(Util::IsValidIPv4("192.168.1.1"));
+    EXPECT_TRUE(Util::IsValidIPv4("255.255.255.255"));
+    EXPECT_FALSE(Util::IsValidIPv4("256.1.1.1"));
+    EXPECT_FALSE(Util::IsValidIPv4("192.168.1"));
+    EXPECT_FALSE(Util::IsValidIPv4("192.168.1.256"));
+}
+
+TEST(Util, IsAlphanumeric)
+{
+    EXPECT_TRUE(Util::IsAlphanumeric("Username123", Util::Case::Both));
+    EXPECT_TRUE(Util::IsAlphanumeric("username", Util::Case::Lower));
+    EXPECT_TRUE(Util::IsAlphanumeric("USERNAME", Util::Case::Upper));
+    EXPECT_FALSE(Util::IsAlphanumeric("User_name123", Util::Case::Both));
+    EXPECT_FALSE(Util::IsAlphanumeric("User-name123", Util::Case::Both));
+    EXPECT_FALSE(Util::IsAlphanumeric("User name123", Util::Case::Both));
+    EXPECT_FALSE(Util::IsAlphanumeric("Username123!", Util::Case::Both));
+    EXPECT_FALSE(Util::IsAlphanumeric("", Util::Case::Both));
+}
+
+TEST(Util, IsNumericString)
+{
+    EXPECT_TRUE(Util::IsNumericString("1234567890"));
+    EXPECT_FALSE(Util::IsNumericString("12345a67890"));
+    EXPECT_FALSE(Util::IsNumericString("12 34567890"));
+    EXPECT_FALSE(Util::IsNumericString(""));
+}

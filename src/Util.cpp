@@ -16,8 +16,9 @@
 #include <string>
 #include <vector>
 
-#include <UnsafeBuffer.hpp>
+#include "UnsafeBuffer.hpp"
 #include "Util.hpp"
+#include "WordGenerator.hpp"
 
 namespace Util
 {
@@ -201,7 +202,7 @@ ToHex(
 	);
 }
 
-bool
+const bool
 IsHex(
 	const std::string_view String
 )
@@ -399,6 +400,16 @@ IsNumeric(
 		Value.end(),
 		[](const char c) { return isdigit(c); }
 	);
+}
+
+const bool
+IsHex(
+    const char Character
+)
+{
+	return (Character >= '0' && Character <= '9') ||
+		   (Character >= 'a' && Character <= 'f') ||
+		   (Character >= 'A' && Character <= 'F');
 }
 
 const bool
@@ -677,4 +688,212 @@ GetMask(
     return mask;
 }
 
+const bool
+IsValidEmail(
+    const std::string_view Email
+)
+{
+	if (Email.size() < 3)
+	{
+		return false;
+	}
+    const size_t atPos = Email.find('@');
+    if (atPos == std::string_view::npos || atPos == 0 || atPos == Email.size() - 1)
+    {
+        return false;
+    }
+    const std::string_view localPart = Email.substr(0, atPos);
+    const std::string_view domainPart = Email.substr(atPos + 1);
+    // The first character cannot contain a dot as the first or last character
+    if (localPart.front() == '.' || localPart.back() == '.')
+    {
+        return false;
+    }
+    // Make sure all characters of the local part are valid
+    if (!std::all_of(localPart.begin(), localPart.end(), [](char c) {
+            return EMAIL_LOCAL.find(c) != std::string_view::npos || c == '.';
+        }))
+    {
+        return false;
+    }
+    // Make sure the domain part contains at least one dot
+    const size_t dotPos = domainPart.find('.');
+    if (dotPos == std::string_view::npos || dotPos == 0 || dotPos == domainPart.size() - 1)
+    {
+        return false;
+    }
+	// The domain part cannot start or end with a hyphen or a dot
+	if (domainPart.front() == '-' || domainPart.back() == '-' ||
+		domainPart.front() == '.' || domainPart.back() == '.')
+	{
+		return false;
+	}
+    // Make sure all characters of the domain part are valid
+    if (!std::all_of(domainPart.begin(), domainPart.end(), [](char c) {
+            return LOWER.find(c) != std::string_view::npos ||
+                   UPPER.find(c) != std::string_view::npos ||
+                   NUMERIC.find(c) != std::string_view::npos ||
+                   c == '.' || c == '-';
+        }))
+    {
+        return false;
+    }
+	// Make sure there are no consecutive dots in local or domain part
+	if (localPart.find("..") != std::string_view::npos ||
+		domainPart.find("..") != std::string_view::npos)
+	{
+		return false;
+	}
+    return true;
 }
+
+const bool
+IsValidUsername(
+    const std::string_view Username
+)
+{
+    // Usernames can contain alphanumeric characters, underscores, dots, and hyphens
+	if (Username.empty())
+	{
+		return false;
+	}
+    if (std::all_of(Username.begin(), Username.end(), [](char c) {
+            return LOWER.find(c) != std::string_view::npos ||
+                   UPPER.find(c) != std::string_view::npos ||
+                   NUMERIC.find(c) != std::string_view::npos ||
+                   c == '_' || c == '.' || c == '-';
+        }))
+    {
+        return true;
+    }
+    return false;
+}
+
+const bool
+IsValidUsernameOrEmail(
+    const std::string_view Input
+)
+{
+    return IsValidUsername(Input) || IsValidEmail(Input);
+}
+
+const bool
+IsValidIPv4(
+    const std::string_view IPv4
+)
+{
+	size_t start = 0;
+	size_t end = IPv4.find('.');
+	int octetCount = 0;
+
+	while (end != std::string_view::npos)
+	{
+		if (octetCount >= 4)
+		{
+			return false; // Too many octets
+		}
+		std::string_view octet = IPv4.substr(start, end - start);
+		if (octet.empty() || octet.size() > 3)
+		{
+			return false; // Empty octet or too long
+		}
+		if (!std::all_of(octet.begin(), octet.end(), ::isdigit))
+		{
+			return false; // Non-numeric characters
+		}
+		int value = std::stoi(std::string(octet));
+		if (value < 0 || value > 255)
+		{
+			return false; // Out of range
+		}
+		start = end + 1;
+		end = IPv4.find('.', start);
+		octetCount++;
+	}
+
+	// Check the last octet
+	std::string_view octet = IPv4.substr(start);
+	if (octet.empty() || octet.size() > 3)
+	{
+		return false; // Empty octet or too long
+	}
+	if (!std::all_of(octet.begin(), octet.end(), ::isdigit))
+	{
+		return false; // Non-numeric characters
+	}
+	int value = std::stoi(std::string(octet));
+	if (value < 0 || value > 255)
+	{
+		return false; // Out of range
+	}
+	octetCount++;
+
+	return octetCount == 4;
+}
+
+const bool
+IsAlphanumeric(
+    const std::string_view Value,
+    const Case CharCase
+)
+{
+	return Value.size() > 0 && std::all_of(
+		Value.begin(),
+		Value.end(),
+		[CharCase](const char c) {
+			if (CharCase == Case::Lower)
+			{
+				return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9');
+			}
+			else if (CharCase == Case::Upper)
+			{
+				return (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
+			}
+			else
+			{
+				return (c >= 'a' && c <= 'z') ||
+					   (c >= 'A' && c <= 'Z') ||
+					   (c >= '0' && c <= '9');
+			}
+		}
+	);
+}
+
+const bool
+IsNumericString(
+    const std::string_view Value
+)
+{
+	return Value.size() > 0 && std::all_of(
+		Value.begin(),
+		Value.end(),
+		[](const char c) { return c >= '0' && c <= '9'; }
+	);
+}
+
+const bool
+IsLikelyDateString(
+    const std::string_view Value
+)
+{
+	// A very basic check for date-like strings (e.g., YYYY-MM-DD, DD/MM/YYYY, MM.DD.YYYY)
+	if (Value.size() < 8 || Value.size() > 10)
+	{
+		return false;
+	}
+	size_t separatorCount = 0;
+	for (char c : Value)
+	{
+		if (c == '-' || c == '/' || c == '.')
+		{
+			separatorCount++;
+		}
+		else if (!isdigit(c))
+		{
+			return false;
+		}
+	}
+	return separatorCount == 2;
+}
+
+} // namespace Util

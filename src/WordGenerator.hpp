@@ -35,6 +35,10 @@ static const std::string ASCII = ASCII_SPECIAL_LO + NUMERIC + ASCII_SPECIAL_ML +
 // Based on an analysis of cracked passwords
 static const std::string COMMON = "a1e20ion9r3sl85746tumdychbkgfpvjwzxqAE._SRMNILTODCBKPHG-UF!YJVWZ@QX*$#?& :+/";
 static const std::string COMMON_SHORT = "a1e20ion9r3sl85746tumdychbkgfpvjwzxqAE._SRMNILTODCBKPHG-UF!YJVWZ@QX";
+// Used for parsing of email addresses
+static const std::string EMAIL_SPECIAL = "!#$%&'*+-/=?^_`{|}~";
+static const std::string EMAIL_LOCAL = LOWER + UPPER + NUMERIC + EMAIL_SPECIAL;
+static const std::string EMAIL_DOMAIN = LOWER + UPPER + NUMERIC + "-.";
 
 class WordGenerator
 {
