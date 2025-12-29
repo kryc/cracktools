@@ -9,11 +9,14 @@
 #ifndef Database_hpp
 #define Database_hpp
 
+#include <array>
+#include <atomic>
 #include <filesystem>
 #include <iostream>
 #include <map>
 #include <mutex>
 #include <optional>
+#include <span>
 #include <stdio.h>
 #include <string>
 #include <string_view>
@@ -22,6 +25,9 @@
 
 #include <DispatchQueue.hpp>
 
+#include "SimdHash.hpp"
+
+#include "LineReader.hpp"
 #include "MappedDatabase.hpp"
 #include "Util.hpp"
 #include "Wordfile.hpp"
@@ -57,6 +63,7 @@ public:
     void SetHex(const bool Hex) { m_Hex = Hex; };
     void SetThreads(const size_t Threads) { m_Threads = Threads; };
     void SetBlockSize(const size_t BlockSize) { m_BlockSize = BlockSize; };
+    void SetNoCount(const bool NoCount) { m_NoCount = NoCount; };
     const size_t GetMin(void) { return m_Min; };
     const size_t GetMax(void) { return m_Max; };
     const std::string& GetOutput(void) { return m_Output; };
@@ -66,9 +73,11 @@ public:
     bool GetHex(void) { return m_Hex; };
     const size_t GetThreads(void) { return m_Threads; };
     const size_t GetBlockSize(void) { return m_BlockSize; };
+    const bool GetNoCount(void) { return m_NoCount; };
     const std::filesystem::path GetWordsPath(void) const { return m_Path / "words"; };
     const bool HasWordSize(const size_t Size) const;
 private:
+    void BuildWorker(const size_t ThreadIndex);
     const size_t OpenWordfilesForLookup(void);
     const size_t OpenDatabaseFilesForLookup(void);
     void Sort(const HashAlgorithm Algorithm) const;
@@ -85,13 +94,28 @@ private:
     std::optional<std::shared_ptr<const MappedDatabase>> GetDatabase(const HashAlgorithm Algorithm) const;
     std::optional<const DatabaseFileMapping> GetCachedDatabaseMapping(const HashAlgorithm Algorithm) const;
     std::optional<const MappedDatabase> OpenDatabaseNoCache(const HashAlgorithm Algorithm) const;
+    // For building
+    std::span<HashAlgorithm> m_Algorithms;
+    std::mutex m_HandleMutex;
+    std::map<HashAlgorithm, std::ofstream> m_HandleMap;
+    std::map<HashAlgorithm, std::mutex> m_HandleMutexes;
+    std::map<size_t, std::shared_ptr<Wordfile>> m_Wordfiles;
+    std::map<size_t, std::mutex> m_WordfileMutexes;
+    std::mutex m_WordfilesMutex;
+    MmapLineReader m_LineReader;
+    size_t m_InputLineCount = 0;
+    std::atomic<size_t> m_Processed = 0;
+    std::atomic<size_t> m_Small = 0;
+    std::atomic<size_t> m_Large = 0;
+    // Settings
     size_t m_Min = 1;
     size_t m_Max = std::numeric_limits<uint32_t>::max();
-    size_t m_Threads = 1;
+    size_t m_Threads = 0;
     std::filesystem::path m_Path;
     std::string m_Separator = ":";
     bool m_PasswordsOnly = false;
     bool m_Hex = true;
+    bool m_NoCount = false;
     // For file cracking
     std::mutex m_InputMutex;
     std::mutex m_OutputMutex;
@@ -104,7 +128,6 @@ private:
     // Internals
     std::map<HashAlgorithm, std::filesystem::path> m_HashDatabases;
     bool m_CacheWordFiles = true;
-    std::map<size_t, std::shared_ptr<Wordfile>> m_Wordfiles;
     std::map<HashAlgorithm, std::shared_ptr<const MappedDatabase>> m_DatabaseCache;
     std::vector<size_t> m_Wordsizes;
     size_t m_MaxWordSize = 0;

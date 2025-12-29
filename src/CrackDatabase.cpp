@@ -9,10 +9,16 @@
 #include <algorithm>
 #include <array>
 #include <cassert>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
-#include <cstring>
+#include <map>
+#include <mutex>
+#include <optional>
+#include <span>
+#include <string>
+#include <string_view>
 
 #include "SimdHash.hpp"
 
@@ -120,6 +126,118 @@ CrackDatabase::Sort(
     std::cerr << " Completed" << std::endl;
 }
 
+
+
+void
+CrackDatabase::BuildWorker(
+    const size_t ThreadIndex
+)
+{
+    std::array<uint8_t, MAX_DIGEST_LENGTH> digest;
+    std::span<uint8_t> digestSpan = digest;
+    std::span<uint8_t, HASH_BYTES> hashSpan = digestSpan.first<HASH_BYTES>();
+
+    // Keep a local copy of the map of wordfile handles to avoid locking for each write
+    std::map<size_t, std::shared_ptr<Wordfile>> localWordfiles;
+
+    DatabaseRecord record;
+    std::string_view line;
+    std::string temp;
+    size_t index = 0;
+    while (m_LineReader.ReadLine(line, m_InputMutex))
+    {
+        m_Processed++;
+
+        if (Util::IsHexlified(line))
+        {
+            temp = Util::UnHexlify(line);
+            line = temp;
+        }
+
+        const size_t size = line.size();
+
+        if (size < m_Min)
+        {
+            m_Small++;
+            continue;
+        }
+
+        if (size > m_Max)
+        {
+            m_Large++;
+            continue;
+        }
+
+        // Make sure that the wordfile mutex exists
+        if (m_WordfileMutexes.find(size) == m_WordfileMutexes.end())
+        {
+            std::lock_guard<std::mutex> lock(m_WordfilesMutex);
+            if (m_WordfileMutexes.find(size) == m_WordfileMutexes.end())
+            {
+                m_WordfileMutexes[size]; // Default construct the mutex
+            }
+        }
+
+        // Make sure the wordfile exists
+        if (m_CacheWordFiles && localWordfiles.find(size) == localWordfiles.end())
+        {
+            std::lock_guard<std::mutex> lock(m_WordfilesMutex);
+            if (m_Wordfiles.find(size) == m_Wordfiles.end())
+            {
+                auto wordfile = std::make_shared<Wordfile>(m_Path, size, true);
+                localWordfiles[size] = wordfile;
+                m_Wordfiles[size] = wordfile;
+            }
+            else
+            {
+                localWordfiles[size] = m_Wordfiles[size];
+            }
+        }
+
+        size_t wordIndex;
+        if (m_CacheWordFiles)
+        {
+            std::lock_guard<std::mutex> lock(m_WordfileMutexes[size]);
+            auto wordfile = localWordfiles[size];
+            wordIndex = wordfile->Add(line);
+        }
+        else
+        {
+            std::lock_guard<std::mutex> lock(m_WordfileMutexes[size]);
+            Wordfile wf(m_Path, size, true);
+            wordIndex = wf.Add(line);
+        }
+
+        for (auto algorithm : m_Algorithms)
+        {
+            // Do the hash
+            SimdHashSingle(algorithm, size, (uint8_t*)&line[0], digest.data());
+
+            // Copy the hash into the next record
+            record.SetHash(hashSpan);
+
+            // Set the index and the length
+            record.Length = line.size();
+            record.Index = wordIndex;
+
+            // Write the record to the file
+            {
+                std::lock_guard<std::mutex> lock(m_HandleMutexes[algorithm]);
+                m_HandleMap[algorithm].write((char*)&record, sizeof(record));
+            }
+        }
+
+        if (ThreadIndex == 0 && index++ % 10000 == 0)
+        {
+            std::cerr << "\r#: " << m_Processed.load()
+                      << "/" << m_InputLineCount << " (" << (m_InputLineCount > 0 ? (m_Processed.load() * 100 / m_InputLineCount) : 0) << "%)"
+                      << " <: " << m_Small.load()
+                      << " >: " << m_Large.load()
+                      << std::flush;
+        }
+    }
+}
+
 const bool
 CrackDatabase::Build(
     const std::span<HashAlgorithm> Algorithms,
@@ -128,6 +246,12 @@ CrackDatabase::Build(
 {
     std::cerr << "Building database" << std::endl;
 
+    // Check number of threads
+    if (m_Threads == 0)
+    {
+        m_Threads = std::thread::hardware_concurrency();
+    }
+
     std::filesystem::path wordDir = GetWordsPath();
     if (!std::filesystem::create_directories(wordDir))
     {
@@ -135,17 +259,14 @@ CrackDatabase::Build(
         return false;
     }
 
-    // Create a map of handles to output databases
-    std::map<HashAlgorithm, std::ofstream> dbHandleMap;
-
     // If the algorithms vector is empty, build all supported algorithms
-    auto algorithms = Algorithms;
-    if (algorithms.size() == 0)
+    m_Algorithms = Algorithms;
+    if (m_Algorithms.size() == 0)
     {
-        algorithms = simdhash::SimdHashAlgorithms;
+        m_Algorithms = simdhash::SimdHashAlgorithms;
     }
 
-    for (auto algorithm : algorithms)
+    for (auto algorithm : m_Algorithms)
     {
         if (algorithm == HashAlgorithmUndefined)
         {
@@ -161,151 +282,71 @@ CrackDatabase::Build(
             continue;
         }
 
-        dbHandleMap[algorithm] = std::ofstream(dbPath, std::ios::out|std::ios::binary);
+        m_HandleMap[algorithm] = std::ofstream(dbPath, std::ios::out|std::ios::binary);
     }
 
-    if (dbHandleMap.empty())
+    if (m_HandleMap.empty())
     {
         std::cerr << "No valid databases to build." << std::endl;
         return false;
     }
 
-    std::istream* input = &std::cin;
-    std::ifstream infile;
-    if (!InputWords.empty() && InputWords != "-")
-    {
-        infile.open(InputWords.data(), std::ios::in | std::ios::binary);
-        if (!infile.is_open())
-        {
-            std::cerr << "Error opening input words file: " << InputWords << std::endl;
-            return false;
-        }
-        input = &infile;
-    }
-
-    LineReader<> istr(input);
-    std::string_view line;
-    std::string temp;
+    m_LineReader.SetInputFile(InputWords);
 
     // Get the number of lines in the input file
-    size_t totalLines = 0;
-    if (!InputWords.empty() && std::filesystem::exists(InputWords))
+    m_InputLineCount = 0;
+    if (!m_NoCount)
     {
         std::cerr << "Counting input lines..." << std::flush;
         LineCounter<> lineCounter(InputWords);
-        totalLines = lineCounter.CountLines();
+        m_InputLineCount = lineCounter.CountLines();
     }
 
-    std::array<uint8_t, MAX_DIGEST_LENGTH> digest;
-    std::span<uint8_t> digestSpan = digest;
-    std::span<uint8_t, HASH_BYTES> hashSpan = digestSpan.first<HASH_BYTES>();
-    size_t count = 0;
-    size_t small = 0;
-    size_t large = 0;
-
-    DatabaseRecord record;
-    while (istr.ReadLine(line))
+    // Initialize all algorithm handle mutexes
+    for (auto algorithm : m_Algorithms)
     {
-        count++;
-
-        if (Util::IsHexlified(line))
-        {
-            temp = Util::UnHexlify(line);
-            line = temp;
-        }
-
-        if (line.size() < m_Min)
-        {
-            small++;
-            continue;
-        }
-
-        if (line.size() > m_Max)
-        {
-            large++;
-            continue;
-        }
-
-        size_t wordIndex;
-        if (m_CacheWordFiles)
-        {
-            if (m_Wordfiles.find(line.size()) == m_Wordfiles.end())
-            {
-                auto wf = std::make_unique<Wordfile>(m_Path, line.size(), true);
-                m_Wordfiles[line.size()] = std::move(wf);
-                // The maximum number of open file handles on ubuntu is 1024
-                // If we reach 1010 open handles we need to close some
-                // if (m_Wordfiles.size() > 100)
-                // {
-                //     // Find the maximum key in the m_Wordfiles map
-                //     auto maxKey = std::max_element(m_Wordfiles.begin(), m_Wordfiles.end(),
-                //         [](const auto& a, const auto& b) { return a.first < b.first; })->first;
-                //     if (maxKey != line.size())
-                //     {
-                //         m_Wordfiles.erase(maxKey);
-                //     }
-                // }
-            }
-            wordIndex = m_Wordfiles.at(line.size())->Add(line);
-        }
-        else
-        {
-            Wordfile wf(m_Path, line.size(), true);
-            wordIndex = wf.Add(line);
-        }
-
-        for (auto algorithm : algorithms)
-        {
-            // Do the hash
-            SimdHashSingle(algorithm, line.size(), (uint8_t*)&line[0], digest.data());
-
-            // Copy the hash into the next record
-            record.SetHash(hashSpan);
-
-            // Set the index and the length
-            record.Length = line.size();
-            record.Index = wordIndex;
-
-            // Write the record to the file
-            dbHandleMap[algorithm].write((char*)&record, sizeof(record));
-        }
-
-        if (count % 1000 == 0)
-        {
-            if (totalLines > 0)
-            {
-                std::cerr << "\r#: " << count << "/" << totalLines << "(" << (count * 100 / totalLines) << "%) "
-                          << "<: " << small << " >: " << large << std::flush;
-            }
-            else
-            {
-                std::cerr << "\r#: " << count << " <: " << small << " >: " << large << std::flush;
-            }
-        }
+        m_HandleMutexes[algorithm]; // Default construct the mutex
     }
 
-    if (totalLines > 0)
+    // Create our worker pool
+    m_DispatchPool = dispatch::CreateDispatchPool("worker", m_Threads);
+    for (size_t i = 0; i < m_Threads; i++)
     {
-        std::cerr << "\r#: " << count << "/" << totalLines << "(" << (count * 100 / totalLines) << "%) "
-                  << "<: " << small << " >: " << large << std::endl;
+        m_DispatchPool->PostTask(
+            dispatch::bind(
+                &CrackDatabase::BuildWorker,
+                this,
+                i
+            )
+        );
     }
-    else
-    {
-        std::cerr << "\r#: " << count << " <: " << small << " >: " << large << std::endl;
-    }
+    m_DispatchPool->KeepAlive(false);
+    m_DispatchPool->Wait();
+    m_DispatchPool->Stop();
 
     std::cerr << "Sorting databases..." << std::endl;
 
-    for (auto& [algorithm, handle] : dbHandleMap)
+    for (auto& [algorithm, handle] : m_HandleMap)
     {
         handle.close();
-
         // Add the unsorted database
         m_HashDatabases[algorithm] = DatabaseFile(algorithm);
-
-         // Sort the hashes
-        Sort(algorithm);
     }
+
+    const size_t new_threads = std::min(m_Threads, m_HashDatabases.size());
+    m_DispatchPool = dispatch::CreateDispatchPool("sorter", new_threads);
+    for (auto& [algorithm, path] : m_HashDatabases)
+    {
+        m_DispatchPool->PostTask(
+            dispatch::bind(
+                &CrackDatabase::Sort,
+                this,
+                algorithm
+            )
+        );
+    }
+    m_DispatchPool->KeepAlive(false);
+    m_DispatchPool->Wait();
 
     return true;
 }

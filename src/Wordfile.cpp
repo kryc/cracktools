@@ -10,6 +10,8 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <mutex>
+#include <string>
 #include <span>
 #include <string>
 #include <sys/mman.h>
@@ -234,4 +236,14 @@ Wordfile::Add(
 #pragma clang unsafe_buffer_usage end
 
     return m_Count++;
+}
+
+const size_t
+Wordfile::Add(
+    const std::string_view Word,
+    std::mutex& Mutex
+)
+{
+    std::lock_guard<std::mutex> lock(Mutex);
+    return Add(Word);
 }

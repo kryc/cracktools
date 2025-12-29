@@ -8,6 +8,7 @@
 
 #include <fstream>
 #include <iostream>
+#include <mutex>
 #include <string_view>
 #include <optional>
 #include <vector>
@@ -168,6 +169,28 @@ public:
         m_FileView = cracktools::AsStringView(m_Span);
         m_Opened = true;
     }
+    MmapLineReader() = default;
+    const bool SetInputFile(const std::string_view Filename) {
+        if (m_Opened) {
+            cracktools::UnmapFileSpan(m_Span, m_FileHandle);
+            m_Opened = false;
+        }
+        auto mapping = cracktools::MmapFileSpan<const char>(
+            Filename,
+            PROT_READ,
+            MAP_SHARED
+        );
+        if (!mapping.has_value()) {
+            m_Opened = false;
+            return false;
+        }
+        m_Span = std::get<std::span<const char>>(mapping.value());
+        m_FileHandle = std::get<FILE*>(mapping.value());
+        m_FileView = cracktools::AsStringView(m_Span);
+        m_Opened = true;
+        m_Offset = 0;
+        return true;
+    }
     ~MmapLineReader() {
         if (m_Opened) {
             cracktools::UnmapFileSpan(m_Span, m_FileHandle);
@@ -196,12 +219,20 @@ public:
         m_Offset = lineEnd + 1;
         return true;
     }
+    const bool ReadLine(std::string_view& Destination, std::mutex& Mutex) {
+        std::lock_guard<std::mutex> lock(Mutex);
+        return ReadLine(Destination);
+    }
     std::optional<std::string_view> ReadLine() {
         std::string_view line;
         if (ReadLine(line)) {
             return line;
         }
         return std::nullopt;
+    }
+    std::optional<std::string_view> ReadLine(std::mutex& Mutex) {
+        std::lock_guard<std::mutex> lock(Mutex);
+        return ReadLine();
     }
 private:
     std::span<const char> m_Span;

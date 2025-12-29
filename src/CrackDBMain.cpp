@@ -144,6 +144,10 @@ int main(
             ARGCHECK();
             db.SetBlockSize(Util::ParseNumber<size_t>(args[++i]));
         }
+        else if (arg == "--nocount" || arg == "--no-count" || arg == "-n")
+        {
+            db.SetNoCount(true);
+        }
         else if (arg == "--nohex")
         {
             db.SetHex(false);
