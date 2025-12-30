@@ -211,7 +211,7 @@ CrackDatabase::BuildWorker(
         for (auto algorithm : m_Algorithms)
         {
             // Do the hash
-            SimdHashSingle(algorithm, size, (uint8_t*)&line[0], digest.data());
+            simdhash::SimdHashSingle(algorithm, line, digestSpan);
 
             // Copy the hash into the next record
             record.SetHash(hashSpan);
@@ -404,8 +404,7 @@ CrackDatabase::HasAlgorithm(
 
 const std::optional<std::string>
 CrackDatabase::CheckResult(
-    const uint8_t* const Target,
-    const size_t TargetSize,
+    const std::span<const uint8_t> Target,
     const DatabaseFileMapping Mapping,
     const size_t Index,
     const HashAlgorithm Algorithm
@@ -414,8 +413,15 @@ CrackDatabase::CheckResult(
     // Check this entry then seek backwards while we have
     // a matching initial hash bytes
     std::array<uint8_t, MAX_HASH_SIZE> temp_hash;
-    for (size_t i = Index;
-        Index >= 0 && cracktools::Memcmp(Mapping[i].Hash, &Target[0], HASH_BYTES) == 0;
+    std::span<uint8_t> temp_hash_span = temp_hash;
+    std::span<uint8_t> hash_span = temp_hash_span.subspan(0, Target.size());
+
+    // Define a subspan for the hash bytes only
+    std::span<const uint8_t> targetBytes = Target.subspan(0, HASH_BYTES);
+
+    // Scan from the provided index backwards
+    for (ssize_t i = Index;
+        i >= 0 && cracktools::Memcmp(Mapping[i].GetHash(), targetBytes) == 0;
         --i
     )
     {
@@ -425,8 +431,8 @@ CrackDatabase::CheckResult(
             for (auto& word : words)
             {
                 // Check the hash
-                SimdHashSingle(Algorithm, word.size(), (uint8_t*)&word[0], temp_hash.data());
-                if (cracktools::Memcmp(temp_hash.data(), &Target[0], TargetSize) == 0)
+                simdhash::SimdHashSingle(Algorithm, word, temp_hash_span);
+                if (cracktools::Memcmp(hash_span, Target) == 0)
                 {
                     return std::string(&word[0], word.size());
                 }
@@ -437,7 +443,7 @@ CrackDatabase::CheckResult(
     // Seek forwards
     for (
         size_t i = Index + 1;
-        i < Mapping.size() && cracktools::Memcmp(Mapping[i].Hash, &Target[0], HASH_BYTES) == 0;
+        i < Mapping.size() && cracktools::Memcmp(Mapping[i].GetHash(), targetBytes) == 0;
         ++i
     )
     {
@@ -447,8 +453,8 @@ CrackDatabase::CheckResult(
             for (auto& word : words)
             {
                 // Check the hash
-                SimdHashSingle(Algorithm, word.size(), (uint8_t*)&word[0], temp_hash.data());
-                if (cracktools::Memcmp(temp_hash.data(), &Target[0], TargetSize) == 0)
+                simdhash::SimdHashSingle(Algorithm, word, temp_hash_span);
+                if (cracktools::Memcmp(hash_span, Target) == 0)
                 {
                     return std::string(&word[0], word.size());
                 }
@@ -515,22 +521,21 @@ const std::optional<std::string>
 CrackDatabase::Lookup(
     const HashAlgorithm Algorithm,
     const DatabaseFileMapping Mapping,
-    const uint8_t* const Hash,
-    const size_t Length
+    const std::span<const uint8_t> Hash
 ) const
 {
     ssize_t low = 0;
     ssize_t high = Mapping.size() - 1;
+    std::span<const uint8_t> hashSpan = Hash.subspan(0, HASH_BYTES);
 
     while (low <= high)
     {
         const ssize_t mid = low + (high - low) / 2;
-        const int cmp = cracktools::Memcmp(Mapping[mid].Hash, Hash, HASH_BYTES);
+        const int cmp = cracktools::Memcmp(Mapping[mid].GetHash(), hashSpan);
         if (cmp == 0)
         {
             auto result = CheckResult(
                 Hash,
-                Length,
                 Mapping,
                 mid,
                 Algorithm
@@ -561,15 +566,14 @@ CrackDatabase::Lookup(
 const std::optional<std::string>
 CrackDatabase::Lookup(
     const HashAlgorithm Algorithm,
-    const uint8_t* const Hash,
-    const size_t Length
+    const std::span<const uint8_t> Hash
 ) const
 {
     // Try pulling the mapping directly from the cache
     auto mapping = GetCachedDatabaseMapping(Algorithm);
     if (mapping.has_value())
     {
-        return Lookup(Algorithm, mapping.value(), Hash, Length);
+        return Lookup(Algorithm, mapping.value(), Hash);
     }
     
     // Fallback to open the database. This will check if we have this algorithm
@@ -579,16 +583,7 @@ CrackDatabase::Lookup(
         return std::nullopt;
     }
 
-    return Lookup(Algorithm, database.value()->GetMapping(), Hash, Length);
-}
-
-const std::optional<std::string>
-CrackDatabase::Lookup(
-    const HashAlgorithm Algorithm,
-    const std::span<uint8_t> Hash
-) const
-{
-    return Lookup(Algorithm, &Hash[0], Hash.size());
+    return Lookup(Algorithm, database.value()->GetMapping(), Hash);
 }
 
 const std::optional<std::string>
@@ -604,7 +599,7 @@ CrackDatabase::Lookup(
         return std::nullopt;
     }
 
-    return Lookup(algorithm, &Hash[0], Hash.size());
+    return Lookup(algorithm, Hash);
 }
 
 void
@@ -854,6 +849,6 @@ CrackDatabase::Test(
 )
 {
     std::vector<uint8_t> digest(GetDigestLength(Algorithm));
-    SimdHashSingle(Algorithm, Value.size(), (uint8_t*)&Value[0], &digest[0]);
-    return Lookup(Algorithm, &digest[0], digest.size());
+    simdhash::SimdHashSingle(Algorithm, Value, digest);
+    return Lookup(Algorithm, digest);
 }

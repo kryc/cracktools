@@ -43,24 +43,23 @@ ParseColonSeparated(
 {
     const size_t colonPos = Line.find(':');
     const size_t semiPos = Line.find(';');
+    std::string_view username, password;
 
     // Simple case. Only colon and no semicolon and is a valid username/email and the password is non-empty
     if (colonPos != std::string_view::npos && semiPos == std::string_view::npos &&
         Util::IsValidUsernameOrEmail(Line.substr(0, colonPos)) &&
         colonPos + 1 < Line.size())
     {
-        const std::string_view username = Line.substr(0, colonPos);
-        const std::string_view password = Line.substr(colonPos + 1);
-        return std::make_pair(username, password);
+        username = Line.substr(0, colonPos);
+        password = Line.substr(colonPos + 1);
     }
     // Simple case. Only semicolon and no colon and is a valid username/email and the password is non-empty
     else if (semiPos != std::string_view::npos && colonPos == std::string_view::npos &&
              Util::IsValidUsernameOrEmail(Line.substr(0, semiPos)) &&
              semiPos + 1 < Line.size())
     {
-        const std::string_view username = Line.substr(0, semiPos);
-        const std::string_view password = Line.substr(semiPos + 1);
-        return std::make_pair(username, password);
+        username = Line.substr(0, semiPos);
+        password = Line.substr(semiPos + 1);
     }
     // Ambiguous case. Both colon and semicolon present
     else if (colonPos != std::string_view::npos && semiPos != std::string_view::npos)
@@ -70,18 +69,30 @@ ParseColonSeparated(
             Util::IsValidUsernameOrEmail(Line.substr(0, colonPos)) &&
             colonPos + 1 < Line.size())
         {
-            const std::string_view username = Line.substr(0, colonPos);
-            const std::string_view password = Line.substr(colonPos + 1);
-            return std::make_pair(username, password);
+            username = Line.substr(0, colonPos);
+            password = Line.substr(colonPos + 1);
         }
         else if (semiPos < colonPos &&
                  Util::IsValidUsernameOrEmail(Line.substr(0, semiPos)) &&
                  semiPos + 1 < Line.size())
         {
-            const std::string_view username = Line.substr(0, semiPos);
-            const std::string_view password = Line.substr(semiPos + 1);
-            return std::make_pair(username, password);
+            username = Line.substr(0, semiPos);
+            password = Line.substr(semiPos + 1);
         }
+    }
+    // If the username of password end in carriage return, strip it
+    if (!username.empty() && username.back() == '\r')
+    {
+        username = username.substr(0, username.size() - 1);
+    }
+    if (!password.empty() && password.back() == '\r')
+    {
+        password = password.substr(0, password.size() - 1);
+    }
+    // Return if both username and password are non-empty
+    if (!username.empty() && !password.empty())
+    {
+        return std::make_pair(username, password);
     }
     return std::nullopt;
 }
@@ -107,7 +118,7 @@ ParseEmailAndLikelyPassword(
         }
         // Find the end of the email
         size_t end = atPos;
-        while (end < Line.size() && EMAIL_DOMAIN.find(Line[end + 1]) != std::string_view::npos
+        while (end + 1 < Line.size() && EMAIL_DOMAIN.find(Line[end + 1]) != std::string_view::npos
                 && Line[end + 1] != '\'' && Line[end + 1] != '\"') // Expand it to strip certain quotes
         {
             end++;
@@ -155,12 +166,14 @@ ParseEmailAndLikelyPassword(
     }
     else if (candidates.size() > 1)
     {
+        // Default to the first candidate
+        std::string_view selected = candidates[0];
         // Choose any hex candidate first
         for (const auto& candidate : candidates)
         {
             if (CouldBeHashHex(candidate))
             {
-                return std::make_pair(email, candidate);;
+                return std::make_pair(email, candidate);
             }
         }
         // Ignore numeric-only candidates and dates
@@ -172,11 +185,15 @@ ParseEmailAndLikelyPassword(
                 candidate != "Banned" &&
                 candidate != "default")
             {
-                return std::make_pair(email, candidate);
+                selected = candidate;
             }
         }
-        // If all candidates were numeric or dates, return the first one
-        return std::make_pair(email, candidates[0]);
+        // Strip carriage return if present
+        if (!selected.empty() && selected.back() == '\r')
+        {
+            selected = selected.substr(0, selected.size() - 1);
+        }
+        return std::make_pair(email, selected);
     }
     return std::nullopt;
 }
@@ -240,12 +257,14 @@ ParseLikelyUsernameAndPassword(
     }
     else if (candidates.size() > 1)
     {
+        // Default to the first candidate
+        std::string_view selected = candidates[0];
         // Choose any hexadecimal passwords first
         for (const auto& candidate : candidates)
         {
             if (CouldBeHashHex(candidate))
             {
-                return std::make_pair(username, candidate);;
+                return std::make_pair(username, candidate);
             }
         }
         // Ignore numeric-only candidates and dates
@@ -257,11 +276,16 @@ ParseLikelyUsernameAndPassword(
                 candidate != "Banned" &&
                 candidate != "default")
             {
-                return std::make_pair(username, candidate);
+                selected = candidate;
             }
         }
+        // Strip carriage return if present
+        if (!selected.empty() && selected.back() == '\r')
+        {
+            selected = selected.substr(0, selected.size() - 1);
+        }
         // If all candidates were numeric or dates, return the first one
-        return std::make_pair(username, candidates[0]);
+        return std::make_pair(username, selected);
     }
     return std::nullopt;
 }
@@ -416,7 +440,7 @@ CredParse(
         }
 
         if (count % 1000 == 0 && !OutputFile.empty()) {
-            std::cerr << "\r#: " << count << " S: " << success << " F: " << filtered << " : " << "F: " << failure << " U: " << unique << std::flush;
+            std::cerr << "\r#: " << count << " ✓: " << success << " ✗: " << failure << " F: " << filtered << " U: " << unique << std::flush;
         }
     }
 }

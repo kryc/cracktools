@@ -47,7 +47,7 @@ public:
     bool Exists(void) { return std::filesystem::exists(m_Path) && std::filesystem::is_directory(m_Path); };
     std::filesystem::path GetPath(void) { return m_Path; };
     const bool Build(const std::span<HashAlgorithm> Types, const std::string_view InputWords);
-    const std::optional<std::string> Lookup(const HashAlgorithm Algorithm, const std::span<uint8_t> Hash) const;
+    const std::optional<std::string> Lookup(const HashAlgorithm Algorithm, const std::span<const uint8_t> Hash) const;
     const std::optional<std::string> Lookup(const std::span<uint8_t> Hash) const;
     const std::optional<std::string> Lookup(const std::string_view Hash) const { auto bytes = Util::ParseHex(Hash); return Lookup(bytes); };
     const bool CrackFile(const std::string_view HashfileInput);
@@ -84,13 +84,12 @@ private:
     void CrackFileInternal(void);
     const bool CrackFileLinear(void);
     void OutputResult(const std::string_view Hash, const std::string_view Value, std::ostream& Stream) const;
-    const std::optional<std::string> Lookup(const HashAlgorithm Algorithm, const DatabaseFileMapping Mapping, const uint8_t* const Hash, const size_t Length) const;
-    const std::optional<std::string> Lookup(const HashAlgorithm Algorithm, const uint8_t* const Hash, const size_t Length) const;
+    const std::optional<std::string> Lookup(const HashAlgorithm Algorithm, const DatabaseFileMapping Mapping, const std::span<const uint8_t> Hash) const;
     const std::filesystem::path DatabaseFile(const HashAlgorithm Algorithm) const;
     std::vector<WordfilePtr> GetAllWordFiles(const size_t Length, const bool Write) const;
     void AddWordSize(const size_t Size);
     WordfilePtr GetWordfile(const size_t Length, const bool Write) const;
-    const std::optional<std::string> CheckResult(const uint8_t* const Target, const size_t TargetSize, const DatabaseFileMapping Mapping, const size_t Index, const HashAlgorithm Algorithm) const;
+    const std::optional<std::string> CheckResult(const std::span<const uint8_t> Target, const DatabaseFileMapping Mapping, const size_t Index, const HashAlgorithm Algorithm) const;
     std::optional<std::shared_ptr<const MappedDatabase>> GetDatabase(const HashAlgorithm Algorithm) const;
     std::optional<const DatabaseFileMapping> GetCachedDatabaseMapping(const HashAlgorithm Algorithm) const;
     std::optional<const MappedDatabase> OpenDatabaseNoCache(const HashAlgorithm Algorithm) const;

@@ -39,7 +39,6 @@ private:
     std::filesystem::path m_DatabasePath;
     size_t m_Size;
     FILE* m_ReadHandle = nullptr;
-    void* m_Mapped = nullptr;
     FILE* m_WriteHandle = nullptr;
     std::span<char> m_Span;
     size_t m_Count;

@@ -16,6 +16,7 @@
 #include <string>
 #include <sys/mman.h>
 
+#include "Check.hpp"
 #include "MappedDatabase.hpp"
 #include "UnsafeBuffer.hpp"
 #include "Util.hpp"
@@ -91,21 +92,20 @@ Wordfile::~Wordfile(
     void
 )
 {
-    if (m_Mapped != nullptr)
-    {
-        munmap(m_Mapped, Filesize());
-        m_Mapped = nullptr;
-    }
-
     if (m_WriteHandle != nullptr)
     {
+        CHECKA(m_ReadHandle == nullptr, "Both read and write handles open!");
         fclose(m_WriteHandle);
         m_WriteHandle = nullptr;
     }
 
     if (m_ReadHandle != nullptr)
     {
-        fclose(m_ReadHandle);
+        CHECKA(m_WriteHandle == nullptr, "Both read and write handles open!");
+        if (!cracktools::UnmapFileSpan(m_Span, m_ReadHandle))
+        {
+            std::cerr << "Error unmapping wordfile" << std::endl;
+        }
         m_ReadHandle = nullptr;
     }
 }
