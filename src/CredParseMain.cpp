@@ -349,7 +349,8 @@ CredParse(
     const std::string_view OutputFile,
     const std::string_view Database,
     const std::string_view Separator = ":",
-    const bool Unique = false
+    const bool Unique = false,
+    const bool Append = false
 )
 {
     // Check if the input file exists, if not read from stdin
@@ -371,7 +372,12 @@ CredParse(
     std::ofstream outfile;
     if (!OutputFile.empty())
     {
-        outfile.open(OutputFile.data(), std::ios::out | std::ios::binary);
+        std::ios::openmode mode = std::ios::out|std::ios::binary;
+        if (Append)
+        {
+            mode |= std::ios::app;
+        }
+        outfile.open(OutputFile.data(), mode);
         if (!outfile.is_open())
         {
             std::cerr << "Error opening output file: " << OutputFile << std::endl;
@@ -455,6 +461,7 @@ int main(
     std::string_view database;
     std::string_view separator = ":";
     bool unique = false;
+    bool append = false;
 
     for (int i = 1; i < argc; i++)
     {
@@ -463,6 +470,10 @@ int main(
         {
             ARGCHECK();
             output_file = args[++i];
+        }
+        else if (arg == "--append" || arg == "-a")
+        {
+            append = true;
         }
         else if (input_file.empty() && std::filesystem::exists(arg))
         {
@@ -487,6 +498,8 @@ int main(
             std::cout << "Usage: " << args[0] << " [options] [input_file]" << std::endl;
             std::cout << "Options:" << std::endl;
             std::cout << "  --output, -o <file>  Specify the output file" << std::endl;
+            std::cout << "  --append, -a         Append to the output file if it exists" << std::endl;
+            std::cout << "  --unique, -u         Output only unique username:password pairs" << std::endl;
             std::cout << "  --separator, -s <sep> Specify the separator (default is ':')" << std::endl;
             std::cout << "  --database, -d <db>  Specify the database directory" << std::endl;
             std::cout << "  --help, -h           Show this help message" << std::endl;
@@ -499,5 +512,5 @@ int main(
         }
     }
 
-    CredParse(input_file, output_file, database, separator, unique);
+    CredParse(input_file, output_file, database, separator, unique, append);
 }
