@@ -93,6 +93,16 @@ IsHex(
     const std::string_view String
 );
 
+const bool
+IsBase64(
+    const char Character
+);
+
+const bool
+IsBase64(
+    const std::string_view String
+);
+
 std::string
 ToLower(
     const std::string_view String
@@ -250,6 +260,27 @@ IsNumericString(
 const bool
 IsLikelyDateString(
     const std::string_view Value
+);
+
+const bool
+CouldBeHashHex(
+    const std::string_view Value
+);
+
+const bool
+IsRadix64(
+	const char Character
+);
+
+const bool
+IsRadix64(
+	const std::string_view Value
+);
+
+const bool
+CouldBeCryptHash(
+    const std::string_view Value,
+    const bool Permissive = false
 );
 
 } // namespace Util

@@ -12,6 +12,7 @@
 #include <limits>
 #include <string>
 #include <string_view>
+#include <tuple>
 
 #include "CrackDatabase.hpp"
 #include "LineReader.hpp"
@@ -26,13 +27,36 @@
         return 1; \
     }
 
-const bool CouldBeHashHex(
-    const std::string_view Value
+std::vector<std::string_view>
+ParsePossibleUsersAndPasswords(
+    const std::string_view Line,
+    const size_t MinLength = 5,
+    const size_t MaxLength = 31
 )
 {
-    return Util::IsHex(Value) &&
-           (Value.size() == 32 || Value.size() == 40 ||
-            Value.size() == 64 || Value.size() == 128);
+    static const std::string_view IGNORE_CHARS = " \t,|'\":;";
+    std::vector<std::string_view> results;
+    // Parse through the line looking for strings of characters separated by ignore chars
+    size_t pos = 0;
+    while (pos < Line.size())
+    {
+        // Skip ignore chars
+        while (pos < Line.size() && IGNORE_CHARS.find(Line[pos]) != std::string_view::npos)
+        {
+            pos++;
+        }
+        size_t start = pos;
+        while (pos < Line.size() && IGNORE_CHARS.find(Line[pos]) == std::string_view::npos)
+        {
+            pos++;
+        }
+        auto word = Line.substr(start, pos - start);
+        if (word.size() >= MinLength && word.size() <= MaxLength)
+        {
+            results.push_back(word);
+        }
+    }
+    return results;
 }
 
 // Parse the simple case of colon (or semicolon) separated values
@@ -98,217 +122,163 @@ ParseColonSeparated(
 }
 
 std::optional<std::pair<std::string_view, std::string_view>>
-ParseEmailAndLikelyPassword(
-    const std::string_view Line
-)
-{
-    // Look for substrings that look like emails
-    std::string_view email, password;
-    std::string_view remaining;
-    size_t atPos = Line.find('@');
-
-    while (atPos != std::string_view::npos)
-    {
-        // Find the start of the email
-        size_t start = atPos;
-        while (start > 0 && EMAIL_LOCAL.find(Line[start - 1]) != std::string_view::npos
-                && Line[start - 1] != '\'' && Line[start - 1] != '\"') // Expand it to strip certain quotes
-        {
-            start--;
-        }
-        // Find the end of the email
-        size_t end = atPos;
-        while (end + 1 < Line.size() && EMAIL_DOMAIN.find(Line[end + 1]) != std::string_view::npos
-                && Line[end + 1] != '\'' && Line[end + 1] != '\"') // Expand it to strip certain quotes
-        {
-            end++;
-        }
-        email = Line.substr(start, end - start + 1);
-        if (Util::IsValidEmail(email))
-        {
-            remaining = Line.substr(end + 1);
-            break;
-        }
-        // Look for the next '@'
-        atPos = Line.find('@', atPos + 1);
-    }
-    // Look for the password in the remaining string
-    if (remaining.empty())
-    {
-        return std::nullopt;
-    }
-    // Look for likely passwords using characters that are only in COMMON_SHORT
-    std::vector<std::string_view> candidates;
-    size_t pos = 0;
-    while (pos < remaining.size())
-    {
-        // Skip non-COMMON_SHORT characters
-        while (pos < remaining.size() && COMMON_SHORT.find(remaining[pos]) == std::string_view::npos)
-        {
-            pos++;
-        }
-        size_t start = pos;
-        while (pos < remaining.size() && COMMON_SHORT.find(remaining[pos]) != std::string_view::npos)
-        {
-            pos++;
-        }
-        size_t length = pos - start;
-        if (length >= 5) // Minimum length for a likely password
-        {
-            password = remaining.substr(start, length);
-            candidates.push_back(password);
-        }
-    }
-    // Now some simple logic to pick the best candidate
-    if (candidates.size() == 1)
-    {
-        return std::make_pair(email, candidates[0]);
-    }
-    else if (candidates.size() > 1)
-    {
-        // Default to the first candidate
-        std::string_view selected = candidates[0];
-        // Choose any hex candidate first
-        for (const auto& candidate : candidates)
-        {
-            if (CouldBeHashHex(candidate))
-            {
-                return std::make_pair(email, candidate);
-            }
-        }
-        // Ignore numeric-only candidates and dates
-        for (const auto& candidate : candidates)
-        {
-            if (!Util::IsNumericString(candidate) &&
-                !Util::IsLikelyDateString(candidate) &&
-                !Util::IsValidIPv4(candidate) &&
-                candidate != "Banned" &&
-                candidate != "default")
-            {
-                selected = candidate;
-            }
-        }
-        // Strip carriage return if present
-        if (!selected.empty() && selected.back() == '\r')
-        {
-            selected = selected.substr(0, selected.size() - 1);
-        }
-        return std::make_pair(email, selected);
-    }
-    return std::nullopt;
-}
-
-std::optional<std::pair<std::string_view, std::string_view>>
 ParseLikelyUsernameAndPassword(
-    const std::string_view Line
+    const std::string_view Line,
+    const size_t MinLength,
+    const size_t MaxLength
 )
 {
-    // Look for likely usernames using characters that are only in COMMON_SHORT
-    size_t pos = 0;
     std::string_view username, password;
-    while (pos < Line.size())
-    {
-        // Skip non-COMMON_SHORT characters
-        while (pos < Line.size() && COMMON_SHORT.find(Line[pos]) == std::string_view::npos)
-        {
-            pos++;
-        }
-        size_t start = pos;
-        while (pos < Line.size() && COMMON_SHORT.find(Line[pos]) != std::string_view::npos)
-        {
-            pos++;
-        }
-        size_t length = pos - start;
-        if (length >= 3) // Minimum length for a likely username
-        {
-            username = Line.substr(start, length);
-            break;
-        }
-    }
-    if (username.empty())
+
+    // Parse possible usernames and passwords
+    auto possible = ParsePossibleUsersAndPasswords(Line, MinLength, MaxLength);
+    if (possible.size() < 2)
     {
         return std::nullopt;
     }
-    // Scan forward for likely passwords
-    std::vector<std::string_view> candidates;
-    while (pos < Line.size())
+
+    // Remove elements that are clearly auxiliary data
+    for (auto it = possible.begin(); it != possible.end(); )
     {
-        // Skip non-COMMON_SHORT characters
-        while (pos < Line.size() && COMMON_SHORT.find(Line[pos]) == std::string_view::npos)
+        if (Util::IsLikelyDateString(*it) ||
+            Util::IsValidIPv4(*it))
         {
-            pos++;
+            it = possible.erase(it);
         }
-        size_t start = pos;
-        while (pos < Line.size() && COMMON_SHORT.find(Line[pos]) != std::string_view::npos)
+        else
         {
-            pos++;
-        }
-        size_t length = pos - start;
-        if (length >= 5) // Minimum length for a likely password
-        {
-            password = Line.substr(start, length);
-            candidates.push_back(password);
+            ++it;
         }
     }
-    // Now some simple logic to pick the best candidate
-    if (candidates.size() == 1)
+    // Need at least two candidates remaining
+    if (possible.size() < 2)
     {
-        return std::make_pair(username, candidates[0]);
+        return std::nullopt;
     }
-    else if (candidates.size() > 1)
+    
+    // First see if any are email addresses, this is likely the username
+    for (const auto& candidate : possible)
     {
-        // Default to the first candidate
-        std::string_view selected = candidates[0];
-        // Choose any hexadecimal passwords first
-        for (const auto& candidate : candidates)
+        if (Util::IsValidEmail(candidate))
         {
-            if (CouldBeHashHex(candidate))
+            username = candidate;
+            break;
+        }
+    }
+
+    // Next see if any are valid hashes, this will likely be the password
+    for (const auto& candidate : possible)
+    {
+        if (Util::CouldBeHashHex(candidate) || Util::CouldBeCryptHash(candidate))
+        {
+            password = candidate;
+            break;
+        }
+    }
+
+    // Next see if there are any hashes as substrings of candidates
+    // Scan through looking for strings of hex characters, then check the lengths
+    if (password.empty())
+    {
+        for (const auto& candidate : possible)
+        {
+            size_t start = 0;
+            while (start < candidate.size())
             {
-                return std::make_pair(username, candidate);
+                // Find the start of a hex substring
+                while (start < candidate.size() && !Util::IsHex(candidate[start]))
+                {
+                    start++;
+                }
+                size_t end = start;
+                while (end < candidate.size() && Util::IsHex(candidate[end]))
+                {
+                    end++;
+                }
+                size_t length = end - start;
+                if (length == 32 || length == 40 || length == 64 || length == 128)
+                {
+                    password = candidate.substr(start, length);
+                    break;
+                }
+                start = end;
+            }
+            if (!password.empty())
+            {
+                break;
             }
         }
-        // Ignore numeric-only candidates and dates
-        for (const auto& candidate : candidates)
-        {
-            if (!Util::IsNumericString(candidate) &&
-                !Util::IsLikelyDateString(candidate) &&
-                !Util::IsValidIPv4(candidate) &&
-                candidate != "Banned" &&
-                candidate != "default")
-            {
-                selected = candidate;
-            }
-        }
-        // Strip carriage return if present
-        if (!selected.empty() && selected.back() == '\r')
-        {
-            selected = selected.substr(0, selected.size() - 1);
-        }
-        // If all candidates were numeric or dates, return the first one
-        return std::make_pair(username, selected);
     }
+
+    // Simple case logic in instances where we have only two candidates
+    if (possible.size() == 2)
+    {
+        if (username.empty() && !Util::IsValidEmail(possible[0]))
+        {
+            username = possible[0];
+        }
+        if (password.empty() && possible[1] != username)
+        {
+            password = possible[1];
+        }
+    }
+
+    if (!username.empty() && !password.empty())
+    {
+        return std::make_pair(username, password);
+    }
+
+    // We are approaching guesswork now
+    // If there are two elements, just return them
+    if (possible.size() == 2)
+    {
+        return std::make_pair(possible[0], possible[1]);
+    }
+
+    // If there are more, pick use some simple filtering to choose two
+    for (const auto& candidate : possible)
+    {
+        if (username.empty() && Util::IsValidUsername(candidate))
+        {
+            username = candidate;
+        }
+        else if (!username.empty() && password.empty() &&
+                 candidate != "Banned" &&
+                 candidate != "default")
+        {
+            password = candidate;
+        }
+    }
+
+    if (!username.empty() && !password.empty())
+    {
+        return std::make_pair(username, password);
+    }
+
     return std::nullopt;
 }
 
-std::optional<std::pair<std::string_view, std::string_view>>
+std::optional<std::tuple<std::string_view, std::string_view, int>>
 ParseCredentials(
-    const std::string_view Line
+    const std::string_view Line,
+    const size_t Min,
+    const size_t Max
 )
 {
     auto parsed = ParseColonSeparated(Line);
     if (parsed.has_value())
     {
-        return parsed;
+        if (parsed->first.size() < Min || parsed->first.size() > Max ||
+            parsed->second.size() < Min || parsed->second.size() > Max)
+        {
+            return std::nullopt;
+        }
+        return std::make_tuple(parsed->first, parsed->second, 1);
     }
-    parsed = ParseEmailAndLikelyPassword(Line);
+    parsed = ParseLikelyUsernameAndPassword(Line, Min, Max);
     if (parsed.has_value())
     {
-        return parsed;
-    }
-    parsed = ParseLikelyUsernameAndPassword(Line);
-    if (parsed.has_value())
-    {
-        return parsed;
+        return std::make_tuple(parsed->first, parsed->second, 2);
     }
     return std::nullopt;
 }
@@ -320,7 +290,27 @@ Filter(
 )
 {
     // Custom filtering logic
-    if (Username == "email" && Util::IsValidEmail(Password))
+    if ((Username == "email" || Username == "[Email]") && Util::IsValidEmail(Password))
+    {
+        return true;
+    }
+    else if (Username == "telephone" || Username == "[Telephone]" || Username == "phone" || Username == "[Phone]")
+    {
+        return true;
+    }
+    else if (Username == "address" || Username == "[Address]")
+    {
+        return true;
+    }
+    else if (Username == "name" || Username == "[Name]")
+    {
+        return true;
+    }
+    else if (Username == "website" || Username == "[Website]")
+    {
+        return true;
+    }
+    else if (Username == "comment" || Username == "[Comment]")
     {
         return true;
     }
@@ -347,10 +337,13 @@ void
 CredParse(
     const std::string_view InputFile,
     const std::string_view OutputFile,
+    const size_t Min,
+    const size_t Max,
     const std::string_view Database,
     const std::string_view Separator = ":",
     const bool Unique = false,
-    const bool Append = false
+    const bool Append = false,
+    const bool OutputMatchRule = false
 )
 {
     // Check if the input file exists, if not read from stdin
@@ -401,15 +394,28 @@ CredParse(
     while (reader.ReadLine(line))
     {
         count++;
+        // Remove trailing carriage return
+        if (line.size() > 0 && line.back() == '\r')
+        {
+            line = line.substr(0, line.size() - 1);
+        }
 
-        auto parsed = ParseCredentials(line);
+        // Remove leading whitespace
+        size_t start = 0;
+        while (start < line.size() && (line[start] == ' ' || line[start] == '\t'))
+        {
+            start++;
+        }
+        line = line.substr(start);
+
+        auto parsed = ParseCredentials(line, Min, Max);
         if (parsed.has_value())
         {
-            if (Filter(parsed->first, parsed->second))
+            if (Filter(std::get<0>(parsed.value()), std::get<1>(parsed.value())))
             {
                 filtered++;
             }
-            else if (Unique && parsed->first == lastUsername && parsed->second == lastPassword)
+            else if (Unique && std::get<0>(parsed.value()) == lastUsername && std::get<1>(parsed.value()) == lastPassword)
             {
                 unique++;
             }
@@ -418,25 +424,27 @@ CredParse(
                 success++;
                 if (Unique)
                 {
-                    lastUsername = std::string(parsed->first);
-                    lastPassword = std::string(parsed->second);
+                    lastUsername = std::string(std::get<0>(parsed.value()));
+                    lastPassword = std::string(std::get<1>(parsed.value()));
                 }
-                if (CouldBeHashHex(parsed->second))
+                int matchRule = std::get<2>(parsed.value());
+                std::string matchRuleStr = (OutputMatchRule ? std::to_string(matchRule) + std::string(Separator) : "");
+                if (Util::CouldBeHashHex(std::get<1>(parsed.value())))
                 {
-                    auto lookup = db.Lookup(parsed->second);
+                    auto lookup = db.Lookup(std::get<1>(parsed.value()));
                     if (lookup.has_value())
                     {
-                        // std::cout << "Cracked hash for " << parsed->first << "(" << parsed->second << "): " << lookup.value() << std::endl;
-                        *output << parsed->first << Separator << Util::Hexlify(lookup.value()) << std::endl;
+                        // std::cout << "Cracked hash for " << std::get<0>(parsed.value()) << "(" << std::get<1>(parsed.value()) << "): " << lookup.value() << std::endl;
+                        *output << matchRuleStr << std::get<0>(parsed.value()) << Separator << Util::Hexlify(lookup.value()) << std::endl;
                     }
                     else
                     {
-                        *output << parsed->first << Separator << Util::Hexlify(parsed->second) << std::endl;
+                        *output << matchRuleStr << std::get<0>(parsed.value()) << Separator << Util::Hexlify(std::get<1>(parsed.value())) << std::endl;
                     }
                 }
                 else
                 {
-                    *output << parsed->first << Separator << Util::Hexlify(parsed->second) << std::endl;
+                    *output << matchRuleStr << std::get<0>(parsed.value()) << Separator << Util::Hexlify(std::get<1>(parsed.value())) << std::endl;
                 }
             }
         }
@@ -462,6 +470,9 @@ int main(
     std::string_view separator = ":";
     bool unique = false;
     bool append = false;
+    bool output_match_rule = false;
+    size_t min = 5;
+    size_t max = std::numeric_limits<size_t>::max();
 
     for (int i = 1; i < argc; i++)
     {
@@ -470,6 +481,16 @@ int main(
         {
             ARGCHECK();
             output_file = args[++i];
+        }
+        else if (arg == "--min" || arg == "-m")
+        {
+            ARGCHECK();
+            min = std::stoull(std::string(args[++i]));
+        }
+        else if (arg == "--max" || arg == "-M")
+        {
+            ARGCHECK();
+            max = std::stoull(std::string(args[++i]));
         }
         else if (arg == "--append" || arg == "-a")
         {
@@ -493,15 +514,22 @@ int main(
         {
             unique = true;
         }
+        else if (arg == "--output-match-rule" || arg == "-r")
+        {
+            output_match_rule = true;
+        }
         else if (arg == "--help" || arg == "-h")
         {
             std::cout << "Usage: " << args[0] << " [options] [input_file]" << std::endl;
             std::cout << "Options:" << std::endl;
             std::cout << "  --output, -o <file>  Specify the output file" << std::endl;
+            std::cout << "  --min, -m <number>   Specify the minimum number of lines to process" << std::endl;
+            std::cout << "  --max, -M <number>   Specify the maximum number of lines to process" << std::endl;
             std::cout << "  --append, -a         Append to the output file if it exists" << std::endl;
             std::cout << "  --unique, -u         Output only unique username:password pairs" << std::endl;
             std::cout << "  --separator, -s <sep> Specify the separator (default is ':')" << std::endl;
             std::cout << "  --database, -d <db>  Specify the database directory" << std::endl;
+            std::cout << "  --output-match-rule, -r  Output the match rule used for cracking" << std::endl;
             std::cout << "  --help, -h           Show this help message" << std::endl;
             return 0;
         }
@@ -512,5 +540,5 @@ int main(
         }
     }
 
-    CredParse(input_file, output_file, database, separator, unique, append);
+    CredParse(input_file, output_file, min, max, database, separator, unique, append, output_match_rule);
 }

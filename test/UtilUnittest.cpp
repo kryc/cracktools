@@ -21,6 +21,23 @@ TEST(Util, IsHex)
     EXPECT_FALSE(Util::IsHex(""));
 }
 
+TEST(Util, IsBase64)
+{
+    EXPECT_TRUE(Util::IsBase64("SGVsbG8sIFdvcmxkIQ=="));
+    EXPECT_TRUE(Util::IsBase64("U29tZSB0ZXh0IHdpdGggc3BlY2lhbCBjaGFycy4="));
+    EXPECT_FALSE(Util::IsBase64("SGVsbG8sIFdvcmxkIQ==!"));
+    EXPECT_FALSE(Util::IsBase64("NotBase64String[]"));
+    EXPECT_FALSE(Util::IsBase64(""));
+}
+
+TEST(Util, IsRadix64)
+{
+    EXPECT_TRUE(Util::IsRadix64("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789./"));
+    EXPECT_FALSE(Util::IsRadix64("Radix64.String/With+Chars="));
+    EXPECT_FALSE(Util::IsRadix64("Invalid*Char&Here"));
+    EXPECT_FALSE(Util::IsRadix64(""));
+}
+
 TEST(Util, IsPrintableASCII)
 {
     EXPECT_TRUE(Util::IsPrintableASCII("Hello, World!"));
@@ -292,4 +309,38 @@ TEST(Util, IsNumericString)
     EXPECT_FALSE(Util::IsNumericString("12345a67890"));
     EXPECT_FALSE(Util::IsNumericString("12 34567890"));
     EXPECT_FALSE(Util::IsNumericString(""));
+}
+
+TEST(Util, IsLikelyDateString)
+{
+    EXPECT_TRUE(Util::IsLikelyDateString("2023-10-05"));
+    EXPECT_TRUE(Util::IsLikelyDateString("05/10/2023"));
+    EXPECT_TRUE(Util::IsLikelyDateString("10/05/23"));
+    EXPECT_FALSE(Util::IsLikelyDateString("20231005"));
+    EXPECT_FALSE(Util::IsLikelyDateString("NotADate"));
+    EXPECT_FALSE(Util::IsLikelyDateString(""));
+}
+
+TEST(Util, CouldBeHashHex)
+{
+    EXPECT_TRUE(Util::CouldBeHashHex("5d41402abc4b2a76b9719d911017c592")); // MD5
+    EXPECT_TRUE(Util::CouldBeHashHex("2aae6c35c94fcfb415dbe95f408b9ce91ee846ed")); // SHA1
+    EXPECT_TRUE(Util::CouldBeHashHex("cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e")); // SHA512
+    EXPECT_FALSE(Util::CouldBeHashHex("NotAHash"));
+    EXPECT_FALSE(Util::CouldBeHashHex("5d41402abc4b2a76b9719d911017c59")); // Invalid length
+}
+
+TEST(Util, CouldBeCryptHash)
+{
+    EXPECT_TRUE(Util::CouldBeCryptHash("$1$etNnh7FA$OlM7eljE/B7F1J4XYNnk81")); // MD5
+    EXPECT_TRUE(Util::CouldBeCryptHash("$2a$10$VIhIOofSMqgdGlL4wzE//e.77dAQGqntF/1dT7bqCrVtquInWy2qi")); // Blowfish
+    EXPECT_TRUE(Util::CouldBeCryptHash("$3$$abcdefghijklmnopqrstuvwxzy0123456789ABCD")); // NTHASH with empty salt
+    EXPECT_TRUE(Util::CouldBeCryptHash("$5$9ks3nNEqv31FX.F$gdEoLFsCRsn/WRN3wxUnzfeZLoooVlzeF4WjLomTRFD")); // SHA256
+    EXPECT_TRUE(Util::CouldBeCryptHash("$6$qoE2letU$wWPRl.PVczjzeMVgjiA8LLy2nOyZbf7Amj3qLIL978o18gbMySdKZ7uepq9tmMQXxyTIrS12Pln.2Q/6Xscao0")); // SHA512
+    EXPECT_TRUE(Util::CouldBeCryptHash("$7$DU..../....2Q9obwLhin8qvQl6sisAO/$sHayJj/JBdcuD4lJ1AxiwCo9e5XSi8TcINcmyID12i8")); // scrypt
+    EXPECT_TRUE(Util::CouldBeCryptHash("$8$mTj4RZG8N9ZDOk$elY/asfm8kD3iDmkBe3hD2r4xcA/0oWS5V3os.O91u.")); // PBKDF2-SHA256
+    // EXPECT_TRUE(Util::CouldBeCryptHash("$gy$jCT$HM87v.7RwpQLba8fDjNSk1$VgqS7k2OZWhFbAJVBye2vaA7ex/1VtU3a5fmL8Wv/26")); // gost-yescrypt
+    EXPECT_FALSE(Util::CouldBeCryptHash("NotACryptHash"));
+    EXPECT_FALSE(Util::CouldBeCryptHash("$9$salt$invalidhashvalue")); // Invalid ID
+    EXPECT_FALSE(Util::CouldBeCryptHash("$1$salt$short")); // Hash too short
 }

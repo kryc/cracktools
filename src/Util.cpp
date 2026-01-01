@@ -216,6 +216,30 @@ IsHex(
 		);
 }
 
+const bool
+IsBase64(
+    const char Character
+)
+{
+	return (Character >= 'A' && Character <= 'Z') ||
+		   (Character >= 'a' && Character <= 'z') ||
+		   (Character >= '0' && Character <= '9') ||
+		   (Character == '+') || (Character == '/') || (Character == '=');
+}
+
+const bool
+IsBase64(
+    const std::string_view String
+)
+{
+	return String.size() > 0 &&
+		   std::all_of(
+			   String.begin(),
+			   String.end(),
+			   [](const char c) { return IsBase64(c); }
+		   );
+}
+
 std::string
 ToLower(
     const std::string_view String
@@ -894,6 +918,125 @@ IsLikelyDateString(
 		}
 	}
 	return separatorCount == 2;
+}
+
+const bool
+CouldBeHashHex(
+    const std::string_view Value
+)
+{
+    return Util::IsHex(Value) &&
+           (Value.size() == 32 || Value.size() == 40 ||
+            Value.size() == 64 || Value.size() == 128);
+}
+
+const bool
+IsRadix64(
+	const char Character
+)
+{
+	return (Character >= 'A' && Character <= 'Z') ||
+		   (Character >= 'a' && Character <= 'z') ||
+		   (Character >= '0' && Character <= '9') ||
+		   (Character == '.') || (Character == '/');
+}
+
+const bool
+IsRadix64(
+	const std::string_view Value
+)
+{
+	return Value.size() > 0 &&
+		   std::all_of(
+			   Value.begin(),
+			   Value.end(),
+			   [](const char c) { return IsRadix64(c); }
+		   );
+}
+
+const bool
+CouldBeCryptHash(
+    const std::string_view Value,
+	const bool Permissive /*= false*/
+)
+{
+    static const std::array<std::string_view, 18> VALID_IDs = {
+        "1",            // MD5
+        "2", "2a", "2b", "2x", "2y",   // Blowfish
+        "3",            // NTHASH
+        "5",            // SHA-256
+        "6",            // SHA-512
+        "7",            // Yescrypt
+        "8",            // Argon2id
+        "gy",           // GOST R 34.11-94
+        "md5",          // FreeBSD MD5
+        "sha1",         // FreeBSD SHA-1
+        "sha256",       // FreeBSD SHA-256
+        "sha512",       // FreeBSD SHA-512
+        "y", "yescrypt" // Yescrypt alternative
+    };
+    // Simple check for common crypt hash formats
+    // The format is $id$salt$hash
+    if (Value.size() < 13 || Value[0] != '$')
+    {
+        return false;
+    }
+    // Read out the id
+    std::string_view id, salt, hash;
+    size_t pos = 1;
+    while (pos < Value.size() && Value[pos] != '$')
+    {
+        pos++;
+    }
+    id = Value.substr(1, pos - 1);
+	// If permissive, allow IDs without a known list, just ensure they are alphanumeric
+	// and between 1 and 7 characters long
+	if (Permissive)
+	{
+		if (id.size() < 1 || id.size() > 7 ||
+			!IsAlphanumeric(id, Case::Lower))
+		{
+			return false;
+		}
+	}
+	else
+	{
+		// Check if id is in valid IDs. Perform a case-insensitive comparison
+		std::string id_lower = Util::ToLower(id);
+		if (std::find(VALID_IDs.begin(), VALID_IDs.end(), id_lower) == VALID_IDs.end())
+		{
+			return false;
+		}
+	}
+    // Ensure the next character is a '$'
+    if (pos >= Value.size() || Value[pos++] != '$')
+    {
+        return false;
+    }
+    // Parse the salt
+    size_t salt_start = pos;
+    while (pos < Value.size() && Value[pos] != '$')
+    {
+        pos++;
+    }
+    salt = Value.substr(salt_start, pos - salt_start);
+	// The salt can be empty for NTHASH (id "3"), but for others it should be at least 1 character
+	if (id != "3" && salt.size() == 0)
+	{
+		return false;
+	}
+    // Ensure the next character is a '$'
+    if (pos >= Value.size() || Value[pos++] != '$')
+    {
+        return false;
+    }
+    // The rest is the hash
+    hash = Value.substr(pos);
+    if (hash.size() < 13 || !IsRadix64(hash))
+    {
+        return false;
+    }
+    return true;
 }
 
 } // namespace Util
