@@ -390,6 +390,8 @@ CredParse(
     size_t filtered = 0;
     size_t failure = 0;
     size_t unique = 0;
+    size_t cracked = 0;
+    size_t failed_to_crack = 0;
     std::string lastUsername, lastPassword;
     while (reader.ReadLine(line))
     {
@@ -398,6 +400,13 @@ CredParse(
         if (line.size() > 0 && line.back() == '\r')
         {
             line = line.substr(0, line.size() - 1);
+        }
+
+        // Ignore any lines that are not valid printable UTF8
+        if (!Util::IsPrintableUTF8(line))
+        {
+            failure++;
+            continue;
         }
 
         // Remove leading whitespace
@@ -427,25 +436,39 @@ CredParse(
                     lastUsername = std::string(std::get<0>(parsed.value()));
                     lastPassword = std::string(std::get<1>(parsed.value()));
                 }
-                int matchRule = std::get<2>(parsed.value());
-                std::string matchRuleStr = (OutputMatchRule ? std::to_string(matchRule) + std::string(Separator) : "");
-                if (Util::CouldBeHashHex(std::get<1>(parsed.value())))
+                if (OutputMatchRule)
                 {
-                    auto lookup = db.Lookup(std::get<1>(parsed.value()));
+                    const int matchRule = std::get<2>(parsed.value());
+                    *output << std::to_string(matchRule) + std::string(Separator);
+                }
+                const std::string_view foundUser = std::get<0>(parsed.value());
+                const std::string_view foundPass = std::get<1>(parsed.value());
+                std::string_view outPass = foundPass;
+                std::string tempPass;
+
+                if (Util::CouldBeHashHex(foundPass))
+                {
+                    auto lookup = db.Lookup(foundPass);
                     if (lookup.has_value())
                     {
-                        // std::cout << "Cracked hash for " << std::get<0>(parsed.value()) << "(" << std::get<1>(parsed.value()) << "): " << lookup.value() << std::endl;
-                        *output << matchRuleStr << std::get<0>(parsed.value()) << Separator << Util::Hexlify(lookup.value()) << std::endl;
+                        // std::cout << "Cracked hash for " << foundUser << "(" << foundPass << "): " << lookup.value() << std::endl;
+                        cracked++;
+                        tempPass = lookup.value();
+                        outPass = tempPass;
                     }
                     else
                     {
-                        *output << matchRuleStr << std::get<0>(parsed.value()) << Separator << Util::Hexlify(std::get<1>(parsed.value())) << std::endl;
+                        failed_to_crack++;
                     }
                 }
-                else
+
+                if (!Util::IsHexlified(foundPass) && Util::NeedsHexlify(foundPass))
                 {
-                    *output << matchRuleStr << std::get<0>(parsed.value()) << Separator << Util::Hexlify(std::get<1>(parsed.value())) << std::endl;
+                    tempPass = Util::Hexlify(foundPass);
+                    outPass = tempPass;
                 }
+
+                *output << foundUser << Separator << outPass << std::endl;
             }
         }
         else
@@ -454,7 +477,7 @@ CredParse(
         }
 
         if (count % 1000 == 0 && !OutputFile.empty()) {
-            std::cerr << "\r#: " << count << " ✓: " << success << " ✗: " << failure << " F: " << filtered << " U: " << unique << std::flush;
+            std::cerr << "\r#: " << count << " ✓: " << success << " ✗: " << failure << " F: " << filtered << " U: " << unique << " C: " << cracked << "/" << failed_to_crack + cracked << std::flush;
         }
     }
 }
