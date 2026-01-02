@@ -37,3 +37,29 @@ An optional `--threads (-t)` parameter can be used to specify the number of thre
 The `--bitmask (-m)` flag can be used to configure the size of the hash lookup mask. A large size will consume more memory but increase the performance. A value in the range 1-32 (default: `16`).
 
 For advanced usage and options see `cracklist --help`
+
+### crackdb++
+
+`CrackDB++` is an unsalted password hash lookup application and an example of a time-memory tradeoff tool. It works by storing the hash of every word in the input wordlist in a set of files on disk, then uses efficient lookup algorithms to recover provided hashes later. It is extremely disk- and memory-efficient storing only a small portion of each word's hash and typically recovers many thousands of hashes per second.
+
+First you need to build the database with a seed wordlist. By default it will use all available CPUs for hashing the input words, but this can be toggled using `-t`:
+```bash
+crackdb++ <database folder> build <wordlist>
+```
+
+You can then query some stats about the database if you wish:
+```bash
+crackdb++ <database folder> info
+```
+
+Finally you can easily perform a lookup of a hash thus:
+```bash
+crackdb++ <database folder> crack <hash>
+```
+
+Example:
+```bash
+crackdb++ ~/crackdb/ crack aaf4c61ddcc5e8a2dabede0f3b482cd9aea9434d
+CrackDB++ by Kryc
+aaf4c61ddcc5e8a2dabede0f3b482cd9aea9434d:hello
+```
