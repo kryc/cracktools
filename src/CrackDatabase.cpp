@@ -78,6 +78,30 @@ CrackDatabase::HasWordSize(
     return std::binary_search(m_Wordsizes.begin(), m_Wordsizes.end(), Size);
 }
 
+const size_t CrackDatabase::GetWordCount(
+    const size_t Length
+) const
+{
+    if (!HasWordSize(Length))
+    {
+        return 0;
+    }
+    Wordfile wf(m_Path, Length, false);
+    return wf.GetCount();
+}
+
+const size_t CrackDatabase::GetTotalWordCount(
+    void
+) const
+{
+    size_t total = 0;
+    for (const auto& size : m_Wordsizes)
+    {
+        total += GetWordCount(size);
+    }
+    return total;
+}
+
 void
 CrackDatabase::AddWordSize(
     const size_t Size
@@ -144,8 +168,16 @@ CrackDatabase::BuildWorker(
     std::string_view line;
     std::string temp;
     size_t index = 0;
-    while (m_LineReader.ReadLine(line, m_InputMutex))
+    for (;;)
     {
+        {
+            std::lock_guard<std::mutex> lock(m_InputMutex);
+            if (!m_LineReader.ReadLine(line))
+            {
+                break;
+            }
+        }
+
         m_Processed++;
 
         if (Util::IsHexlified(line))
@@ -323,6 +355,13 @@ CrackDatabase::Build(
     m_DispatchPool->KeepAlive(false);
     m_DispatchPool->Wait();
     m_DispatchPool->Stop();
+
+    // Output the final stats
+    std::cerr << "\r#: " << m_Processed.load()
+              << "/" << m_InputLineCount << " (" << (m_InputLineCount > 0 ? (m_Processed.load() * 100 / m_InputLineCount) : 0) << "%)"
+              << " <: " << m_Small.load()
+              << " >: " << m_Large.load()
+              << std::endl;
 
     std::cerr << "Sorting databases..." << std::endl;
 
@@ -597,6 +636,25 @@ CrackDatabase::Lookup(
     {
         std::cerr << "Invalid hash: " << Util::ToHex(&Hash[0], Hash.size()) << std::endl;
         return std::nullopt;
+    }
+
+    // MD5 is the same length as NTLM and MD4 so we can try
+    // them in order
+    if (algorithm == HashAlgorithmMD5)
+    {
+        auto result = Lookup(HashAlgorithmMD5, Hash);
+        if (result.has_value())
+        {
+            return result;
+        }
+
+        result = Lookup(HashAlgorithmNTLM, Hash);
+        if (result.has_value())
+        {
+            return result;
+        }
+
+        return Lookup(HashAlgorithmMD4, Hash);
     }
 
     return Lookup(algorithm, Hash);

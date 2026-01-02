@@ -22,6 +22,7 @@ Usage: crackdb <database> <action> [options] <path>
 
 Actions:
   build                        Build a database from a wordlist.
+  info                         Display information about the database.
   test                         Test a hash or file of hashes against the database.
   crack                        Crack a hash or file of hashes using the database.
 
@@ -67,7 +68,7 @@ int main(
     const char * argv[]
 )
 {
-    if (argc < 4)
+    if (argc < 3)
     {
         std::cout << HELP_STRING << std::endl;
         return 0;
@@ -181,7 +182,7 @@ int main(
         std::cerr << "CrackDB++ by Kryc" << std::endl;
     }
 
-    if (positionals.size() < 2)
+    if (positionals.size() < 1)
     {
         std::cerr << "Not enough arguments" << std::endl;
         return 1;
@@ -190,6 +191,18 @@ int main(
     if (/*action*/ positionals[0] == "build")
     {
         db.Build(hashes, positionals[1]);
+    }
+    else if (/*action*/ positionals[0] == "info")
+    {
+        std::cout << "Database path: " << db.GetPath() << std::endl;
+        std::cout << "Words path: " << db.GetWordsPath() << std::endl;
+        std::cout << "Total word count: " << db.GetTotalWordCount() << std::endl;
+        std::cout << "Word sizes:" << std::endl;
+        for (const auto& size : db.GetWordSizes())
+        {
+            std::cout << ' ' << size << " " << db.GetWordCount(size) << std::endl;
+        }
+        std::cout << std::endl;
     }
     else if (/*action*/ positionals[0] == "test")
     {

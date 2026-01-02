@@ -76,6 +76,10 @@ public:
     const bool GetNoCount(void) { return m_NoCount; };
     const std::filesystem::path GetWordsPath(void) const { return m_Path / "words"; };
     const bool HasWordSize(const size_t Size) const;
+    const size_t GetMaxWordSize(void) const { return m_MaxWordSize; };
+    const size_t GetWordCount(const size_t Length) const;
+    const size_t GetTotalWordCount(void) const;
+    const std::vector<size_t>& GetWordSizes(void) const { return m_Wordsizes; };
 private:
     void BuildWorker(const size_t ThreadIndex);
     const size_t OpenWordfilesForLookup(void);
