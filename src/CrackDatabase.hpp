@@ -43,7 +43,7 @@ class CrackDatabase
 {
 public:
     CrackDatabase(const std::filesystem::path Path);
-    ~CrackDatabase(void);
+    ~CrackDatabase(void) = default;
     bool Exists(void) { return std::filesystem::exists(m_Path) && std::filesystem::is_directory(m_Path); };
     std::filesystem::path GetPath(void) { return m_Path; };
     const bool Build(const std::span<HashAlgorithm> Types, const std::string_view InputWords);
