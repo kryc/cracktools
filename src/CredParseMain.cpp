@@ -480,6 +480,10 @@ CredParse(
             std::cerr << "\r#: " << count << " ✓: " << success << " ✗: " << failure << " F: " << filtered << " U: " << unique << " C: " << cracked << "/" << failed_to_crack + cracked << std::flush;
         }
     }
+
+    if (!OutputFile.empty()) {
+        std::cerr << "\r#: " << count << " ✓: " << success << " ✗: " << failure << " F: " << filtered << " U: " << unique << " C: " << cracked << "/" << failed_to_crack + cracked << std::endl;
+    }
 }
 
 int main(
