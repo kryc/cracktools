@@ -54,6 +54,39 @@ WordGenerator::GenerateWordReversed(
     return word;
 }
 
+/* Static */ std::string
+WordGenerator::GenerateWord(
+    const __uint128_t Value,
+    std::string_view Charset
+)
+{
+    std::string out;
+    size_t r;
+    __uint128_t i = Value + 1;
+    const size_t charsetSize = Charset.size();
+    
+    do
+    {
+        i--;
+        r = i % charsetSize;
+        i = i / charsetSize;
+        out += Charset[r];
+    } while (i > 0);
+
+    return out;
+}
+
+/* Static */ std::string
+WordGenerator::GenerateWordReversed(
+    const __uint128_t Value,
+    std::string_view Charset
+)
+{
+    std::string word = GenerateWord(Value, Charset);
+    std::reverse(std::begin(word), std::end(word));
+    return word;
+}
+
 /* Static */ std::string 
 WordGenerator::GenerateWord(
     const mpz_class& Value,
@@ -122,6 +155,42 @@ WordGenerator::GenerateWordReversed(
 /* Static */ const size_t
 WordGenerator::GenerateWord(
     std::span<char> Destination,
+    const __uint128_t Value,
+    std::string_view Charset
+)
+{
+    __uint128_t i = Value + 1;
+    size_t r;
+    size_t length = 0;
+    const size_t charsetSize = Charset.size();
+
+    do {
+        i--;
+        r = i % charsetSize;
+        i /= charsetSize;
+        if (length == Destination.size())
+            return (size_t)-1;
+        Destination[length++] = Charset[r];
+    } while (i > 0);
+
+    return length;
+}
+
+/* Static */ const size_t
+WordGenerator::GenerateWordReversed(
+    std::span<char> Destination,
+    const __uint128_t Value,
+    std::string_view Charset
+)
+{
+    size_t length = GenerateWord(Destination, Value, Charset);
+    std::reverse(Destination.begin(), Destination.end());
+    return length;
+}
+
+/* Static */ const size_t
+WordGenerator::GenerateWord(
+    std::span<char> Destination,
     const uint64_t Value,
     std::string_view Charset
 )
@@ -168,6 +237,22 @@ WordGenerator::GenerateReversed(
     return std::string(m_Prefix) + GenerateWordReversed(Value, m_Charset) + std::string(m_Postfix);
 }
 
+const std::string
+WordGenerator::Generate(
+    const __uint128_t Value
+)
+{
+    return std::string(m_Prefix) + GenerateWord(Value, m_Charset) + std::string(m_Postfix);
+}
+
+const std::string
+WordGenerator::GenerateReversed(
+    const __uint128_t Value
+)
+{
+    return std::string(m_Prefix) + GenerateWordReversed(Value, m_Charset) + std::string(m_Postfix);
+}
+
 const size_t
 WordGenerator::Generate(
     std::span<char> Destination,
@@ -181,6 +266,24 @@ const size_t
 WordGenerator::GenerateReversed(
     std::span<char> Destination,
     const mpz_class& Value
+)
+{
+    return GenerateWordReversed(Destination, Value, m_Charset);
+}
+
+const size_t
+WordGenerator::Generate(
+    std::span<char> Destination,
+    const __uint128_t Value
+)
+{
+    return GenerateWord(Destination, Value, m_Charset);
+}
+
+const size_t
+WordGenerator::GenerateReversed(
+    std::span<char> Destination,
+    const __uint128_t Value
 )
 {
     return GenerateWordReversed(Destination, Value, m_Charset);
@@ -270,6 +373,58 @@ WordGenerator::ParseReversed(
     std::string reversed(Word);
     std::reverse(reversed.begin(), reversed.end());
     return WordGenerator::Parse(reversed, LookupTable);
+}
+
+/* static */ const __uint128_t
+WordGenerator::Parse128(
+    std::string_view Word,
+    std::string_view Charset
+)
+{
+    __uint128_t num = 0;
+    for (const char& c : std::ranges::reverse_view(Word))
+    {
+        num = num * Charset.size() + Charset.find_first_of(c);
+        num++;
+    }
+    return num - 1;
+}
+
+/* static */ const __uint128_t
+WordGenerator::ParseReversed128(
+    std::string_view Word,
+    std::string_view Charset
+)
+{
+    std::string reversed(Word);
+    std::reverse(reversed.begin(), reversed.end());
+    return WordGenerator::Parse128(reversed, Charset);
+}
+
+/* static */ const __uint128_t
+WordGenerator::Parse128(
+    std::string_view Word,
+    std::span<const uint8_t> LookupTable
+)
+{
+    __uint128_t num = 0;
+    for (const char& c : std::ranges::reverse_view(Word))
+    {
+        num = num * LookupTable[256] + LookupTable[c];
+        num++;
+    }
+    return num - 1;
+}
+
+/* static */ const __uint128_t
+WordGenerator::ParseReversed128(
+    std::string_view Word,
+    std::span<const uint8_t> LookupTable
+)
+{
+    std::string reversed(Word);
+    std::reverse(reversed.begin(), reversed.end());
+    return WordGenerator::Parse128(reversed, LookupTable);
 }
 
 /* static */ const uint64_t 
@@ -364,6 +519,26 @@ WordGenerator::WordLengthIndex(
 WordGenerator::WordLengthIndex(
     const size_t WordLength,
     std::string_view Charset,
+    __uint128_t& Index
+)
+{
+    __uint128_t product = 0;
+    Index = 0;
+    for (size_t i = 1; i < WordLength; i++)
+    {
+        product = 1;
+        for (size_t j = 0; j < i; j++)
+        {
+            product *= Charset.size();
+        }
+        Index += product;
+    }
+}
+
+/* static */ void
+WordGenerator::WordLengthIndex(
+    const size_t WordLength,
+    std::string_view Charset,
     mpz_class& Index
 )
 {
@@ -394,6 +569,17 @@ WordGenerator::WordLengthIndex64(
 )
 {
     uint64_t index;
+    WordLengthIndex(WordLength, Charset, index);
+    return index;
+}
+
+/* static */ const __uint128_t
+WordGenerator::WordLengthIndex128(
+    const size_t WordLength,
+    std::string_view Charset
+)
+{
+    __uint128_t index;
     WordLengthIndex(WordLength, Charset, index);
     return index;
 }

@@ -21,6 +21,12 @@ TEST(WordGenerator, GenerateWordLowerBound64) {
     EXPECT_EQ(result, LOWER.substr(0, 1));
 }
 
+TEST(WordGenerator, GenerateWordLowerBound128) {
+    __uint128_t value = 0;
+    auto result = WordGenerator::GenerateWord(value, LOWER);
+    EXPECT_EQ(result, LOWER.substr(0, 1));
+}
+
 TEST(WordGenerator, GenerateWordLowerBound) {
     mpz_class value = 0;
     auto result = WordGenerator::GenerateWord(value, LOWER);
@@ -29,7 +35,13 @@ TEST(WordGenerator, GenerateWordLowerBound) {
 
 TEST(WordGenerator, GenerateLowerBoundSpan64) {
     std::string result(21, ' ');
-    auto length = WordGenerator::GenerateWord(std::span<char>(result), 0, LOWER);
+    auto length = WordGenerator::GenerateWord(std::span<char>(result), uint64_t(0), LOWER);
+    EXPECT_EQ(result.substr(0, length), LOWER.substr(0, 1));
+}
+
+TEST(WordGenerator, GenerateLowerBoundSpan128) {
+    std::string result(21, ' ');
+    auto length = WordGenerator::GenerateWord(std::span<char>(result), __uint128_t(0), LOWER);
     EXPECT_EQ(result.substr(0, length), LOWER.substr(0, 1));
 }
 
@@ -41,6 +53,12 @@ TEST(WordGenerator, GenerateLowerBoundSpan) {
 
 TEST(WordGenerator, GenerateWordUpperBound64) {
     uint64_t value = LOWER.size() - 1;
+    auto result = WordGenerator::GenerateWord(value, LOWER);
+    EXPECT_EQ(result, LOWER.substr(LOWER.size() - 1, 1));
+}
+
+TEST(WordGenerator, GenerateWordUpperBound128) {
+    __uint128_t value = LOWER.size() - 1;
     auto result = WordGenerator::GenerateWord(value, LOWER);
     EXPECT_EQ(result, LOWER.substr(LOWER.size() - 1, 1));
 }
@@ -57,6 +75,12 @@ TEST(WordGenerator, GenerateUpperBoundSpan64) {
     EXPECT_EQ(result.substr(0, length), LOWER.substr(LOWER.size() - 1, 1));
 }
 
+TEST(WordGenerator, GenerateUpperBoundSpan128) {
+    std::string result(21, ' ');
+    auto length = WordGenerator::GenerateWord(std::span<char>(result), __uint128_t(LOWER.size() - 1), LOWER);
+    EXPECT_EQ(result.substr(0, length), LOWER.substr(LOWER.size() - 1, 1));
+}
+
 TEST(WordGenerator, GenerateUpperBoundSpan) {
     std::string result(21, ' ');
     auto length = WordGenerator::GenerateWord(std::span<char>(result), mpz_class(LOWER.size() - 1), LOWER);
@@ -68,6 +92,15 @@ TEST(WordGenerator, GenerateUpperBoundSpan) {
 // LOWER[26] = aa
 TEST(WordGenerator, WordLengthTick64) {
     uint64_t value = LOWER.size();
+    auto result = WordGenerator::GenerateWord(value, LOWER);
+    EXPECT_EQ(result, LOWER.substr(0, 1) + LOWER.substr(0, 1));
+    value++;
+    result = WordGenerator::GenerateWord(value, LOWER);
+    EXPECT_EQ(result, LOWER.substr(1, 1) + LOWER.substr(0, 1));
+}
+
+TEST(WordGenerator, WordLengthTick128) {
+    __uint128_t value = LOWER.size();
     auto result = WordGenerator::GenerateWord(value, LOWER);
     EXPECT_EQ(result, LOWER.substr(0, 1) + LOWER.substr(0, 1));
     value++;
@@ -92,6 +125,14 @@ TEST(WordGenerator, WordLengthTickSpan64) {
     EXPECT_EQ(result.substr(0, length), LOWER.substr(1, 1) + LOWER.substr(0, 1));
 }
 
+TEST(WordGenerator, WordLengthTickSpan128) {
+    std::string result(21, ' ');
+    auto length = WordGenerator::GenerateWord(std::span<char>(result), __uint128_t(LOWER.size()), LOWER);
+    EXPECT_EQ(result.substr(0, length), LOWER.substr(0, 1) + LOWER.substr(0, 1));
+    length = WordGenerator::GenerateWord(std::span<char>(result), __uint128_t(LOWER.size() + 1), LOWER);
+    EXPECT_EQ(result.substr(0, length), LOWER.substr(1, 1) + LOWER.substr(0, 1));
+}
+
 TEST(WordGenerator, WordLengthTickSpan) {
     std::string result(21, ' ');
     auto length = WordGenerator::GenerateWord(std::span<char>(result), mpz_class(LOWER.size()), LOWER);
@@ -102,6 +143,15 @@ TEST(WordGenerator, WordLengthTickSpan) {
 
 TEST(WordGenerator, WordLengthTickReversed64) {
     uint64_t value = LOWER.size();
+    auto result = WordGenerator::GenerateWordReversed(value, LOWER);
+    EXPECT_EQ(result, LOWER.substr(0, 1) + LOWER.substr(0, 1));
+    value++;
+    result = WordGenerator::GenerateWordReversed(value, LOWER);
+    EXPECT_EQ(result, LOWER.substr(0, 1) + LOWER.substr(1, 1));
+}
+
+TEST(WordGenerator, WordLengthTickReversed128) {
+    __uint128_t value = LOWER.size();
     auto result = WordGenerator::GenerateWordReversed(value, LOWER);
     EXPECT_EQ(result, LOWER.substr(0, 1) + LOWER.substr(0, 1));
     value++;
@@ -134,6 +184,20 @@ TEST(WordGenerator, WordLengthIndex64) {
     EXPECT_EQ(result, WordGenerator::Parse64("aaa", LOWER));
 }
 
+TEST(WordGenerator, WordLengthIndex128) {
+    size_t wordLength = 1;
+    __uint128_t result;
+    WordGenerator::WordLengthIndex(wordLength, LOWER, result);
+    EXPECT_EQ(result, 0);
+    EXPECT_EQ(result, WordGenerator::Parse128("a", LOWER));
+    wordLength++;
+    WordGenerator::WordLengthIndex(wordLength, LOWER, result);
+    EXPECT_EQ(result, WordGenerator::Parse128("aa", LOWER));
+    wordLength++;
+    WordGenerator::WordLengthIndex(wordLength, LOWER, result);
+    EXPECT_EQ(result, WordGenerator::Parse128("aaa", LOWER));
+}
+
 TEST(WordGenerator, WordLengthIndex) {
     size_t wordLength = 1;
     auto result = WordGenerator::WordLengthIndex(wordLength, LOWER);
@@ -151,6 +215,13 @@ TEST(WordGenerator, Parse64) {
     auto result = WordGenerator::Parse64("a", LOWER);
     EXPECT_EQ(result, 0);
     result = WordGenerator::Parse64("b", LOWER);
+    EXPECT_EQ(result, 1);
+}
+
+TEST(WordGenerator, Parse128) {
+    auto result = WordGenerator::Parse128("a", LOWER);
+    EXPECT_EQ(result, 0);
+    result = WordGenerator::Parse128("b", LOWER);
     EXPECT_EQ(result, 1);
 }
 
@@ -174,6 +245,22 @@ TEST(WordGenerator, Equality64) {
         auto word = WordGenerator::GenerateWord(value, LOWER);
         EXPECT_EQ(value, WordGenerator::Parse64(word, LOWER));
         EXPECT_EQ(value, WordGenerator::Parse64(word, lut));
+    }
+}
+
+TEST(WordGenerator, Equality128) {
+    auto lut = WordGenerator::GenerateParsingLookupTable(LOWER);
+    for (size_t i = 0; i < 100; i++) {
+        const __uint128_t value = i;
+        auto word = WordGenerator::GenerateWord(value, LOWER);
+        EXPECT_EQ(value, WordGenerator::Parse128(word, LOWER));
+        EXPECT_EQ(value, WordGenerator::Parse128(word, lut));
+    }
+    for (size_t i = 0; i < 5; i++) {
+        const __uint128_t value = i * 1000;
+        auto word = WordGenerator::GenerateWord(value, LOWER);
+        EXPECT_EQ(value, WordGenerator::Parse128(word, LOWER));
+        EXPECT_EQ(value, WordGenerator::Parse128(word, lut));
     }
 }
 
@@ -206,6 +293,22 @@ TEST(WordGenerator, EqualityReversed64) {
         auto word = WordGenerator::GenerateWordReversed(value, LOWER);
         EXPECT_EQ(value, WordGenerator::ParseReversed64(word, LOWER));
         EXPECT_EQ(value, WordGenerator::ParseReversed64(word, lut));
+    }
+}
+
+TEST(WordGenerator, EqualityReversed128) {
+    auto lut = WordGenerator::GenerateParsingLookupTable(LOWER);
+    for (size_t i = 0; i < 100; i++) {
+        const __uint128_t value = i;
+        auto word = WordGenerator::GenerateWordReversed(value, LOWER);
+        EXPECT_EQ(value, WordGenerator::ParseReversed128(word, LOWER));
+        EXPECT_EQ(value, WordGenerator::ParseReversed128(word, lut));
+    }
+    for (size_t i = 0; i < 5; i++) {
+        const __uint128_t value = i * 1000;
+        auto word = WordGenerator::GenerateWordReversed(value, LOWER);
+        EXPECT_EQ(value, WordGenerator::ParseReversed128(word, LOWER));
+        EXPECT_EQ(value, WordGenerator::ParseReversed128(word, lut));
     }
 }
 
