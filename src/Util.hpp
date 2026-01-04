@@ -232,6 +232,11 @@ IsValidEmail(
 );
 
 const bool
+IsLikelyValidEmail(
+	const std::string_view Email
+);
+
+const bool
 IsValidUsername(
     const std::string_view Username
 );

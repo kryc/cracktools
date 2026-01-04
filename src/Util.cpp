@@ -6,6 +6,7 @@
 //  Copyright © 2024 Kryc. All rights reserved.
 //
 
+#include <algorithm>
 #include <array>
 #include <cctype>
 #include <cstdint>
@@ -769,6 +770,77 @@ IsValidEmail(
 		return false;
 	}
     return true;
+}
+
+const bool
+IsLikelyValidEmail(
+	const std::string_view Email
+)
+{
+	// First check the string can be a valid email
+	if (!IsValidEmail(Email))
+	{
+		return false;
+	}
+	// Split the email into local and domain parts
+	const size_t atPos = Email.find('@');
+	const std::string_view localPart = Email.substr(0, atPos);
+	const std::string_view domainPart = Email.substr(atPos + 1);
+	// Make sure the local part is at least 2 characters and at most 64 characters
+	if (localPart.size() < 2 || localPart.size() > 64)
+	{
+		return false;
+	}
+	// Check if the domain part contains at least one dot and at most two
+	size_t dotCount = std::count(domainPart.begin(), domainPart.end(), '.');
+	if (dotCount == 0 || dotCount > 2)
+	{
+		return false;
+	}
+	size_t firstDotPos = domainPart.find('.');
+	// Make sure the first domain part is at least 2 characters long
+	std::string_view firstPart = domainPart.substr(0, firstDotPos);
+	if (firstPart.size() < 2)
+	{
+		return false;
+	}
+	// Make sure that all domain parts after the first dot are at least 2 characters long
+	// and at most 6 characters long and are not ONLY numeric and the FINAL part is characters
+	size_t secondDotPos = domainPart.find('.', firstDotPos + 1);
+	if (firstDotPos != std::string_view::npos && secondDotPos != std::string_view::npos)
+	{
+		std::string_view part = domainPart.substr(firstDotPos + 1, secondDotPos - firstDotPos - 1);
+		if (part.size() < 2 || part.size() > 6)
+		{
+			return false;
+		}
+		if (std::all_of(part.begin(), part.end(), [](char c) { return isdigit(c); }))
+		{
+			return false;
+		}
+		part = domainPart.substr(secondDotPos + 1);
+		if (part.size() < 2 || part.size() > 6)
+		{
+			return false;
+		}
+		if (!std::all_of(part.begin(), part.end(), [](char c) { return isalpha(c); }))
+		{
+			return false;
+		}
+	}
+	else if (firstDotPos != std::string_view::npos && secondDotPos == std::string_view::npos)
+	{
+		std::string_view part = domainPart.substr(firstDotPos + 1);
+		if (part.size() < 2 || part.size() > 6)
+		{
+			return false;
+		}
+		if (!std::all_of(part.begin(), part.end(), [](char c) { return isalpha(c); }))
+		{
+			return false;
+		}
+	}
+	return true;
 }
 
 const bool

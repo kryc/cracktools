@@ -31,8 +31,11 @@ HashListLookup(
     const std::string_view InputHashes,
     const std::string_view InputCracked,
     const std::string_view OutputFile,
+    const std::string_view UncrackedFile,
     const bool NoCount = false,
-    const bool PasswordOnly = false
+    const bool PasswordOnly = false,
+    const bool FilterEmails = false,
+    const std::string_view FilteredFile = ""
 )
 {    
     if (InputHashes.empty())
@@ -77,6 +80,28 @@ HashListLookup(
             return;
         }
         output = &outfile;
+    }
+
+    std::ofstream uncracked_outfile;
+    if (!UncrackedFile.empty())
+    {
+        uncracked_outfile.open(UncrackedFile.data(), std::ios::out | std::ios::binary);
+        if (!uncracked_outfile.is_open())
+        {
+            std::cerr << "Error opening uncracked output file: " << UncrackedFile << std::endl;
+            return;
+        }
+    }
+
+    std::ofstream filtered_outfile;
+    if (!FilteredFile.empty())
+    {
+        filtered_outfile.open(FilteredFile.data(), std::ios::out | std::ios::binary);
+        if (!filtered_outfile.is_open())
+        {
+            std::cerr << "Error opening filtered output file: " << FilteredFile << std::endl;
+            return;
+        }
     }
 
     // Get the number of lines in the input files
@@ -147,6 +172,7 @@ HashListLookup(
     count = 0;
     size_t found = 0;
     size_t missing = 0;
+    size_t filtered = 0;
     while (hashes_reader.ReadLine(line))
     {
         count++;
@@ -173,16 +199,19 @@ HashListLookup(
                 const int cmp = line.compare(midHash);
                 if (cmp == 0) {
                     // Found the hash
+                    std::string_view match = vec[mid];
                     if (PasswordOnly) {
                         // Output only the password part
                         size_t sepPos = vec[mid].find(':');
-                        if (sepPos != std::string_view::npos) {
-                            *output << vec[mid].substr(sepPos + 1) << std::endl;
-                        } else {
-                            *output << vec[mid] << std::endl;
+                        match = (sepPos != std::string_view::npos) ? vec[mid].substr(sepPos + 1) : vec[mid];
+                    }
+                    if (FilterEmails && Util::IsLikelyValidEmail(match)) {
+                        filtered++;
+                        if (filtered_outfile.is_open()) {
+                            filtered_outfile << match << std::endl;
                         }
                     } else {
-                        *output << vec[mid] << std::endl;
+                        *output << match << std::endl;
                     }
                     found++;
                     foundHash = true;
@@ -195,19 +224,31 @@ HashListLookup(
             }
             if (!foundHash) {
                 missing++;
+                if (uncracked_outfile.is_open()) {
+                    uncracked_outfile << line << std::endl;
+                }
             }
         } else {
             missing++;
+            if (uncracked_outfile.is_open()) {
+                uncracked_outfile << line << std::endl;
+            }
         }
         
         if (count % 1000 == 0 && !OutputFile.empty()) {
             if (totalLinesHashes > 0)
             {
-                std::cerr << "\r#: " << count << "/" << totalLinesHashes << "(" << (count * 100 / totalLinesHashes) << "%) ✓: " << found << " ✗: " << missing << std::flush;
+                std::cerr << "\r#: " << count << "/" << totalLinesHashes << " (" << (count * 100 / totalLinesHashes) << "%)"
+                    << " ✓: " << found
+                    << " ✗: " << missing
+                    << " F: " << filtered << std::flush;
             }
             else
             {
-                std::cerr << "\r#: " << count << " ✓: " << found << " ✗: " << missing << std::flush;
+                std::cerr << "\r#: " << count
+                    << " ✓: " << found
+                    << " ✗: " << missing
+                    << " F: " << filtered << std::flush;
             }
         }
     }
@@ -215,11 +256,17 @@ HashListLookup(
     if (!OutputFile.empty()) {
         if (totalLinesHashes > 0)
         {
-            std::cerr << "\r#: " << count << "/" << totalLinesHashes << "(" << (count * 100 / totalLinesHashes) << "%) ✓: " << found << " ✗: " << missing << std::endl;
+            std::cerr << "\r#: " << count << "/" << totalLinesHashes << " (" << (count * 100 / totalLinesHashes) << "%)"
+                << " ✓: " << found
+                << " ✗: " << missing
+                << " F: " << filtered << std::endl;
         }
         else
         {
-            std::cerr << "\r#: " << count << " ✓: " << found << " ✗: " << missing << std::endl;
+            std::cerr << "\r#: " << count
+                << " ✓: " << found
+                << " ✗: " << missing
+                << " F: " << filtered << std::endl;
         }
     }
 }
@@ -230,9 +277,10 @@ int main(
 )
 {
     auto args = cracktools::ParseArgv(argv, argc);
-    std::string_view input_hashes, input_cracked, output_file;
+    std::string_view input_hashes, input_cracked, output_file, uncracked_file, filtered_file;
     bool nocount = false;
     bool password_only = false;
+    bool filter_emails = false;
 
     for (int i = 1; i < argc; i++)
     {
@@ -242,9 +290,23 @@ int main(
             ARGCHECK();
             output_file = args[++i];
         }
+        else if (arg == "--uncracked" || arg == "-u")
+        {
+            ARGCHECK();
+            uncracked_file = args[++i];
+        }
         else if (arg == "--password-only" || arg == "-P" || arg == "-p")
         {
             password_only = true;
+        }
+        else if (arg == "--filter-emails" || arg == "-e")
+        {
+            filter_emails = true;
+        }
+        else if (arg == "--filtered" || arg == "-f")
+        {
+            ARGCHECK();
+            filtered_file = args[++i];
         }
         else if (arg == "--nocount" || arg == "-n")
         {
@@ -263,8 +325,11 @@ int main(
             std::cout << "Usage: " << args[0] << " [options] [input_hashes] [input_cracked]" << std::endl;
             std::cout << "Options:" << std::endl;
             std::cout << "  --output, -o <file>  Specify the output file" << std::endl;
+            std::cout << "  --uncracked, -u <file> Specify the output file for uncracked hashes" << std::endl;
             std::cout << "  --nocount, -n        Do not count lines in input files" << std::endl;
             std::cout << "  --password-only, -P  Output only the password part of cracked entries" << std::endl;
+            std::cout << "  --filter-emails, -e  Filter out email addresses from output" << std::endl;
+            std::cout << "  --filtered, -f <file> Specify the output file for filtered entries" << std::endl;
             std::cout << "  --help, -h           Show this help message" << std::endl;
             return 0;
         }
@@ -275,5 +340,5 @@ int main(
         }
     }
 
-    HashListLookup(input_hashes, input_cracked, output_file, nocount, password_only);
+    HashListLookup(input_hashes, input_cracked, output_file, uncracked_file, nocount, password_only, filter_emails, filtered_file);
 }

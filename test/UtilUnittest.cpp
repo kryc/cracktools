@@ -265,6 +265,9 @@ TEST(Util, IsValidUsername)
 TEST(Util, IsValidEmail)
 {
     EXPECT_TRUE(Util::IsValidEmail("user@example.com"));
+    EXPECT_TRUE(Util::IsValidEmail("user@example.co.uk"));
+    EXPECT_TRUE(Util::IsValidEmail("user@qq.com"));
+    EXPECT_TRUE(Util::IsValidEmail("user@360.com"));
     EXPECT_FALSE(Util::IsValidEmail(".user@example.com"));
     EXPECT_FALSE(Util::IsValidEmail("user.@example.com"));
     EXPECT_FALSE(Util::IsValidEmail("user..a@example.com"));
@@ -279,6 +282,21 @@ TEST(Util, IsValidEmail)
     EXPECT_FALSE(Util::IsValidEmail("user@"));
     EXPECT_FALSE(Util::IsValidEmail("@example.com"));
     EXPECT_FALSE(Util::IsValidEmail(""));
+}
+
+TEST(Util, IsLikelyValidEmail)
+{
+    EXPECT_TRUE(Util::IsLikelyValidEmail("user@example.com"));
+    EXPECT_FALSE(Util::IsLikelyValidEmail("userexample.com"));
+    EXPECT_FALSE(Util::IsLikelyValidEmail("user@"));
+    EXPECT_FALSE(Util::IsLikelyValidEmail("@example.com"));
+    EXPECT_FALSE(Util::IsLikelyValidEmail("not an email"));
+    EXPECT_FALSE(Util::IsLikelyValidEmail("P@ssword.123"));
+    EXPECT_FALSE(Util::IsLikelyValidEmail("mk@cruiser.1991"));
+    EXPECT_FALSE(Util::IsLikelyValidEmail("Tou@reg3.6"));
+    EXPECT_FALSE(Util::IsLikelyValidEmail("PsychW@rd.841412"));
+    EXPECT_FALSE(Util::IsLikelyValidEmail("Distr@ction.1"));
+    EXPECT_FALSE(Util::IsLikelyValidEmail("$t@r.wars"));
 }
 
 TEST(Util, IsValidIPv4)
