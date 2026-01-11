@@ -396,6 +396,20 @@ const int Memcmp(
     return std::memcmp(Ptr1, Ptr2, Size);
 }
 
+inline static
+const bool Equal(
+    std::span<const uint8_t> Span1,
+    std::span<const uint8_t> Span2
+)
+{
+    return std::equal(
+        Span1.begin(),
+        Span1.end(),
+        Span2.begin(),
+        Span2.end()
+    );
+}
+
 // A wrapper around mmap given a type returning an optional
 // tuple of span and file descriptor.
 // Will check that the filesize is a multiple of the type size

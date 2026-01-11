@@ -27,14 +27,14 @@ Options:
   --blocksize <value>           Set the block size for processing.
   --sha1, --ntlm, --md5, --md4  Specify the hash algorithm to use.
   --linkedin                    Enable LinkedIn hash processing mode.
+  --password-only, -P           Output only cracked passwords without hashes.
   --binary, -b                  Treat input hashes as binary.
-  --bitmask, --masksize, -m     Set the bitmask size.
-  --quick-lookup, -q            Enable quick lookup mode for small hashlists.
-  --autohex, -a                 Automatically convert input to hexadecimal.
-  --no-autohex, -A              Disable automatic hexadecimal conversion.
-  --parse-hex, -p               Parse input hashes as hexadecimal.
   --text, -T                    Treat input hashes as text.
   --binary, -B                  Treat input hashes as binary.
+  --quick-lookup, -q            Enable quick lookup mode for small hashlists.
+  --bitmask, --masksize, -m     Set the bitmask size.
+  --no-hexlify, -a              Do not hexlify output words.
+  --ignore-hex, -i              Do not parse hexlified input.
   --terminal-width, -w <value>  Set the terminal width for output formatting.
   --help                        Display this help message.
 
@@ -119,15 +119,11 @@ int main(
             ARGCHECK();
             cracklist.SetBitmaskSize(Util::ParseNumber<size_t>(args[++i]));
         }
-        else if (arg == "--autohex" || arg == "-a")
+        else if (arg == "--no-hexlify" || arg == "-a")
         {
-            cracklist.SetAutohex(true);
+            cracklist.SetHexlify(false);
         }
-        else if (arg == "--no-autohex" || arg == "-A")
-        {
-            cracklist.DisableAutohex();
-        }
-        else if (arg == "--ignore-hex" || arg == "-p")
+        else if (arg == "--ignore-hex" || arg == "-i")
         {
             cracklist.SetParseHexInput(false);
         }

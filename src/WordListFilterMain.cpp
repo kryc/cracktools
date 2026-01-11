@@ -48,8 +48,10 @@ WordlistFilter(
     const bool PrintableOnly = false,
     const bool ASCIIOnly = false,
     const bool StripEmails = false,
+    const bool StripHashes = false,
     const bool Unique = false,
-    const bool NoHexlify = false
+    const bool NoHexlify = false,
+    const bool Strip = false
 )
 {
     // Check if the input file exists, if not read from stdin
@@ -98,12 +100,32 @@ WordlistFilter(
     size_t large = 0;
     size_t nonprintable = 0;
     size_t email = 0;
+    size_t hash = 0;
     size_t lowered = 0;
     size_t uniq = 0;
     while (reader.ReadLine(line))
     {
         count++;
-        const bool is_hexlified = Util::IsHexlified(line);
+        bool is_hexlified = Util::IsHexlified(line);
+
+        // Strip leading and trailing whitespace if needed
+        if (Strip) {
+            if (is_hexlified)
+            {
+                temp = Util::UnHexlify(line);
+                line = std::string_view(temp);
+                is_hexlified = false;
+            }
+            // Check if the line is all whitespace
+            if (line.find_first_not_of(" \t\r\n") == std::string_view::npos) {
+                continue;
+            }
+            line = line.substr(
+                line.find_first_not_of(" \t\r\n"),
+                line.find_last_not_of(" \t\r\n") - line.find_first_not_of(" \t\r\n") + 1
+            );
+        }
+
         const size_t line_size = is_hexlified? (line.size() - 6) / 2 : line.size();
         
         if (line_size < Min) {
@@ -134,6 +156,12 @@ WordlistFilter(
             continue;
         }
 
+        // Don't unhexlify here as neither hash format would be hexlified
+        if (StripHashes && Util::IsLikelyValidHash (line)) {
+            hash++;
+            continue;
+        }
+
         // Check if we need to normalize the hexlified line
         if (is_hexlified && !NoHexlify && HexlifyContainsUpperCaseHex(line)) {
             temp = "$HEX[" + Util::ToLower(line.substr(5, line.size() - 6)) + "]";
@@ -161,11 +189,11 @@ WordlistFilter(
             if (totalLines > 0)
             {
                 std::cerr << "\r#: " << count << "/" << totalLines << "(" << (count * 100 / totalLines) << "%) "
-                          << "<: " << small << " >: " << large << " NP: " << nonprintable << " E: " << email << " L: " << lowered << " U: " << uniq << std::flush;
+                          << "<: " << small << " >: " << large << " NP: " << nonprintable << " E: " << email << " H: " << hash << " L: " << lowered << " U: " << uniq << std::flush;
             }
             else
             {
-                std::cerr << "\r#: " << count << " <: " << small << " >: " << large << " NP: " << nonprintable << " E: " << email << " L: " << lowered << " U: " << uniq << std::flush;
+                std::cerr << "\r#: " << count << " <: " << small << " >: " << large << " NP: " << nonprintable << " E: " << email << " H: " << hash << " L: " << lowered << " U: " << uniq << std::flush;
             }
         }
     }
@@ -174,11 +202,11 @@ WordlistFilter(
         if (totalLines > 0)
         {
             std::cerr << "\r#: " << count << "/" << totalLines << "(" << (count * 100 / totalLines) << "%) "
-                      << "<: " << small << " >: " << large << " NP: " << nonprintable << " E: " << email << " L: " << lowered << " U: " << uniq << std::endl;
+                      << "<: " << small << " >: " << large << " NP: " << nonprintable << " E: " << email << " H: " << hash << " L: " << lowered << " U: " << uniq << std::endl;
         }
         else
         {
-            std::cerr << "\r#: " << count << " <: " << small << " >: " << large << " NP: " << nonprintable << " E: " << email << " L: " << lowered << " U: " << uniq << std::endl;
+            std::cerr << "\r#: " << count << " <: " << small << " >: " << large << " NP: " << nonprintable << " E: " << email << " H: " << hash << " L: " << lowered << " U: " << uniq << std::endl;
         }
     }
 }
@@ -196,7 +224,9 @@ int main(
     bool ascii_only = false;
     bool unique = false;
     bool strip_emails = false;
+    bool strip_hashes = false;
     bool no_hexlify = false;
+    bool strip = false;
 
     for (int i = 1; i < argc; i++)
     {
@@ -206,7 +236,7 @@ int main(
             ARGCHECK();
             output_file = args[++i];
         }
-        else if (input_file.empty() && std::filesystem::exists(arg))
+        else if (input_file.empty())
         {
             input_file = arg;
         }
@@ -231,6 +261,10 @@ int main(
         {
             strip_emails = true;
         }
+        else if (arg == "--hashes" || arg == "-H")
+        {
+            strip_hashes = true;
+        }
         else if (arg == "--printable" || arg == "-p")
         {
             printable_only = true;
@@ -238,6 +272,10 @@ int main(
         else if (arg == "--ascii" || arg == "-a")
         {
             ascii_only = true;
+        }
+        else if (arg == "--strip" || arg == "-s")
+        {
+            strip = true;
         }
         else if (arg == "--unique" || arg == "-u")
         {
@@ -258,6 +296,7 @@ int main(
             std::cout << "  --printable, -p      Only include lines with printable UTF-8 characters" << std::endl;
             std::cout << "  --ascii, -a          Only include lines with printable ASCII characters" << std::endl;
             std::cout << "  --emails, -e         Remove lines that are valid email addresses" << std::endl;
+            std::cout << "  --hashes, -H         Remove lines that are valid hashes" << std::endl;
             std::cout << "  --unique, -u         Remove duplicate lines" << std::endl;
             std::cout << "  --no-hexlify, -x     Do not output hexlified words" << std::endl;
             std::cout << "  --help, -h           Show this help message" << std::endl;
@@ -270,5 +309,11 @@ int main(
         }
     }
 
-    WordlistFilter(input_file, output_file, min, max, printable_only, ascii_only, strip_emails, unique, no_hexlify);
+    if (!input_file.empty() && !std::filesystem::exists(input_file))
+    {
+        std::cerr << "Input file does not exist: " << input_file << std::endl;
+        return 1;
+    }
+
+    WordlistFilter(input_file, output_file, min, max, printable_only, ascii_only, strip_emails, strip_hashes, unique, no_hexlify, strip);
 }

@@ -1111,4 +1111,12 @@ CouldBeCryptHash(
     return true;
 }
 
+const bool
+IsLikelyValidHash(
+    const std::string_view Value
+)
+{
+	return CouldBeHashHex(Value) || CouldBeCryptHash(Value);
+}
+
 } // namespace Util

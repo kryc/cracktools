@@ -50,9 +50,9 @@ public:
     void SetBlockSize(const size_t BlockSize) { m_BlockSize = BlockSize; }
     void SetBinary(const bool Binary) { m_HashType = Binary ? InputTypeBinary : InputTypeText; }
     void SetTerminalWidth(const size_t Width) { m_TerminalWidth = Width; }
-    void DisableAutohex(void) { m_Hexlify = false; }
+    void NoHexlify(void) { m_Hexlify = false; }
     void SetParseHexInput(const bool ParseHexInput) { m_ParseHexInput = ParseHexInput; }
-    void SetAutohex(const bool Autohex) { m_Hexlify = Autohex; }
+    void SetHexlify(const bool Autohex) { m_Hexlify = Autohex; }
     void SetBitmaskSize(const size_t BitmaskSize) { m_BitmaskSize = BitmaskSize; }
     void SetQuickLookupEnabled(const bool Enable) { m_QuickLookupEnabled = Enable; }
     void SetLinkedIn(const bool LinkedIn) { m_LinkedIn = LinkedIn; }

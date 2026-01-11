@@ -111,7 +111,7 @@ CrackList::CrackLinear(
             if (m_HashList.Lookup(hash))
             {
                 auto hex = Util::ToHex(hash);
-                OutputResultInternal(hex, Util::Hexlify(words.GetStringView(h)), output);
+                OutputResultInternal(hex, words.GetStringView(h), output);
                 last_cracked = words.GetStringView(h);
             }
             else if (m_LinkedIn && hashWidth == SHA1_SIZE)
@@ -126,7 +126,7 @@ CrackList::CrackLinear(
                 {
                     auto hex = Util::ToHex(hash);
                     m_Cracked++;
-                    OutputResultInternal(hex, Util::Hexlify(words.GetStringView(h)), output);
+                    OutputResultInternal(hex, words.GetStringView(h), output);
                     last_cracked = words.GetStringView(h);
                 }
             }
@@ -155,14 +155,24 @@ CrackList::OutputResultInternal(
     const bool SetLastCracked
 )
 {
+    std::string_view out = Cracked;
+    std::string temp;
+
     m_Cracked++;
+
+    if (m_Hexlify)
+    {
+        temp = Util::Hexlify(Cracked);
+        out = temp;
+    }
+
     if (m_PasswordOnly)
     {
-        Output << Cracked << std::endl;
+        Output << out << std::endl;
     }
     else
     {
-        Output << Hash << m_Separator << Cracked << std::endl;
+        Output << Hash << m_Separator << out << std::endl;
     }
 
     if (SetLastCracked)
@@ -335,7 +345,7 @@ CrackList::CrackWorker(
                 cracked.push_back({
                     {hash.begin(), hash.end()},
                     hex,
-                    Util::Hexlify(words.GetStringView(h))
+                    std::string(words.GetStringView(h))
                 });
             }
             else if (m_LinkedIn && hashWidth == SHA1_SIZE)
@@ -353,7 +363,7 @@ CrackList::CrackWorker(
                     cracked.push_back({
                         {hash.begin(), hash.end()},
                         hex,
-                        Util::Hexlify(words.GetStringView(h))
+                        std::string(words.GetStringView(h))
                     });
                 }
             }

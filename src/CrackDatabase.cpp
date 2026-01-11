@@ -485,7 +485,7 @@ CrackDatabase::CheckResult(
 
     // Scan from the provided index backwards
     for (ssize_t i = Index;
-        i >= 0 && cracktools::Memcmp(Mapping[i].GetHash(), targetBytes) == 0;
+        i >= 0 && cracktools::Equal(Mapping[i].GetHash(), targetBytes);
         --i
     )
     {
@@ -496,7 +496,7 @@ CrackDatabase::CheckResult(
             {
                 // Check the hash
                 simdhash::SimdHashSingle(Algorithm, word, temp_hash_span);
-                if (cracktools::Memcmp(hash_span, Target) == 0)
+                if (cracktools::Equal(hash_span, Target))
                 {
                     return std::string(&word[0], word.size());
                 }
@@ -507,7 +507,7 @@ CrackDatabase::CheckResult(
     // Seek forwards
     for (
         size_t i = Index + 1;
-        i < Mapping.size() && cracktools::Memcmp(Mapping[i].GetHash(), targetBytes) == 0;
+        i < Mapping.size() && cracktools::Equal(Mapping[i].GetHash(), targetBytes);
         ++i
     )
     {
@@ -518,7 +518,7 @@ CrackDatabase::CheckResult(
             {
                 // Check the hash
                 simdhash::SimdHashSingle(Algorithm, word, temp_hash_span);
-                if (cracktools::Memcmp(hash_span, Target) == 0)
+                if (cracktools::Equal(hash_span, Target))
                 {
                     return std::string(&word[0], word.size());
                 }

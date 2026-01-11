@@ -288,6 +288,11 @@ CouldBeCryptHash(
     const bool Permissive = false
 );
 
+const bool
+IsLikelyValidHash(
+    const std::string_view Value
+);
+
 } // namespace Util
 
 #endif /* Util_hpp */
