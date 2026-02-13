@@ -236,10 +236,6 @@ int main(
             ARGCHECK();
             output_file = args[++i];
         }
-        else if (input_file.empty())
-        {
-            input_file = arg;
-        }
         else if (arg == "--min" || arg == "-m")
         {
             ARGCHECK();
@@ -301,6 +297,10 @@ int main(
             std::cout << "  --no-hexlify, -x     Do not output hexlified words" << std::endl;
             std::cout << "  --help, -h           Show this help message" << std::endl;
             return 0;
+        }
+        else if (input_file.empty())
+        {
+            input_file = arg;
         }
         else
         {

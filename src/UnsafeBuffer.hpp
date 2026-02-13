@@ -17,7 +17,6 @@
 #include <filesystem>
 #include <string>
 #include <optional>
-#include <optional>
 #include <string_view>
 #include <sys/mman.h>
 #include <vector>
