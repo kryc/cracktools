@@ -4,12 +4,24 @@ import re
 import sys
 import unidecode
 
+def _ishex(word: str) -> bool:
+    '''Check if a word is hex-encoded'''
+    return len(word) > 6 and len(word) % 2 == 0 and \
+           word.startswith('$HEX[') and word.endswith(']') and \
+            all(c in '0123456789abcdefABCDEF' for c in word[5:-1])
+
+def _unhexlify(word: str, encoding: str) -> bytes:
+    '''Unhexlify a word if it is hex-encoded'''
+    if _ishex(word):
+        return bytes.fromhex(word[5:-1])
+    return word.encode(encoding)
+
 def read(path: str, encoding: str, include_comments: bool=False, verbose: bool=False) -> set:
     '''Read wordlist file to set'''
     if verbose:
         sys.stderr.write(f'Reading file: {path}\n')
     with open(path, encoding=encoding, errors='ignore') as fh:
-        return {word.rstrip('\n') for word in fh if include_comments or not word.startswith('#')}
+        return {_unhexlify(word.rstrip('\n'), encoding) for word in fh if include_comments or not word.startswith('#')}
 
 def reads(paths: list, encoding: str) -> list:
     return [read(p, encoding) for p in paths]
