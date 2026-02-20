@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import multiprocessing
 import re
 import sys
 import unidecode
@@ -10,14 +11,22 @@ def _ishex(word: str) -> bool:
            word.startswith('$HEX[') and word.endswith(']') and \
             all(c in '0123456789abcdefABCDEF' for c in word[5:-1])
 
-def _unhexlify(word: str, encoding: str) -> bytes:
+def _unhexlify(word: str, encoding: str) -> str:
     '''Unhexlify a word if it is hex-encoded'''
     if _ishex(word):
-        return bytes.fromhex(word[5:-1])
-    return word.encode(encoding)
+        return bytes.fromhex(word[5:-1]).decode(encoding, errors='ignore')
+    return word
+
+def _hexlify(word: str, encoding: str) -> str:
+    if not word.isprintable():
+        return '$HEX[' + word.encode(encoding).hex() + ']'
+    return word
 
 def read(path: str, encoding: str, include_comments: bool=False, verbose: bool=False) -> set:
     '''Read wordlist file to set'''
+    # Check if it has already been read by a thread, if so we can skip it
+    if isinstance(path, set):
+        return path
     if verbose:
         sys.stderr.write(f'Reading file: {path}\n')
     with open(path, encoding=encoding, errors='ignore') as fh:
@@ -27,7 +36,9 @@ def reads(paths: list, encoding: str) -> list:
     return [read(p, encoding) for p in paths]
     
 def output(words: set) -> None:
-    for word in sorted(words):
+    words = [_hexlify(word, 'utf8') for word in words]
+    words.sort()
+    for word in words:
         print(word)
 
 def main():
@@ -38,8 +49,15 @@ def main():
     parser.add_argument('--verbose', action='store_true', help='Verbose output')
     parser.add_argument('--encoding', default='utf8', help='Character encoding')
     parser.add_argument('--include-comments', action='store_true', help='Do not ignore lines starting with "#"')
+    parser.add_argument('--threads', '-t', type=int, help='Number of threads to use')
     args = parser.parse_args()
 
+    # Pre-parse all the files if using threads, otherwise we can just read them as we go
+    if args.threads:
+        with multiprocessing.Pool(args.threads) as pool:
+            args.files = pool.starmap(read, [(file, args.encoding, args.include_comments, args.verbose) for file in args.files])
+
+    # Handle operations
     if args.operation == 'union':
         w1 = read(args.files[0], args.encoding, args.include_comments, args.verbose)
         for file in args.files[1:]:
