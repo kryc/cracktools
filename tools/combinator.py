@@ -2,7 +2,7 @@
 """Generate hashcat .restore files for combinator / hybrid / mask attacks
 using length-split wordlists.
 
-The input directory should contain wordlists named "words_N.txt" where N
+The input directory should contain wordlists named "word_N.txt" where N
 is the length of every word in that file.  The script enumerates all
 ordered pairs (a, b) — including (a, a) — whose sum falls within
 [min, max] and writes a binary .restore file for each one so that
@@ -122,18 +122,25 @@ def detect_hashcat_version(sessions_dir: Path) -> int:
 # Wordlist discovery
 # ---------------------------------------------------------------------------
 
-WORDLIST_RE = re.compile(r"^words_(\d+)\.txt$")
+WORDLIST_RE = re.compile(r"^word_(\d+)\.txt$")
 
 
-def discover_lengths(wordlist_dir: Path) -> list[int]:
-    """Return sorted list of word lengths available in *wordlist_dir*."""
+def discover_lengths(wordlist_dir: Path) -> tuple[list[int], dict[int, str]]:
+    """Return sorted lengths and a map from length to zero-padded filename.
+
+    The map values are like ``"word_04.txt"`` — preserving whatever
+    zero-padding the files on disk actually use.
+    """
     lengths: list[int] = []
+    name_map: dict[int, str] = {}  # length -> filename (e.g. 4 -> "word_04.txt")
     for entry in wordlist_dir.iterdir():
         m = WORDLIST_RE.match(entry.name)
         if m:
-            lengths.append(int(m.group(1)))
+            n = int(m.group(1))
+            lengths.append(n)
+            name_map[n] = entry.name
     lengths.sort()
-    return lengths
+    return lengths, name_map
 
 
 # ---------------------------------------------------------------------------
@@ -212,7 +219,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     bp.add_argument(
         "wordlist_dir",
         type=Path,
-        help='Directory with "words_N.txt" wordlists split by length.',
+        help='Directory with "word_N.txt" wordlists split by length.',
     )
     bp.add_argument(
         "-o", "--output",
@@ -229,7 +236,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     bp.add_argument(
         "-m", "--min",
         type=int,
-        default=8,
+        default=9,
         dest="min_len",
         help="Minimum combined word length (default: 8).",
     )
@@ -254,6 +261,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
              "wordlist, turning the attack into a hybrid (-a 6/-a 7). "
              "Pairs where both sides are below the threshold are "
              "skipped.  0 disables (default: 3).",
+    )
+    bp.add_argument(
+        "--min-input-length",
+        type=int,
+        default=1,
+        dest="min_input_len",
+        help="Ignore wordlists whose word length is below this value "
+             "(default: 1, i.e. keep everything).",
     )
     bp.add_argument(
         "--hashcat-version",
@@ -310,17 +325,32 @@ def cmd_build(args: argparse.Namespace) -> None:
         sys.exit(1)
 
     # Discover available lengths
-    lengths = discover_lengths(wl_dir)
+    lengths, wl_name_map = discover_lengths(wl_dir)
     if not lengths:
-        log.error("No words_N.txt files found in %s.", wl_dir)
+        log.error("No word_N.txt files found in %s.", wl_dir)
         sys.exit(1)
     log.info("Found wordlist lengths: %s", lengths)
 
-    # Ensure all mask-only lengths 1..threshold are present even without
-    # a corresponding wordlist file (they'll only ever be used as ?a masks).
+    # Detect zero-pad width from the existing filenames (e.g. word_04.txt → width 2).
+    pad_width = max(
+        (len(WORDLIST_RE.match(v).group(1)) for v in wl_name_map.values()),
+        default=1,
+    )
+
+    def wl_name(n: int) -> str:
+        """Format a wordlist filename with the correct zero-padding."""
+        return f"word_{n:0{pad_width}d}.txt"
+
+    # Drop wordlist lengths below the minimum input length.
+    if args.min_input_len > 1:
+        lengths = [n for n in lengths if n >= args.min_input_len]
+        log.info("After --min-input-length %d: %s", args.min_input_len, lengths)
+
+    # Ensure all mask-only lengths min_input_len..threshold are present
+    # even without a corresponding wordlist file (they're only used as ?a masks).
     threshold = args.hybrid_threshold
     if threshold > 0:
-        mask_lengths = set(range(1, threshold + 1))
+        mask_lengths = set(range(args.min_input_len, threshold + 1))
         merged = sorted(set(lengths) | mask_lengths)
         added = mask_lengths - set(lengths)
         if added:
@@ -343,8 +373,8 @@ def cmd_build(args: argparse.Namespace) -> None:
         left_is_mask = threshold > 0 and left <= threshold
         right_is_mask = threshold > 0 and right <= threshold
 
-        left_path = str(wl_dir / f"words_{left}.txt")
-        right_path = str(wl_dir / f"words_{right}.txt")
+        left_path = str(wl_dir / wl_name(left))
+        right_path = str(wl_dir / wl_name(right))
         left_mask = "?a" * left
         right_mask = "?a" * right
 
@@ -356,19 +386,19 @@ def cmd_build(args: argparse.Namespace) -> None:
             attack_mode = "6"
             session = f"{args.session_prefix}_{left}_{right}"
             tail_args = [left_path, right_mask]
-            label = f"hybrid6 words_{left}.txt + {right_mask}"
+            label = f"hybrid6 {wl_name(left)} + {right_mask}"
         elif left_is_mask:
             # Hybrid: mask + wordlist  -a 7
             attack_mode = "7"
             session = f"{args.session_prefix}_{left}_{right}"
             tail_args = [left_mask, right_path]
-            label = f"hybrid7 {left_mask} + words_{right}.txt"
+            label = f"hybrid7 {left_mask} + {wl_name(right)}"
         else:
             # Combinator  -a 1
             attack_mode = "1"
             session = f"{args.session_prefix}_{left}_{right}"
             tail_args = [left_path, right_path]
-            label = f"combo words_{left}.txt + words_{right}.txt"
+            label = f"combo {wl_name(left)} + {wl_name(right)}"
 
         if session in seen_sessions:
             continue
@@ -380,6 +410,7 @@ def cmd_build(args: argparse.Namespace) -> None:
             "-a", attack_mode,
             "-m", "100",
             "-O",
+            "--bitmap-max", "23",
             "-w", "3",
             "--potfile-disable",
             "--markov-disable",
