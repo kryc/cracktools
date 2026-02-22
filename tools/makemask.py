@@ -28,7 +28,7 @@ class Mask:
         return ','.join(self.charsets) + ',' + self.mask
 
 def make_ipv4_mask():
-    def __octmask(octet) -> tuple(str, str):
+    def __octmask(octet):
         if octet == 1:
             return None,"?d"
         elif octet == 2:
@@ -66,8 +66,22 @@ def make_email_mask(local_part_max=8, domain_part_max=10, tld_part_max=5):
                 mask.append('?*' * domainlen, '?l?d')
                 mask.append('.')
                 # TLD part
-                mask.append('?*' * tld1len, '?l.')
+                mask.append('?l' * tld1len)
                 yield(mask)
+                if tld1len == 2:
+                    mask = Mask()
+                    # Local part
+                    mask.append('?*', '?l?u?d-_')
+                    mask.append('?*' * (locallen - 1), '?l?u?d.-_')
+                    mask.append('@')
+                    # Domain part
+                    mask.append('?*' * domainlen, '?l?d')
+                    mask.append('.')
+                    # TLD part
+                    mask.append('?l' * 2)
+                    mask.append('.')
+                    mask.append('?l' * 2)
+                    yield(mask)
 
 def make_email_mask_with_domains(domains: str, local_part_max=8):
     '''Given a text file with domains, generate email masks for those domains.'''
@@ -92,7 +106,7 @@ def main():
     parser.add_argument('--no-ipv4', action='store_true', help='Dont generate masks for IPv4 addresses')
     parser.add_argument('--no-email', action='store_true', help='Dont generate masks for email addresses')
     parser.add_argument('--email-domains', type=str, help='Generate email masks for specific domains from a text file')
-    parser.add_argument('--email-local-part-max', type=int, default=14, help='Maximum length of the local part of email addresses')
+    parser.add_argument('--email-local-part-max', type=int, default=16, help='Maximum length of the local part of email addresses')
     parser.add_argument('--email-domain-part-max', type=int, default=10, help='Maximum length of the domain part of email addresses')
     parser.add_argument('--email-tld-part-max', type=int, default=5, help='Maximum length of the TLD part of email addresses')
     args = parser.parse_args()
