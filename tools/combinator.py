@@ -25,6 +25,7 @@ import logging
 import os
 import re
 import struct
+import subprocess
 import sys
 from pathlib import Path
 
@@ -155,72 +156,106 @@ def valid_combos(
 
 
 # ---------------------------------------------------------------------------
+# Session-name helpers
+# ---------------------------------------------------------------------------
+
+SESSION_RE = re.compile(r"^(.+)_(\d+)_(\d+)\.restore$")
+
+
+def parse_session_name(filename: str) -> tuple[str, int, int] | None:
+    """Extract (prefix, left, right) from a restore filename.
+
+    Returns None if the name doesn't match the expected pattern.
+    """
+    m = SESSION_RE.match(filename)
+    if m:
+        return m.group(1), int(m.group(2)), int(m.group(3))
+    return None
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        description="Generate hashcat .restore files for combinator attacks.",
+        description="Generate and run hashcat combinator / hybrid restore sessions.",
     )
-    p.add_argument(
+    sub = p.add_subparsers(dest="command", required=True)
+
+    # -- shared flags -------------------------------------------------------
+    shared = argparse.ArgumentParser(add_help=False)
+    shared.add_argument(
+        "-O", "--output-dir",
+        type=Path,
+        default=None,
+        help="Directory for .restore files "
+             "(default: $HOME/.local/share/hashcat/sessions/).",
+    )
+    shared.add_argument(
+        "--session-prefix",
+        default="combo",
+        help='Prefix for session names (default: "combo").',
+    )
+    shared.add_argument(
+        "--hashcat-bin",
+        default="hashcat",
+        help="Path / name of the hashcat binary (default: hashcat).",
+    )
+
+    # -- build --------------------------------------------------------------
+    bp = sub.add_parser(
+        "build",
+        parents=[shared],
+        help="Generate .restore files for combinator / hybrid attacks.",
+    )
+    bp.add_argument(
         "wordlist_dir",
         type=Path,
         help='Directory with "words_N.txt" wordlists split by length.',
     )
-    p.add_argument(
+    bp.add_argument(
         "-o", "--output",
         type=str,
         default="recrackedhc.txt",
         help="Hashcat output file for the restored sessions (default: recrackedhc.txt).",
     )
-    p.add_argument(
+    bp.add_argument(
         "--hash-file",
         type=str,
         default="uncracked.txt",
         help="Path to the file containing hashes.",
     )
-    p.add_argument(
+    bp.add_argument(
         "-m", "--min",
         type=int,
         default=8,
         dest="min_len",
         help="Minimum combined word length (default: 8).",
     )
-    p.add_argument(
+    bp.add_argument(
         "-M", "--max",
         type=int,
         default=31,
         dest="max_len",
         help="Maximum combined word length (default: 31).",
     )
-    p.add_argument(
-        "-O", "--output-dir",
-        type=Path,
-        default=None,
-        help="Output directory for .restore files "
-             "(default: $HOME/.local/share/hashcat/sessions/).",
-    )
-    p.add_argument(
+    bp.add_argument(
         "--cwd",
         default=os.getcwd(),
         help="Working directory stored in each .restore file "
              "(default: current directory).",
     )
-    p.add_argument(
-        "--session-prefix",
-        default="combo",
-        help='Prefix for session names (default: "combo").',
-    )
-    p.add_argument(
+    bp.add_argument(
         "--hybrid-threshold",
         type=int,
         default=3,
         help="Word lengths <= this value use a ?a mask instead of a "
              "wordlist, turning the attack into a hybrid (-a 6/-a 7). "
              "Pairs where both sides are below the threshold are "
-             "skipped.  0 disables (default: 0).",
+             "skipped.  0 disables (default: 3).",
     )
-    p.add_argument(
+    bp.add_argument(
         "--hashcat-version",
         type=int,
         default=None,
@@ -228,32 +263,35 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
              "Auto-detected from the newest existing .restore file, "
              f"falls back to {DEFAULT_HASHCAT_VERSION}.",
     )
-    p.add_argument(
-        "--hashcat-bin",
-        default="hashcat",
-        help="Path / name of the hashcat binary (default: hashcat).",
-    )
-    p.add_argument(
+    bp.add_argument(
         "extra_flags",
         nargs="*",
         metavar="HASHCAT_FLAG",
         help="Extra hashcat flags forwarded into every restore file "
              '(e.g. -w 3 -O). Use -- before them if they start with "-".',
     )
+
+    # -- run ----------------------------------------------------------------
+    rp = sub.add_parser(
+        "run",
+        parents=[shared],
+        help="Execute remaining restore sessions, smallest total length first.",
+    )
+    rp.add_argument(
+        "-n", "--dry-run",
+        action="store_true",
+        help="Print the execution order without launching hashcat.",
+    )
+
     return p.parse_args(argv)
 
 
 # ---------------------------------------------------------------------------
-# Main
+# Commands
 # ---------------------------------------------------------------------------
 
-def main() -> None:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(message)s",
-    )
-    args = parse_args()
-
+def cmd_build(args: argparse.Namespace) -> None:
+    """Generate .restore files (the 'build' subcommand)."""
     # Resolve output directory
     output_dir: Path = args.output_dir or Path.home() / ".local/share/hashcat/sessions"
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -363,6 +401,113 @@ def main() -> None:
         log.info("  %-40s  %s", restore_path.name, label)
 
     log.info("Done — wrote %d file(s) to %s", len(seen_sessions), output_dir)
+
+
+def cmd_run(args: argparse.Namespace) -> None:
+    """Execute remaining restore sessions (the 'run' subcommand)."""
+    # Resolve sessions directory
+    sessions_dir: Path = args.output_dir or Path.home() / ".local/share/hashcat/sessions"
+    if not sessions_dir.is_dir():
+        log.error("Sessions directory does not exist: %s", sessions_dir)
+        sys.exit(1)
+
+    # Enumerate matching restore files
+    prefix = args.session_prefix
+    pattern = f"{prefix}_*.restore"
+    restore_files = list(sessions_dir.glob(pattern))
+    if not restore_files:
+        log.info("No remaining restore files matching '%s' in %s", pattern, sessions_dir)
+        return
+
+    # Parse (left, right) from each filename and sort by total length
+    jobs: list[tuple[int, int, int, Path]] = []  # (total, left, right, path)
+    for rf in restore_files:
+        parsed = parse_session_name(rf.name)
+        if parsed is None:
+            log.warning("Skipping unrecognised file: %s", rf.name)
+            continue
+        _, left, right = parsed
+        jobs.append((left + right, left, right, rf))
+
+    jobs.sort()  # smallest total first
+
+    log.info("Found %d session(s) to run (sorted by total word length):", len(jobs))
+    for total, left, right, rf in jobs:
+        session = rf.stem
+        log.info("  %-40s  length %d+%d=%d", session, left, right, total)
+
+    if args.dry_run:
+        log.info("Dry run — not launching hashcat.")
+        return
+
+    # Execute each session sequentially
+    for i, (total, left, right, rf) in enumerate(jobs, 1):
+        session = rf.stem
+        cmd = [args.hashcat_bin, "--session", session, "--restore"]
+        log.info(
+            "\n[%d/%d] Running session %s  (length %d+%d=%d)",
+            i, len(jobs), session, left, right, total,
+        )
+        log.info("  %s", " ".join(cmd))
+
+        try:
+            result = subprocess.run(cmd)
+        except KeyboardInterrupt:
+            log.warning("\n  Interrupted by user (Ctrl+C). Stopping.")
+            sys.exit(130)
+
+        if result.returncode == 0:
+            log.info("  Session %s finished successfully.", session)
+        elif result.returncode == 1:
+            # hashcat exit code 1 = exhausted (all keyspace tried)
+            log.info("  Session %s exhausted.", session)
+        elif result.returncode in (2, 3, 4, 5):
+            # 2 = user abort, 3 = checkpoint abort, 4 = runtime abort, 5 = finish abort
+            reason = {
+                2: "user abort",
+                3: "checkpoint abort",
+                4: "runtime limit",
+                5: "finish flag",
+            }[result.returncode]
+            log.info("  Session %s stopped (%s). Halting run.", session, reason)
+            remaining = len(jobs) - i
+            if remaining > 0:
+                log.info("  %d session(s) remaining — re-run to continue.", remaining)
+            return
+        elif result.returncode < 0:
+            # Killed by signal (e.g. -2 = SIGINT)
+            import signal
+            sig = -result.returncode
+            sig_name = signal.Signals(sig).name if sig in signal.Signals._value2member_map_ else str(sig)
+            log.warning("  Session %s killed by signal %s. Halting run.", session, sig_name)
+            remaining = len(jobs) - i
+            if remaining > 0:
+                log.info("  %d session(s) remaining — re-run to continue.", remaining)
+            sys.exit(128 + sig)
+        else:
+            log.warning(
+                "  Session %s exited with code %d — continuing.",
+                session, result.returncode,
+            )
+
+    log.info("\nAll sessions complete.")
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+def main() -> None:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(message)s",
+    )
+    args = parse_args()
+
+    if args.command == "build":
+        cmd_build(args)
+    elif args.command == "run":
+        cmd_run(args)
 
 
 if __name__ == "__main__":
