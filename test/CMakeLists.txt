@@ -33,19 +33,9 @@ set(CMAKE_CXX_FLAGS "-Wall -Werror -Wno-deprecated-declarations -Wno-ignored-opt
 if(!APPLE)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-exceptions")
 endif()
-# set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wunsafe-buffer-usage -Wunsafe-buffer-usage-in-container")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wunsafe-buffer-usage -Wunsafe-buffer-usage-in-container")
 set(CMAKE_CXX_FLAGS_RELEASE "-O3 -funroll-loops")
 set(CMAKE_CXX_FLAGS_DEBUG "-g -ggdb -O0 -fno-omit-frame-pointer -fsanitize=address -DDEBUG -DDEBUGINFO")
-
-# Set AVX flags for X86
-message("Detected platform: ${CMAKE_HOST_SYSTEM_PROCESSOR}")
-if (NOT CMAKE_HOST_SYSTEM_PROCESSOR STREQUAL "arm64" AND NOT CMAKE_HOST_SYSTEM_PROCESSOR STREQUAL "aarch64")
-    if (NOT AVX OR AVX STREQUAL "" OR AVX STREQUAL "256")
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mavx2")
-    elseif(AVX STREQUAL "512")
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mavx512bw")
-    endif()
-endif()
 
 # Cracktools unittest
 add_executable(unittest EXCLUDE_FROM_ALL
