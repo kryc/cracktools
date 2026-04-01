@@ -89,6 +89,7 @@ CrackList::CrackLinear(
 
     while (!m_Exhausted)
     {
+        words.Clear();
         auto count = ReadBlock(words);
 
         // Can be empty if the input is blocksize aligned
@@ -316,6 +317,7 @@ CrackList::CrackWorker(
     for (size_t block = 0; block < m_BlockSize && !m_Exhausted; block += lanes)
     {
         // Read a block of words
+        words.Clear();
         size_t count = 0;
         {
             std::lock_guard<std::mutex> lock(m_InputMutex);

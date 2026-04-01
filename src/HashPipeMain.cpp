@@ -100,6 +100,7 @@ void HashPipe(
     for (;;)
     {
         // Read the next block of words
+        words.Clear();
         size_t count = 0;
         for (size_t i = 0; 
             i < lanes && reader.ReadLine(line);
