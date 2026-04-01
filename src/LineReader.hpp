@@ -327,7 +327,7 @@ public:
     const size_t CountLines(void) {
         size_t lineCount = 0;
         while (!m_FileStream.eof()) {
-            m_FileStream.read(m_BufferSpan.data(), BlockSize);
+            m_FileStream.read(m_BufferSpanChars.data(), BlockSize);
             const size_t bytesRead = m_FileStream.gcount();
             if (bytesRead == 0) {
                 break;
