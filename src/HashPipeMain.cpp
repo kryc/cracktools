@@ -312,7 +312,7 @@ int main(
     // If no algorithms specified add all of them to the list
     if (algorithms.empty())
     {
-        algorithms.insert(algorithms.end(), simdhash::SimdHashAlgorithms.begin(), simdhash::SimdHashAlgorithms.end());
+        algorithms.insert(algorithms.end(), simdhash::SimdHashCryptoAlgorithms.begin(), simdhash::SimdHashCryptoAlgorithms.end());
     }
 
     HashPipe(input_file, output_file, algorithms, output_case, status_updates, min, max);

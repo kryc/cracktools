@@ -320,7 +320,7 @@ CrackDatabase::Build(
     m_Algorithms = Algorithms;
     if (m_Algorithms.size() == 0)
     {
-        m_Algorithms = simdhash::SimdHashAlgorithms;
+        m_Algorithms = simdhash::SimdHashCryptoAlgorithms;
     }
 
     for (auto algorithm : m_Algorithms)
@@ -865,7 +865,7 @@ CrackDatabase::OpenDatabaseFilesForLookup(
     void
 )
 {
-    for (auto algorithm : simdhash::SimdHashAlgorithms)
+    for (auto algorithm : simdhash::SimdHashCryptoAlgorithms)
     {
         if (HasAlgorithm(algorithm))
         {
