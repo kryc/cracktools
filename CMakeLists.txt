@@ -27,13 +27,31 @@ if (NOT CMAKE_SYSTEM_NAME STREQUAL "Darwin")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-exceptions -Wunsafe-buffer-usage -Wunsafe-buffer-usage-in-container")
 endif()
 
-# Set AVX flags for X86
+# Backward compat: map old AVX variable to new SIMD variable
+if (NOT SIMD OR SIMD STREQUAL "")
+    if (AVX STREQUAL "512")
+        set(SIMD "avx512")
+    elseif(AVX STREQUAL "256")
+        set(SIMD "avx256")
+    endif()
+endif()
+
+# Set SIMD flags for X86
 message("Detected platform: ${CMAKE_HOST_SYSTEM_PROCESSOR}")
 if (NOT CMAKE_HOST_SYSTEM_PROCESSOR STREQUAL "arm64" AND NOT CMAKE_HOST_SYSTEM_PROCESSOR STREQUAL "aarch64")
-    if (NOT AVX OR AVX STREQUAL "" OR AVX STREQUAL "256")
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mavx2")
-    elseif(AVX STREQUAL "512")
+    if (SIMD STREQUAL "avx512")
         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mavx512bw")
+    elseif(SIMD STREQUAL "avx256")
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mavx2")
+    elseif(SIMD STREQUAL "sse42")
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -msse4.2")
+    elseif(SIMD STREQUAL "ssse3")
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mssse3")
+    elseif(SIMD STREQUAL "sse2")
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -msse2")
+    else()
+        # Default: auto-detect from host CPU
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=native")
     endif()
 endif()
 

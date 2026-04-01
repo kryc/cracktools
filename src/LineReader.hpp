@@ -249,7 +249,6 @@ class LineCounter {
 #elif defined(__arm64__) || defined(__aarch64__)
     using VecType = uint8x16_t;
 #else
-    #error "No suitable vector extension found for LineCounter"
     using VecType = char;
 #endif
 public:
