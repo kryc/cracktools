@@ -13,7 +13,7 @@
 #include <optional>
 #include <vector>
 
-#if (defined(__AVX512F__) || defined(__AVX2__))
+#if defined(__AVX512F__) || defined(__AVX2__) || defined(__SSE4_2__) || defined(__SSSE3__) || defined(__SSE2__)
 #include <immintrin.h>
 #endif
 
@@ -246,6 +246,8 @@ template <size_t BlockSize = 16384*2>
 class LineCounter {
 #if defined(__AVX512F__) || defined(__AVX2__)
     using VecType = __m256i;
+#elif defined(__SSE4_2__) || defined(__SSSE3__) || defined(__SSE2__)
+    using VecType = __m128i;
 #elif defined(__arm64__) || defined(__aarch64__)
     using VecType = uint8x16_t;
 #else
@@ -290,6 +292,32 @@ public:
                 __m256i cmp = _mm256_cmpeq_epi8(chunk, newline);
                 // Create a bitmask from the comparison result
                 uint32_t mask = _mm256_movemask_epi8(cmp);
+                // Count the number of set bits in the mask
+                lineCount += __builtin_popcount(mask);
+            }
+        }
+        return lineCount;
+    }
+#elif defined(__SSE4_2__) || defined(__SSSE3__) || defined(__SSE2__)
+    static_assert(BlockSize % 16 == 0, "BlockSize must be a multiple of 16 for SSE2");
+    const size_t CountLines(void) {
+        static const __m128i newline = _mm_set1_epi8('\n');
+        size_t lineCount = 0;
+        while (!m_FileStream.eof()) {
+            m_FileStream.read(m_BufferSpanChars.data(), BlockSize);
+            const size_t bytesRead = m_FileStream.gcount();
+            if (bytesRead == 0) {
+                break;
+            }
+            // Fill the remainder of the buffer with zeros if needed
+            if (bytesRead < BlockSize) {
+                std::fill(m_BufferSpanChars.begin() + bytesRead, m_BufferSpanChars.end(), 0);
+            }
+            for (auto chunk : m_BufferSpanVector) {
+                // Compare each byte in the chunk to '\n'
+                __m128i cmp = _mm_cmpeq_epi8(chunk, newline);
+                // Create a bitmask from the comparison result
+                uint32_t mask = _mm_movemask_epi8(cmp);
                 // Count the number of set bits in the mask
                 lineCount += __builtin_popcount(mask);
             }
