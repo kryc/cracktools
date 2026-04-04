@@ -61,6 +61,13 @@ HashlistConvert(
     {
         hashes++;
 
+        // Check if there is a colon, if so, take the first part as the hash and ignore the rest
+        size_t colonPos = line.find(':');
+        if (colonPos != std::string_view::npos)
+        {
+            line = line.substr(0, colonPos);
+        }
+
         if (line.length() != lastlength && lastlength != 0)
         {
             errors++;
