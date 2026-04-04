@@ -293,6 +293,18 @@ target_include_directories(credparse
                         )
 target_link_libraries(credparse dispatchqueue simdhash crypto gmp gmpxx)
 
+# RandString
+set(RANDSTRING_SOURCES
+    src/RandStringMain.cpp
+    src/WordGenerator.cpp
+)
+add_executable(randstring ${RANDSTRING_SOURCES})
+target_include_directories(randstring
+                            PUBLIC
+                                ./src/
+                        )
+target_link_libraries(randstring gmp gmpxx)
+
 # Create a set of all targets
 set(ALL_TARGETS
     cracklist
