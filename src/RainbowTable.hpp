@@ -27,6 +27,8 @@
 #include "HashList.hpp"
 #include "Reduce.hpp"
 #include "SmallString.hpp"
+#include "Util.hpp"
+#include "WordGenerator.hpp"
 
 typedef enum _TableType
 {
@@ -49,29 +51,63 @@ typedef struct  __attribute__((__packed__)) _TableHeader
     char     charset[128];
 } TableHeader;
 
-typedef struct _TableRecord
+template<typename IndexT>
+struct TableRecord
 {
-    bool operator<(const _TableRecord& other) const
+    bool operator<(const TableRecord& other) const
     {
         return endpoint < other.endpoint;
     }
-    __uint128_t startpoint;
-    __uint128_t endpoint;
-} TableRecord;
+    IndexT startpoint;
+    IndexT endpoint;
+};
 
-typedef struct _TableRecordCompressed
+template<typename IndexT>
+struct TableRecordCompressed
 {
-    bool operator<(const _TableRecordCompressed& other) const
+    bool operator<(const TableRecordCompressed& other) const
     {
         return endpoint < other.endpoint;
     }
-    _TableRecordCompressed& operator=(const TableRecord& other)
+    template<typename OtherT>
+    TableRecordCompressed& operator=(const TableRecord<OtherT>& other)
     {
-        endpoint = other.endpoint;
+        endpoint = static_cast<IndexT>(other.endpoint);
         return *this;
     }
-    __uint128_t endpoint;
-} TableRecordCompressed;
+    IndexT endpoint;
+};
+
+// Internal record types always use __uint128_t
+using InternalRecord = TableRecord<__uint128_t>;
+using InternalRecordCompressed = TableRecordCompressed<__uint128_t>;
+
+// Determine the narrowest index width that fits the keyspace
+static inline uint8_t
+ComputeIndexWidth(
+    const size_t Min,
+    const size_t Max,
+    const std::string& Charset
+)
+{
+    __uint128_t keyspace = WordGenerator::WordLengthIndex128(Max + 1, Charset);
+    size_t bits = Util::BitWidth128(keyspace);
+    if (bits <= 32)  return 4;
+    if (bits <= 64)  return 8;
+    return 16;
+}
+
+// Runtime dispatch on index width
+template<typename Func>
+decltype(auto) DispatchByWidth(uint8_t Width, Func&& f)
+{
+    switch (Width)
+    {
+        case 4:  return f.template operator()<uint32_t>();
+        case 8:  return f.template operator()<uint64_t>();
+        default: return f.template operator()<__uint128_t>();
+    }
+}
 
 class RainbowTable
 {
@@ -113,8 +149,8 @@ public:
     bool LoadTable(void);
     bool Complete(void) const { return m_ThreadsCompleted == m_Threads; }
     std::vector<std::tuple<std::string, std::string>> Crack(const std::string_view Target);
-    static const size_t ChainWidthForType(const TableType Type);
-    const size_t GetChainWidth(void) const { return ChainWidthForType(m_TableType); }
+    static const size_t ChainWidthForType(const TableType Type, const uint8_t IndexWidth);
+    const size_t GetChainWidth(void) const { return ChainWidthForType(m_TableType, m_IndexWidth); }
     static void DoHash(const uint8_t* Data, const size_t Length, uint8_t* Digest, const HashAlgorithm Algorithm) { SimdHashSingle(Algorithm, Length, Data, Digest); };
     static const std::string DoHashHex(const uint8_t* Data, const size_t Length, const HashAlgorithm Algorithm);
     void DoHash(const uint8_t* Data, const size_t Length, uint8_t* Digest) const { DoHash(Data, Length, Digest, m_Algorithm); }
@@ -125,7 +161,7 @@ public:
     static const Chain GetChain(const std::filesystem::path& Path, const size_t Index);
     static const Chain ComputeChain(const size_t Index, const size_t Min, const size_t Max, const size_t Length, const HashAlgorithm Algorithm, const std::string& Charset);
     inline const __uint128_t GetEndpointAt(const size_t Index) const;
-    inline const TableRecord GetRecordAt(const size_t Index) const;
+    inline const InternalRecord GetRecordAt(const size_t Index) const;
 private:
     // General purpose
     void ChangeType(const std::filesystem::path& Destination, const TableType Type);
@@ -138,11 +174,11 @@ private:
     const __uint128_t CalculateLowerBound(void) const { return CalculateLowerBound(m_Min, m_Charset); };
     // Building
     void StoreTableHeader(void) const;
-    std::tuple<std::vector<TableRecord>, uint64_t> GenerateBlockData(const size_t BlockStartId);
+    std::tuple<std::vector<InternalRecord>, uint64_t> GenerateBlockData(const size_t BlockStartId);
     void GenerateBlock(const size_t ThreadId, const size_t BlockId);
-    void SaveBlock(const size_t ThreadId, const size_t BlockId, std::vector<TableRecord> Block, const uint64_t Time);
+    void SaveBlock(const size_t ThreadId, const size_t BlockId, std::vector<InternalRecord> Block, const uint64_t Time);
     void OutputStatus(const std::string_view LastEndpoint) const;
-    void WriteBlock(const size_t BlockId, std::span<const TableRecord> Block);
+    void WriteBlock(const size_t BlockId, std::span<const InternalRecord> Block);
     void BuildThreadCompleted(const size_t ThreadId);
     // Cracking
     std::optional<std::string> CrackOne(const std::string_view Target);
@@ -170,15 +206,14 @@ private:
     size_t m_StartingChains = 0;
     FILE* m_WriteHandle = NULL;
     size_t m_NextWriteBlock = 0;
-    std::map<size_t, std::vector<TableRecord>> m_WriteCache;
+    std::map<size_t, std::vector<InternalRecord>> m_WriteCache;
     size_t m_ThreadsCompleted = 0;
     size_t m_ChainsWritten = 0;
     std::map<size_t, uint64_t> m_ThreadTimers;
     // For cracking
     std::span<uint8_t> m_MappedTable;
-    std::span<TableRecord> m_MappedTableRecords;
-    std::span<TableRecordCompressed> m_MappedTableRecordsCompressed;
     FILE* m_MappedTableFd = nullptr;
+    uint8_t m_IndexWidth = 16;
     bool m_MappedReadOnly = false;
     std::ifstream m_HashFileStream;
     char m_Separator = ':';

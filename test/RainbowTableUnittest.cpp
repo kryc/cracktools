@@ -39,18 +39,27 @@ protected:
         std::filesystem::remove(m_RecompressedPath);
     }
 
+    static constexpr size_t kSmallMin = 1;
+    static constexpr size_t kSmallMax = 4;
+    static constexpr const char* kSmallCharset = "abcdefghijklmnopqrstuvwxyz";
+
     // Helper: configure a small, fast table for testing
     void ConfigureSmallTable(RainbowTable& table)
     {
         table.SetPath(m_TablePath);
         table.SetAlgorithm("md5");
-        table.SetMin(1);
-        table.SetMax(4);
+        table.SetMin(kSmallMin);
+        table.SetMax(kSmallMax);
         table.SetLength(100);
         table.SetBlocksize(SimdLanes());
         table.SetCount(SimdLanes() * 4);
         table.SetThreads(1);
         table.SetCharset("lower");
+    }
+
+    uint8_t SmallTableIndexWidth() const
+    {
+        return ComputeIndexWidth(kSmallMin, kSmallMax, kSmallCharset);
     }
 };
 
@@ -166,7 +175,7 @@ TEST_F(RainbowTableTest, BuildWritesCorrectChainCount)
     // File size = header + count * chain_width
     size_t fileSize = std::filesystem::file_size(m_TablePath);
     size_t dataSize = fileSize - sizeof(TableHeader);
-    size_t chainWidth = RainbowTable::ChainWidthForType(TypeCompressed);
+    size_t chainWidth = RainbowTable::ChainWidthForType(TypeCompressed, SmallTableIndexWidth());
     EXPECT_EQ(dataSize % chainWidth, 0u);
     EXPECT_EQ(dataSize / chainWidth, expectedCount);
 }
@@ -367,10 +376,11 @@ TEST_F(RainbowTableTest, DecompressPreservesChainCount)
     ASSERT_TRUE(decompressed.LoadTable());
 
     // Both should report the same number of chains
+    uint8_t iw = SmallTableIndexWidth();
     size_t compressedChains = (std::filesystem::file_size(m_TablePath) - sizeof(TableHeader)) /
-        RainbowTable::ChainWidthForType(TypeCompressed);
+        RainbowTable::ChainWidthForType(TypeCompressed, iw);
     size_t uncompressedChains = (std::filesystem::file_size(m_UncompressedPath) - sizeof(TableHeader)) /
-        RainbowTable::ChainWidthForType(TypeUncompressed);
+        RainbowTable::ChainWidthForType(TypeUncompressed, iw);
 
     EXPECT_EQ(compressedChains, uncompressedChains);
 }
@@ -391,8 +401,8 @@ TEST_F(RainbowTableTest, DecompressPreservesEndpoints)
     size_t compressedCount = compressed.GetCount();
     std::ifstream cfs(m_TablePath, std::ios::binary);
     cfs.seekg(sizeof(TableHeader));
-    std::vector<TableRecordCompressed> compRecords(compressedCount);
-    cfs.read(reinterpret_cast<char*>(compRecords.data()), compressedCount * sizeof(TableRecordCompressed));
+    std::vector<TableRecordCompressed<uint32_t>> compRecords(compressedCount);
+    cfs.read(reinterpret_cast<char*>(compRecords.data()), compressedCount * sizeof(TableRecordCompressed<uint32_t>));
     cfs.close();
 
     // Read records from the uncompressed table (startpoint + endpoint pairs, sorted by endpoint)
@@ -404,8 +414,8 @@ TEST_F(RainbowTableTest, DecompressPreservesEndpoints)
 
     std::ifstream ufs(m_UncompressedPath, std::ios::binary);
     ufs.seekg(sizeof(TableHeader));
-    std::vector<TableRecord> uncompRecords(uncompressedCount);
-    ufs.read(reinterpret_cast<char*>(uncompRecords.data()), uncompressedCount * sizeof(TableRecord));
+    std::vector<TableRecord<uint32_t>> uncompRecords(uncompressedCount);
+    ufs.read(reinterpret_cast<char*>(uncompRecords.data()), uncompressedCount * sizeof(TableRecord<uint32_t>));
     ufs.close();
 
     // Every compressed endpoint must appear in the uncompressed records
@@ -508,7 +518,7 @@ TEST_F(RainbowTableTest, BuildProducesCorrectFileSize)
     table.InitAndRunBuild();
 
     size_t expectedSize = sizeof(TableHeader) +
-        count * RainbowTable::ChainWidthForType(TypeCompressed);
+        count * RainbowTable::ChainWidthForType(TypeCompressed, SmallTableIndexWidth());
     size_t actualSize = std::filesystem::file_size(m_TablePath);
 
     EXPECT_EQ(actualSize, expectedSize);
