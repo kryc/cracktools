@@ -324,6 +324,7 @@ set(ALL_TARGETS
     sortpwned
     hashlistlookup
     credparse
+    randstring
 )
 
 # Create install targets
