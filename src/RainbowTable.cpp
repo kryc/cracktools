@@ -357,7 +357,7 @@ void
 RainbowTable::SaveBlock(
     const size_t ThreadId,
     const size_t BlockId,
-    const std::vector<TableRecord> Block,
+    std::vector<TableRecord> Block,
     const uint64_t Time
 )
 {
@@ -516,7 +516,7 @@ RainbowTable::LoadTable(
     size_t dataSize = fileSize - sizeof(TableHeader);
     if (dataSize % GetChainWidth() != 0)
     {
-        std::cerr << "Invalid or currupt table file. Data not a multiple of chain width" << std::endl;
+        std::cerr << "Invalid or corrupt table file. Data not a multiple of chain width" << std::endl;
         return false;
     }
 
@@ -714,7 +714,7 @@ RainbowTable::MapTable(
         
         if (subspan_data.size() % sizeof(TableRecordCompressed) != 0)
         {
-            std::cerr << "Invalid or currupt table file. Data not a multiple of chain width" << std::endl;
+            std::cerr << "Invalid or corrupt table file. Data not a multiple of chain width" << std::endl;
             return false;
         }
         m_MappedTableRecordsCompressed = cracktools::SpanCast<TableRecordCompressed>(subspan_data);
@@ -723,7 +723,7 @@ RainbowTable::MapTable(
     {
         if (subspan_data.size() % sizeof(TableRecord) != 0)
         {
-            std::cerr << "Invalid or currupt table file. Data not a multiple of chain width" << std::endl;
+            std::cerr << "Invalid or corrupt table file. Data not a multiple of chain width" << std::endl;
             return false;
         }
         m_MappedTableRecords = cracktools::SpanCast<TableRecord>(subspan_data);
@@ -1165,7 +1165,7 @@ RainbowTable::ChangeType(
 
     // Write the header
 #pragma clang unsafe_buffer_usage begin
-    fwrite(&hdr, sizeof(hdr), 1, fhw);
+    fwrite(&hdr, 1, sizeof(hdr), fhw);
 #pragma clang unsafe_buffer_usage end
 
     if (DestinationType == TypeCompressed)
@@ -1182,7 +1182,7 @@ RainbowTable::ChangeType(
         {
             compressedRecord = record;
 #pragma clang unsafe_buffer_usage begin            
-            fwrite(&compressedRecord, sizeof(TableRecordCompressed), 1, fhw);
+            fwrite(&compressedRecord, 1, sizeof(TableRecordCompressed), fhw);
 #pragma clang unsafe_buffer_usage end
         }
         fclose(fhw);
@@ -1196,7 +1196,7 @@ RainbowTable::ChangeType(
             record.startpoint = i;
             record.endpoint = m_MappedTableRecordsCompressed[i].endpoint;
 #pragma clang unsafe_buffer_usage begin
-            fwrite(&record, sizeof(TableRecord), 1, fhw);
+            fwrite(&record, 1, sizeof(TableRecord), fhw);
 #pragma clang unsafe_buffer_usage end
         }
         fclose(fhw);
