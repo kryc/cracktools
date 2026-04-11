@@ -92,14 +92,29 @@ RainbowTable::InitAndRunBuild(
         return;
     }
 
-    // Create the main (io) dispatcher
-    auto mainDispatcher = dispatch::CreateDispatcher(
-        "main",
-        dispatch::DoNothing
-    );
-
-    if (m_Threads > 1)
+    if (m_Threads == 1)
     {
+        // Single-threaded: generate and save blocks directly
+        for (size_t blockId = 0; ; blockId++)
+        {
+            size_t blockStartId = m_StartingChains + (m_Blocksize * blockId);
+            if (blockStartId >= m_Count)
+            {
+                break;
+            }
+
+            auto [block, elapsed_ms] = GenerateBlockData(blockStartId);
+            SaveBlock(0, blockId, std::move(block), elapsed_ms);
+        }
+    }
+    else
+    {
+        // Multi-threaded: use dispatch pool
+        auto mainDispatcher = dispatch::CreateDispatcher(
+            "main",
+            dispatch::DoNothing
+        );
+
         m_DispatchPool = dispatch::CreateDispatchPool("pool", m_Threads);
 
         for (size_t i = 0; i < m_Threads; i++)
@@ -113,47 +128,19 @@ RainbowTable::InitAndRunBuild(
                 )
             );
         }
-    }
-    else
-    {
-        dispatch::PostTaskFast(
-            dispatch::bind(
-                &RainbowTable::GenerateBlock,
-                this,
-                0,
-                0
-            )
-        );
-    }
 
-    // Wait on the main thread
-    mainDispatcher->Wait();
+        // Wait on the main thread
+        mainDispatcher->Wait();
+    }
 
     std::cout << std::endl;
 }
 
-void
-RainbowTable::GenerateBlock(
-    const size_t ThreadId,
-    const size_t BlockId
+std::tuple<std::vector<TableRecord>, uint64_t>
+RainbowTable::GenerateBlockData(
+    const size_t BlockStartId
 )
 {
-    size_t blockStartId = m_StartingChains + (m_Blocksize * BlockId);
-
-    // Check if we should end
-    if (blockStartId >= m_Count)
-    {
-        dispatch::PostTaskToDispatcher(
-            "main",
-            dispatch::bind(
-                &RainbowTable::BuildThreadCompleted,
-                this,
-                ThreadId
-            )
-        );
-        return;
-    }
-
     WordGenerator wordGenerator(m_Charset);
     wordGenerator.GenerateParsingLookupTable();
     HybridReducer reducer(m_Min, m_Max, m_Charset);
@@ -165,9 +152,9 @@ RainbowTable::GenerateBlock(
 
     // Calculate lower bound and add the current index
 #ifdef BIGINT
-    mpz_class counter = CalculateLowerBound() + blockStartId;
+    mpz_class counter = CalculateLowerBound() + BlockStartId;
 #else
-    uint64_t counter = CalculateLowerBound() + blockStartId;
+    uint64_t counter = CalculateLowerBound() + BlockStartId;
 #endif
     const size_t hashWidth = m_HashWidth;
     const size_t lanes = SimdLanes();
@@ -211,12 +198,39 @@ RainbowTable::GenerateBlock(
             // Get the integer representation of the endpoint
             auto endpointString = words.GetStringView(h);
             auto endpoint = wordGenerator.Parse64Lookup(endpointString);
-            block[iteration * lanes + h] = { blockStartId + (iteration * lanes) + h, endpoint };
+            block[iteration * lanes + h] = { BlockStartId + (iteration * lanes) + h, endpoint };
         }
     }
 
     const auto end = std::chrono::system_clock::now();
     const auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+
+    return { std::move(block), static_cast<uint64_t>(elapsed_ms.count()) };
+}
+
+void
+RainbowTable::GenerateBlock(
+    const size_t ThreadId,
+    const size_t BlockId
+)
+{
+    size_t blockStartId = m_StartingChains + (m_Blocksize * BlockId);
+
+    // Check if we should end
+    if (blockStartId >= m_Count)
+    {
+        dispatch::PostTaskToDispatcher(
+            "main",
+            dispatch::bind(
+                &RainbowTable::BuildThreadCompleted,
+                this,
+                ThreadId
+            )
+        );
+        return;
+    }
+
+    auto [block, elapsed_ms] = GenerateBlockData(blockStartId);
 
     //
     // Post a task to the main thread
@@ -230,7 +244,7 @@ RainbowTable::GenerateBlock(
             ThreadId,
             BlockId,
             std::move(block),
-            elapsed_ms.count()
+            elapsed_ms
         )
     );
 
@@ -258,7 +272,7 @@ RainbowTable::WriteBlock(
     if (m_TableType == TypeUncompressed)
     {
 #pragma clang unsafe_buffer_usage begin
-        fwrite(Block.data(), Block.size_bytes(), sizeof(uint8_t), m_WriteHandle);
+        fwrite(Block.data(), sizeof(uint8_t), Block.size_bytes(), m_WriteHandle);
 #pragma clang unsafe_buffer_usage end
         fflush(m_WriteHandle);
     }
@@ -272,7 +286,7 @@ RainbowTable::WriteBlock(
             compressedBlock[i] = Block[i];
         }
 #pragma clang unsafe_buffer_usage begin
-        fwrite(compressedBlockSpan.data(), compressedBlockSpan.size_bytes(), sizeof(uint8_t), m_WriteHandle);
+        fwrite(compressedBlockSpan.data(), sizeof(uint8_t), compressedBlockSpan.size_bytes(), m_WriteHandle);
 #pragma clang unsafe_buffer_usage end
         fflush(m_WriteHandle);
     }
@@ -285,8 +299,6 @@ RainbowTable::OutputStatus(
     const std::string_view LastEndpoint
 ) const
 {
-    assert(dispatch::CurrentDispatcher() == dispatch::GetDispatcher("main").get());
-
     uint64_t averageMs = 0;
     for (auto const& [thread, val] : m_ThreadTimers)
     {
@@ -651,9 +663,10 @@ RainbowTable::UnmapTable(
     void
 )
 {
-    return cracktools::UnmapFileSpan(m_MappedTable, m_MappedTableFd);
+    bool result = cracktools::UnmapFileSpan(m_MappedTable, m_MappedTableFd);
     m_MappedTableRecords = std::span<TableRecord>();
     m_MappedTableRecordsCompressed = std::span<TableRecordCompressed>();
+    return result;
 }
 
 bool

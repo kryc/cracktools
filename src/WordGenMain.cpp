@@ -18,7 +18,7 @@
 #include "WordGenerator.hpp"
 
 #define ARGCHECK() \
-    if (argc <= i) \
+    if (argc <= i + 1) \
     { \
         std::cerr << "No value specified for " << arg << std::endl; \
         return 1; \

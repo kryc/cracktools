@@ -142,6 +142,7 @@ private:
 #endif
     // Building
     void StoreTableHeader(void) const;
+    std::tuple<std::vector<TableRecord>, uint64_t> GenerateBlockData(const size_t BlockStartId);
     void GenerateBlock(const size_t ThreadId, const size_t BlockId);
     void SaveBlock(const size_t ThreadId, const size_t BlockId, const std::vector<TableRecord> Block, const uint64_t Time);
     void OutputStatus(const std::string_view LastEndpoint) const;

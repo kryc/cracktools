@@ -56,3 +56,19 @@ target_include_directories(unittest
 )
 target_link_libraries(unittest gtest_main gmp gmpxx)
 add_test(NAME unittest COMMAND unittest)
+
+# RainbowTable unittest (needs simdhash, dispatchqueue, crypto)
+add_executable(rainbow_unittest EXCLUDE_FROM_ALL
+    RainbowTableUnittest.cpp
+    ../src/RainbowTable.cpp
+    ../src/Util.cpp
+    ../src/WordGenerator.cpp)
+target_include_directories(rainbow_unittest
+    PUBLIC
+        ./
+        ../src/
+        ../SimdHash/src/
+        ../libdispatchqueue/include/
+)
+target_link_libraries(rainbow_unittest gtest_main simdhash dispatchqueue crypto gmp gmpxx)
+add_test(NAME rainbow_unittest COMMAND rainbow_unittest)
