@@ -112,6 +112,19 @@ TEST_F(RainbowTableTest, ValidateConfigAcceptsValidConfig)
     EXPECT_TRUE(table.ValidateConfig());
 }
 
+TEST_F(RainbowTableTest, ValidateConfigRejectsKeyspaceOverflow128)
+{
+    RainbowTable table;
+    table.SetPath(m_TablePath);
+    table.SetAlgorithm("md5");
+    table.SetMin(1);
+    // 26^28 > 2^128, so this should overflow a 128-bit index
+    table.SetMax(28);
+    table.SetLength(100);
+    table.SetCharset("lower");
+    EXPECT_FALSE(table.ValidateConfig());
+}
+
 // ============================================================
 // Table building
 // ============================================================
@@ -153,7 +166,7 @@ TEST_F(RainbowTableTest, BuildWritesCorrectChainCount)
     // File size = header + count * chain_width
     size_t fileSize = std::filesystem::file_size(m_TablePath);
     size_t dataSize = fileSize - sizeof(TableHeader);
-    size_t chainWidth = RainbowTable::ChainWidthForType(TypeCompressed, 4);
+    size_t chainWidth = RainbowTable::ChainWidthForType(TypeCompressed);
     EXPECT_EQ(dataSize % chainWidth, 0u);
     EXPECT_EQ(dataSize / chainWidth, expectedCount);
 }
@@ -355,9 +368,9 @@ TEST_F(RainbowTableTest, DecompressPreservesChainCount)
 
     // Both should report the same number of chains
     size_t compressedChains = (std::filesystem::file_size(m_TablePath) - sizeof(TableHeader)) /
-        RainbowTable::ChainWidthForType(TypeCompressed, 4);
+        RainbowTable::ChainWidthForType(TypeCompressed);
     size_t uncompressedChains = (std::filesystem::file_size(m_UncompressedPath) - sizeof(TableHeader)) /
-        RainbowTable::ChainWidthForType(TypeUncompressed, 4);
+        RainbowTable::ChainWidthForType(TypeUncompressed);
 
     EXPECT_EQ(compressedChains, uncompressedChains);
 }
@@ -495,7 +508,7 @@ TEST_F(RainbowTableTest, BuildProducesCorrectFileSize)
     table.InitAndRunBuild();
 
     size_t expectedSize = sizeof(TableHeader) +
-        count * RainbowTable::ChainWidthForType(TypeCompressed, 4);
+        count * RainbowTable::ChainWidthForType(TypeCompressed);
     size_t actualSize = std::filesystem::file_size(m_TablePath);
 
     EXPECT_EQ(actualSize, expectedSize);
@@ -616,7 +629,7 @@ TEST_F(RainbowTableTest, GetChainUncompressedMatchesComputeChain)
     for (size_t i = 0; i < SimdLanes() * 4; i++)
     {
         auto fromFile = RainbowTable::GetChain(m_UncompressedPath, i);
-        auto computed = RainbowTable::ComputeChain(fromFile.Index().get_ui(), min, max, length, HashAlgorithmMD5, charset);
+        auto computed = RainbowTable::ComputeChain(static_cast<size_t>(fromFile.Index()), min, max, length, HashAlgorithmMD5, charset);
 
         EXPECT_EQ(fromFile.Start(), computed.Start()) << "Start mismatch at chain " << i;
         EXPECT_EQ(fromFile.End(), computed.End()) << "End mismatch at chain " << i;

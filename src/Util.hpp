@@ -9,13 +9,14 @@
 #ifndef Util_hpp
 #define Util_hpp
 
+#include <bit>
 #include <charconv>
-#include <vector>
+#include <cstdint>
+#include <gmpxx.h>
 #include <span>
 #include <string>
 #include <string_view>
-#include <cstdint>
-#include <gmpxx.h>
+#include <vector>
 
 #include "Check.hpp"
 #include "UnsafeBuffer.hpp"
@@ -192,6 +193,12 @@ NumFactor(
     std::string& HumanFactor
 );
 
+__uint128_t
+NumFactor(
+    const __uint128_t Value,
+    std::string& HumanFactor
+);
+
 const double
 SizeFactor(
     const double SizeBytes,
@@ -292,6 +299,26 @@ const bool
 IsLikelyValidHash(
     const std::string_view Value
 );
+
+constexpr size_t
+BitWidth128(__uint128_t Value)
+{
+    if (Value == 0) return 0;
+    const uint64_t hi = static_cast<uint64_t>(Value >> 64);
+    if (hi != 0) return 64 + std::bit_width(hi);
+    return std::bit_width(static_cast<uint64_t>(Value));
+}
+
+constexpr __uint128_t
+Byteswap128(__uint128_t Value)
+{
+    const uint64_t hi = std::byteswap(static_cast<uint64_t>(Value));
+    const uint64_t lo = std::byteswap(static_cast<uint64_t>(Value >> 64));
+    return (static_cast<__uint128_t>(hi) << 64) | lo;
+}
+
+std::string
+Uint128ToString(__uint128_t Value);
 
 } // namespace Util
 

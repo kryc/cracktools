@@ -14,7 +14,6 @@
 #include <cinttypes>
 #include <cstddef>
 #include <iostream>
-#include <gmpxx.h>
 #include <math.h>
 #include <span>
 #include <string>
@@ -23,18 +22,15 @@
 #include "Check.hpp"
 #include "SmallString.hpp"
 #include "UnsafeBuffer.hpp"
+#include "Util.hpp"
 #include "WordGenerator.hpp"
 
-#ifdef BIGINT
-typedef mpz_class index_t;
-#else
-typedef uint64_t index_t;
-#endif
+typedef __uint128_t index_t;
 
 // For a given charset size, calculate the number of bits
 // required to represent the maximum value
 static inline const size_t
-calculate_bits_required(
+CalculateBitsRequired(
     const size_t Value,
     uint8_t* MaskOut
 )
@@ -57,16 +53,16 @@ calculate_bits_required(
 }
 
 static inline void
-calculate_bytes_required(
+CalculateBytesRequired(
     const index_t Value,
     size_t* BitsRequired,
     size_t* BytesRequired,
     index_t* Mask
 )
 {
-    const size_t bitsRequired = std::bit_width(Value);
+    const size_t bitsRequired = Util::BitWidth128(Value);
     const size_t bytesRequired = (bitsRequired + 7) / 8;
-    const index_t mask = (1ULL << bitsRequired) - 1;
+    const index_t mask = bitsRequired >= 128 ? ~index_t(0) : (index_t(1) << bitsRequired) - 1;
     
     if (BitsRequired != nullptr)
     {
@@ -83,7 +79,7 @@ calculate_bytes_required(
 }
 
 static inline index_t
-load_bytes_to_index(
+LoadBytesToIndex(
     std::span<const uint8_t> Buffer,
     const size_t Offset,
     const size_t Length
@@ -91,12 +87,7 @@ load_bytes_to_index(
 {
     assert(Length <= sizeof(index_t));
     assert(Offset + Length <= Buffer.size());
-#ifdef BIGINT
-    index_t reduction;
-    mpz_import(reduction.get_mpz_t(), m_BytesRequired, 1, sizeof(uint8_t), 0, 0, &hashBuffer[offset]);
-#else
-    // If there are more than 8 bytes available after
-    // the offset then we can optimize the load
+    // If there are enough bytes after the offset we can optimize the load
     index_t reduction = 0;
     if (Length <= sizeof(uint64_t) && Buffer.size() >= Offset + sizeof(uint64_t))
     {
@@ -114,7 +105,6 @@ load_bytes_to_index(
             reduction |= Buffer[Offset + i];
         }
     }
-#endif
     return reduction;
 }
 
@@ -128,13 +118,8 @@ public:
     ) : m_Min(Min),
         m_Max(Max),
         m_Charset(Charset),
-#ifdef BIGINT
-        m_MinIndex(WordGenerator::WordLengthIndex(Min, Charset)),
-        m_MaxIndex(WordGenerator::WordLengthIndex(Max + 1, Charset))
-#else
-        m_MinIndex(WordGenerator::WordLengthIndex64(Min, Charset)),
-        m_MaxIndex(WordGenerator::WordLengthIndex64(Max + 1, Charset))
-#endif
+        m_MinIndex(WordGenerator::WordLengthIndex128(Min, Charset)),
+        m_MaxIndex(WordGenerator::WordLengthIndex128(Max + 1, Charset))
         { };
     virtual size_t Reduce(
         std::span<char> Destination,
@@ -196,7 +181,7 @@ protected:
         size_t bytesWritten = 0;
         const size_t charsetSize = m_Charset.size();
         uint8_t mask;
-        const size_t bitsRequired = calculate_bits_required(charsetSize, &mask);
+        const size_t bitsRequired = CalculateBitsRequired(charsetSize, &mask);
         size_t offset = Offset;
         while (bytesWritten < Length)
         {
@@ -246,7 +231,7 @@ public:
     {
         
         // Parse the hash as a single bigint
-        index_t reduction = load_bytes_to_index(Hash, 0, Hash.size());
+        index_t reduction = LoadBytesToIndex(Hash, 0, Hash.size());
         return PerformReduction(
             Destination,
             reduction,
@@ -289,7 +274,7 @@ public:
         // Figure out the smallest number of bits of
         // input hash data required to generate a
         // word in the password space
-        calculate_bytes_required(
+        CalculateBytesRequired(
             GetKeyspace(),
             &m_BitsRequired,
             &m_BytesRequired,
@@ -318,7 +303,7 @@ public:
                 offset = 0;
             }
             // Parse the hash as a single integer
-            reduction = load_bytes_to_index(hashBuffer, offset, m_BytesRequired);
+            reduction = LoadBytesToIndex(hashBuffer, offset, m_BytesRequired);
             // Mask the value to ensure it is in range
             reduction &= m_Mask;
             // Move the offset along
@@ -351,13 +336,8 @@ public:
         index_t total = 0;
         for (size_t i = Min; i <= Max; i++)
         {
-#ifdef BIGINT
-            const mpz_class lower = WordGenerator::WordLengthIndex(i, Charset);
-            const mpz_class upper = WordGenerator::WordLengthIndex(i + 1, Charset);
-#else
-            const uint64_t lower = WordGenerator::WordLengthIndex64(i, Charset);
-            const uint64_t upper = WordGenerator::WordLengthIndex64(i + 1, Charset);
-#endif
+            const __uint128_t lower = WordGenerator::WordLengthIndex128(i, Charset);
+            const __uint128_t upper = WordGenerator::WordLengthIndex128(i + 1, Charset);
             const index_t keyspace = upper - lower;
             total += keyspace;
             m_Limits[i] = total;
@@ -365,16 +345,14 @@ public:
 
         // We need to calculate the number of bytes required
         // to represent the largest range of the keyspace
-        calculate_bytes_required(
+        CalculateBytesRequired(
             total,
             &m_BitsRequired,
             &m_BytesRequired,
             &m_Mask
         );
 
-#ifndef BIGINT
-        assert(m_BytesRequired <= sizeof(uint64_t));
-#endif
+        assert(m_BytesRequired <= sizeof(index_t));
     }
 
     size_t Reduce(
@@ -414,12 +392,12 @@ public:
                     offset = 0;
                 }
                 // Parse the hash as a single integer
-                reduction = load_bytes_to_index(buffer, offset, m_BytesRequired);
+                reduction = LoadBytesToIndex(buffer, offset, m_BytesRequired);
                 // If the value is too big we can reuse this entropy and
                 // reverse the byte order to see if the result is smaller.
                 if ((reduction & m_Mask) >= m_Limits[m_Max])
                 {
-                    reduction = std::byteswap(reduction) >> (64 - m_BytesRequired * 8);
+                    reduction = Util::Byteswap128(reduction) >> (sizeof(index_t) * 8 - m_BytesRequired * 8);
                 }
                 reduction &= m_Mask;
                 // Move the offset along
@@ -472,27 +450,20 @@ public:
         const std::string_view Charset
     ) : Reducer(Min, Max, Charset)
     {
-#ifdef BIGINT
-        const mpz_class lower = WordGenerator::WordLengthIndex(Min, Charset);
-        const mpz_class upper = WordGenerator::WordLengthIndex(Max + 1, Charset);
-#else
-        const uint64_t lower = WordGenerator::WordLengthIndex64(Min, Charset);
-        const uint64_t upper = WordGenerator::WordLengthIndex64(Max + 1, Charset);
-#endif
+        const __uint128_t lower = WordGenerator::WordLengthIndex128(Min, Charset);
+        const __uint128_t upper = WordGenerator::WordLengthIndex128(Max + 1, Charset);
         m_KeyspaceSize = upper - lower;
 
         // We need to calculate the number of bytes required
         // to represent the largest range of the keyspace
-        calculate_bytes_required(
+        CalculateBytesRequired(
             m_KeyspaceSize,
             &m_BitsRequired,
             &m_BytesRequired,
             &m_Mask
         );
 
-#ifndef BIGINT
-        assert(m_BytesRequired <= sizeof(uint64_t));
-#endif
+        assert(m_BytesRequired <= sizeof(index_t));
     }
 
     size_t Reduce(
@@ -519,7 +490,7 @@ public:
                 offset = 0;
             }
             // Parse the hash as a single integer
-            reduction = load_bytes_to_index(Hash, offset++, m_BytesRequired);
+            reduction = LoadBytesToIndex(Hash, offset++, m_BytesRequired);
             reduction ^= iterationModifier;
             // Apply the mask to ensure it is in range
             reduction &= m_Mask;

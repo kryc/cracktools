@@ -55,8 +55,8 @@ typedef struct _TableRecord
     {
         return endpoint < other.endpoint;
     }
-    uint64_t startpoint;
-    uint64_t endpoint;
+    __uint128_t startpoint;
+    __uint128_t endpoint;
 } TableRecord;
 
 typedef struct _TableRecordCompressed
@@ -70,7 +70,7 @@ typedef struct _TableRecordCompressed
         endpoint = other.endpoint;
         return *this;
     }
-    uint64_t endpoint;
+    __uint128_t endpoint;
 } TableRecordCompressed;
 
 class RainbowTable
@@ -114,7 +114,7 @@ public:
     bool Complete(void) const { return m_ThreadsCompleted == m_Threads; }
     std::vector<std::tuple<std::string, std::string>> Crack(const std::string_view Target);
     static const size_t ChainWidthForType(const TableType Type);
-    const size_t GetChainWidth(void) const { return ChainWidthForType(m_TableType, m_Max); }
+    const size_t GetChainWidth(void) const { return ChainWidthForType(m_TableType); }
     static void DoHash(const uint8_t* Data, const size_t Length, uint8_t* Digest, const HashAlgorithm Algorithm) { SimdHashSingle(Algorithm, Length, Data, Digest); };
     static const std::string DoHashHex(const uint8_t* Data, const size_t Length, const HashAlgorithm Algorithm);
     void DoHash(const uint8_t* Data, const size_t Length, uint8_t* Digest) const { DoHash(Data, Length, Digest, m_Algorithm); }
@@ -124,23 +124,18 @@ public:
     void SortTable(void);
     static const Chain GetChain(const std::filesystem::path& Path, const size_t Index);
     static const Chain ComputeChain(const size_t Index, const size_t Min, const size_t Max, const size_t Length, const HashAlgorithm Algorithm, const std::string& Charset);
-    inline const uint64_t GetEndpointAt(const size_t Index) const;
+    inline const __uint128_t GetEndpointAt(const size_t Index) const;
     inline const TableRecord GetRecordAt(const size_t Index) const;
 private:
     // General purpose
     void ChangeType(const std::filesystem::path& Destination, const TableType Type);
-    std::optional<size_t> FindStartIndexForEndpoint(const uint64_t) const;
+    std::optional<size_t> FindStartIndexForEndpoint(const __uint128_t) const;
     std::optional<std::string> ValidateChain(const size_t ChainIndex, const std::span<const uint8_t> Hash) const;
     bool TableMapped(void) { return m_MappedTableFd != nullptr; };
     bool MapTable(const bool ReadOnly = true);
     bool UnmapTable(void);
-#ifdef BIGINT
-    static const mpz_class CalculateLowerBound(const size_t Min, const std::string& Charset) { return WordGenerator::WordLengthIndex(Min, Charset); };
-    const mpz_class CalculateLowerBound(void) const { return CalculateLowerBound(m_Min, m_Charset); };
-#else
-    static const uint64_t CalculateLowerBound(const size_t Min, const std::string& Charset) { return WordGenerator::WordLengthIndex64(Min, Charset); };
-    const uint64_t CalculateLowerBound(void) const { return CalculateLowerBound(m_Min, m_Charset); };
-#endif
+    static const __uint128_t CalculateLowerBound(const size_t Min, const std::string& Charset) { return WordGenerator::WordLengthIndex128(Min, Charset); };
+    const __uint128_t CalculateLowerBound(void) const { return CalculateLowerBound(m_Min, m_Charset); };
     // Building
     void StoreTableHeader(void) const;
     std::tuple<std::vector<TableRecord>, uint64_t> GenerateBlockData(const size_t BlockStartId);

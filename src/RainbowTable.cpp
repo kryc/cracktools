@@ -58,12 +58,12 @@ RainbowTable::InitAndRunBuild(
     // Calculate the count if needed
     if (m_Count == 0)
     {
-        mpz_class keyspace = WordGenerator::WordLengthIndex(m_Max + 1, m_Charset) - WordGenerator::WordLengthIndex(m_Min, m_Charset);
+        __uint128_t keyspace = WordGenerator::WordLengthIndex128(m_Max + 1, m_Charset) - WordGenerator::WordLengthIndex128(m_Min, m_Charset);
         keyspace /= m_Length + 1;
         // Add 10% for overhead
         keyspace += (keyspace / 10);
-        std::cerr << "Calculated chains required: " << keyspace.get_str() << std::endl;
-        m_Count = keyspace.get_ui();
+        std::cerr << "Calculated chains required: " << Util::Uint128ToString(keyspace) << std::endl;
+        m_Count = static_cast<size_t>(keyspace);
     }
 
     // Estimate table size
@@ -154,11 +154,7 @@ RainbowTable::GenerateBlockData(
     auto hashes = cracktools::UnsafeSpan<uint8_t>(hashBuffer.data(), m_HashWidth * SimdLanes());
 
     // Calculate lower bound and add the current index
-#ifdef BIGINT
-    mpz_class counter = CalculateLowerBound() + BlockStartId;
-#else
-    uint64_t counter = CalculateLowerBound() + BlockStartId;
-#endif
+    __uint128_t counter = CalculateLowerBound() + BlockStartId;
     const size_t hashWidth = m_HashWidth;
     const size_t lanes = SimdLanes();
 
@@ -200,8 +196,8 @@ RainbowTable::GenerateBlockData(
         {
             // Get the integer representation of the endpoint
             auto endpointString = words.GetStringView(h);
-            auto endpoint = wordGenerator.Parse64Lookup(endpointString);
-            block[iteration * lanes + h] = { BlockStartId + (iteration * lanes) + h, endpoint };
+            auto endpoint = WordGenerator::Parse128(endpointString, m_Charset);
+            block[iteration * lanes + h] = { static_cast<__uint128_t>(BlockStartId + (iteration * lanes) + h), endpoint };
         }
     }
 
@@ -410,14 +406,14 @@ RainbowTable::GetCoverage(
     void
 )
 {
-    mpz_class lowerbound = WordGenerator::WordLengthIndex(m_Min, m_Charset);
-    mpz_class upperbound = WordGenerator::WordLengthIndex(m_Max + 1, m_Charset);
-    mpf_class delta = upperbound - lowerbound;
+    __uint128_t lowerbound = WordGenerator::WordLengthIndex128(m_Min, m_Charset);
+    __uint128_t upperbound = WordGenerator::WordLengthIndex128(m_Max + 1, m_Charset);
+    double delta = static_cast<double>(upperbound - lowerbound);
 
-    mpf_class count = m_Chains * m_Length;
-    mpf_class percentage = (count / delta) * 100;
+    double count = static_cast<double>(m_Chains) * m_Length;
+    double percentage = (count / delta) * 100;
 
-    return percentage.get_d();
+    return static_cast<float>(percentage);
 }
 
 void
@@ -567,15 +563,14 @@ RainbowTable::ValidateConfig(
         return false;
     }
 
-#ifndef BIGINT
     mpz_class upperbound = WordGenerator::WordLengthIndex(m_Max + 1, m_Charset);
-    if (upperbound > (size_t)std::numeric_limits<uint64_t>::max())
+    mpz_class uint128max = mpz_class(1) << 128;
+    uint128max -= 1;
+    if (upperbound > uint128max)
     {
-        std::cerr << "Max length exceeds 64-bit integer limit" << std::endl;
-        std::cerr << "To compile with BIGINT support, recompile with -DBIGINT" << std::endl;
+        std::cerr << "Max length exceeds 128-bit integer limit" << std::endl;
         return false;
     }
-#endif
 
     if (m_Max > kSmallStringMaxLength)
     {
@@ -750,7 +745,7 @@ RainbowTable::GetRecordAt(
     }
 }
 
-const uint64_t
+const __uint128_t
 RainbowTable::GetEndpointAt(
     const size_t Index
 ) const
@@ -775,7 +770,7 @@ RainbowTable::DoHashHex(
 // On sucess it returns the startpoint
 std::optional<size_t>
 RainbowTable::FindStartIndexForEndpoint(
-    const uint64_t Endpoint
+    const __uint128_t Endpoint
 ) const
 {
     // Compressed tables store only endpoints in startpoint order,
@@ -846,9 +841,9 @@ RainbowTable::CheckIteration(
     // Final reduction
     length = Reducer.Reduce(reduced, hash, m_Length - 1);
 
-    // Convert the endpoint to a uint64_t
+    // Convert the endpoint to a __uint128_t
     const std::string_view endpointString(&reduced[0], length);
-    const uint64_t endpoint = WordGenerator::Parse64(endpointString, m_Charset);
+    const __uint128_t endpoint = WordGenerator::Parse128(endpointString, m_Charset);
 
     // Check end, if it matches, we can perform one full chain to see if we find it
     auto index = FindStartIndexForEndpoint(endpoint);
@@ -1025,11 +1020,7 @@ RainbowTable::ValidateChain(
     std::vector<char> reduced(m_Max);
     HybridReducer reducer(m_Min, m_Max, m_Charset);
     size_t length;
-#ifdef BIGINT
-    mpz_class counter = WordGenerator::WordLengthIndex(m_Min, m_Charset);
-#else
-    uint64_t counter = WordGenerator::WordLengthIndex64(m_Min, m_Charset);
-#endif
+    __uint128_t counter = WordGenerator::WordLengthIndex128(m_Min, m_Charset);
     counter += ChainIndex;
 
     auto start = WordGenerator::GenerateWord(counter, m_Charset);
@@ -1239,7 +1230,7 @@ RainbowTable::GetChain(
 
     std::string charset(hdr.charset, hdr.charsetlen);
     TableType type = (TableType)hdr.type;
-    size_t chainWidth = ChainWidthForType(type, hdr.max);
+    size_t chainWidth = ChainWidthForType(type);
 
     // Verify the index is within bounds
     size_t fileSize = std::filesystem::file_size(Path);
@@ -1258,8 +1249,8 @@ RainbowTable::GetChain(
     }
     fs.seekg(sizeof(TableHeader) + chainWidth * Index);
 
-    uint64_t startpoint;
-    uint64_t endpoint;
+    __uint128_t startpoint;
+    __uint128_t endpoint;
 
     if (type == TypeUncompressed)
     {
@@ -1277,7 +1268,7 @@ RainbowTable::GetChain(
     }
     fs.close();
 
-    mpz_class lowerbound = WordGenerator::WordLengthIndex(hdr.min, charset);
+    __uint128_t lowerbound = WordGenerator::WordLengthIndex128(hdr.min, charset);
 
     Chain chain;
     chain.SetIndex(startpoint);
@@ -1298,7 +1289,7 @@ RainbowTable::ComputeChain(
     const std::string& Charset
 )
 {
-    mpz_class counter;
+    __uint128_t counter;
     Chain chain;
     size_t hashLength;
     std::string start;
@@ -1308,7 +1299,7 @@ RainbowTable::ComputeChain(
     chain.SetIndex(Index);
     chain.SetLength(Length);
 
-    counter = WordGenerator::WordLengthIndex(Min, Charset);
+    counter = WordGenerator::WordLengthIndex128(Min, Charset);
     counter += Index;
 
     start = WordGenerator::GenerateWord(counter, Charset);

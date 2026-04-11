@@ -586,6 +586,35 @@ NumFactor(
     return value;
 }
 
+__uint128_t
+NumFactor(
+    const __uint128_t Value,
+    std::string& HumanFactor
+)
+{
+	__uint128_t value = Value;
+	if (value > 1000000000)
+    {
+        value /= 1000000000;
+		HumanFactor = "b";
+        return value;
+    }
+    else if (value > 1000000)
+    {
+        value /= 1000000;
+		HumanFactor = "m";
+        return value;
+    }
+    else if (value > 1000)
+    {
+        value /= 1000;
+		HumanFactor = "k";
+        return value;
+    }
+	HumanFactor = "";
+    return value;
+}
+
 const double
 SizeFactor(
     const double SizeBytes,
@@ -1117,6 +1146,20 @@ IsLikelyValidHash(
 )
 {
 	return CouldBeHashHex(Value) || CouldBeCryptHash(Value);
+}
+
+std::string
+Uint128ToString(__uint128_t Value)
+{
+    if (Value == 0) return "0";
+    std::string result;
+    while (Value > 0)
+    {
+        result += static_cast<char>('0' + static_cast<int>(Value % 10));
+        Value /= 10;
+    }
+    std::reverse(result.begin(), result.end());
+    return result;
 }
 
 } // namespace Util
