@@ -91,7 +91,7 @@ public:
     const size_t GetMax(void) const { return m_Max; }
     void SetLength(const size_t Length) { m_Length = Length; }
     const size_t GetLength(void) const { return m_Length; }
-    void SetBlocksize(const size_t Blocksize) { m_Blocksize = Blocksize % SimdLanes() == 0 ? Blocksize : (Blocksize + SimdLanes()) % SimdLanes(); }
+    void SetBlocksize(const size_t Blocksize) { m_Blocksize = Blocksize % SimdLanes() == 0 ? Blocksize : ((Blocksize + SimdLanes() - 1) / SimdLanes()) * SimdLanes(); }
     const size_t GetBlocksize(void) const { return m_Blocksize; }
     void SetCount(const size_t Count) { m_Count = Count; }
     const size_t GetCount(void) const;
@@ -113,7 +113,7 @@ public:
     bool LoadTable(void);
     bool Complete(void) const { return m_ThreadsCompleted == m_Threads; }
     std::vector<std::tuple<std::string, std::string>> Crack(const std::string_view Target);
-    static const size_t ChainWidthForType(const TableType Type, const size_t Max);
+    static const size_t ChainWidthForType(const TableType Type);
     const size_t GetChainWidth(void) const { return ChainWidthForType(m_TableType, m_Max); }
     static void DoHash(const uint8_t* Data, const size_t Length, uint8_t* Digest, const HashAlgorithm Algorithm) { SimdHashSingle(Algorithm, Length, Data, Digest); };
     static const std::string DoHashHex(const uint8_t* Data, const size_t Length, const HashAlgorithm Algorithm);
@@ -175,7 +175,7 @@ private:
     size_t m_StartingChains = 0;
     FILE* m_WriteHandle = NULL;
     size_t m_NextWriteBlock = 0;
-    std::map<size_t, const std::vector<TableRecord>> m_WriteCache;
+    std::map<size_t, std::vector<TableRecord>> m_WriteCache;
     size_t m_ThreadsCompleted = 0;
     size_t m_ChainsWritten = 0;
     std::map<size_t, uint64_t> m_ThreadTimers;
@@ -186,7 +186,6 @@ private:
     FILE* m_MappedTableFd = nullptr;
     bool m_MappedReadOnly = false;
     std::ifstream m_HashFileStream;
-    std::mutex m_HashFileStreamLock;
     char m_Separator = ':';
     std::atomic<bool> m_Cracked = false;
     std::vector<std::tuple<std::string, std::string>> m_CrackedResults;

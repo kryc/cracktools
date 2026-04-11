@@ -30,8 +30,7 @@
 
 /* static */ const size_t
 RainbowTable::ChainWidthForType(
-    const TableType Type,
-    const size_t Max
+    const TableType Type
 )
 { 
     return Type == TypeCompressed ? sizeof(TableRecordCompressed) : sizeof(TableRecord);
@@ -779,11 +778,11 @@ RainbowTable::FindStartIndexForEndpoint(
     const uint64_t Endpoint
 ) const
 {
-    // Uncompressed tables are just flat files
-    // of unsorted endpoints so we need to do a Linear search
+    // Compressed tables store only endpoints in startpoint order,
+    // so we need to do a linear search
     if (m_TableType == TypeCompressed)
     {
-        // Use std::find to find the endpoint the endpoint in the m_MappedTableRecordsCompressed span
+        // Use std::find to find the endpoint in the m_MappedTableRecordsCompressed span
         auto comparitor = [Endpoint](const TableRecordCompressed& record) {
             return record.endpoint == Endpoint;
         };
@@ -1159,7 +1158,7 @@ RainbowTable::ChangeType(
     FILE* fhw = fopen(Destination.c_str(), "w");
     if (fhw == nullptr)
     {
-        std::cerr << "Error opening desination table for write: " << Destination << std::endl;
+        std::cerr << "Error opening destination table for write: " << Destination << std::endl;
         return;
     }
 
@@ -1283,8 +1282,8 @@ RainbowTable::GetChain(
     Chain chain;
     chain.SetIndex(startpoint);
     chain.SetLength(hdr.length);
-    chain.SetStart(std::string_view(WordGenerator::GenerateWord(lowerbound + startpoint, charset)));
-    chain.SetEnd(std::string_view(WordGenerator::GenerateWord(endpoint, charset)));
+    chain.SetStart(WordGenerator::GenerateWord(lowerbound + startpoint, charset));
+    chain.SetEnd(WordGenerator::GenerateWord(endpoint, charset));
 
     return chain;
 }

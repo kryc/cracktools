@@ -25,11 +25,13 @@ public:
         m_Index(Index), m_Start(Start), m_Length(Length){};
     void SetIndex(const mpz_class& Index) { m_Index = Index; };
     void SetStart(const std::string_view Start) { m_Start = Start; };
+    void SetStart(std::string&& Start) { m_Start = std::move(Start); };
     void SetStart(std::span<const char> Start) {
         SetStart(std::string_view((const char*)Start.data(), Start.size()));
     };
     // void SetStart(std::span<const uint8_t>Start) { SetStart((char*)Start, Length); };
     void SetEnd(const std::string_view End) { m_End = End; };
+    void SetEnd(std::string&& End) { m_End = std::move(End); };
     void SetEnd(std::span<const char> End) {
         SetEnd(std::string_view(End.data(), End.size()));
     };
