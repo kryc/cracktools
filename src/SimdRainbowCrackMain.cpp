@@ -27,8 +27,6 @@ Actions:
   crack       Crack a hash using the rainbow table.
   test        Test a password against the rainbow table.
   info        Display information about the rainbow table.
-  compress    Compress the rainbow table.
-  decompress  Decompress the rainbow table.
 
 Options:
   -m, --min <value>       Set the minimum password length.
@@ -78,7 +76,7 @@ main(
 )
 {
     RainbowTable rainbow;
-    std::string action, target, destination;
+    std::string action, target;
 
     if (argc < 2)
     {
@@ -146,10 +144,6 @@ main(
             ARGCHECK();
             rainbow.SetThreads(Util::ParseNumber<size_t>(args[++i]));
         }
-        else if (arg == "--decompressed")
-        {
-            rainbow.SetType(TypeUncompressed);
-        }
         else if (arg == "-a" || arg == "--algorithm")
         {
             ARGCHECK();
@@ -198,10 +192,6 @@ main(
         {
             target = args[i];
         }
-        else if (action == "decompress" || action == "compress")
-        {
-            destination = args[i];
-        }
     }
 
     if (action == "build" || action == "resume")
@@ -224,35 +214,6 @@ main(
 
         rainbow.Crack(target);
     }
-    else if (action == "decompress" || action == "compress")
-    {
-        if (!rainbow.ValidTable())
-        {
-            std::cerr << "Provided table not found or invalid" << std::endl;
-            return 1;
-        }
-
-        if (!rainbow.LoadTable())
-        {
-            std::cerr << "Error loading table file" << std::endl;
-            return 1;
-        }
-
-        if (action == "decompress")
-        {
-            if (destination.empty())
-            {
-                auto tablepath = rainbow.GetPath();
-                auto extension = tablepath.extension();
-                destination = tablepath.replace_extension(".utbl");
-            }
-            rainbow.Decompress(destination);
-        }
-        else
-        {
-            rainbow.Compress(destination);
-        }
-    }
     else if (action == "info")
     {
         if (!rainbow.TableExists())
@@ -273,7 +234,6 @@ main(
             return 1;
         }
 
-        std::cout << "Type:        " << rainbow.GetType() << std::endl;
         std::cout << "Algorithm:   " << rainbow.GetAlgorithmString() << std::endl;
         std::cout << "Min:         " << rainbow.GetMin() << std::endl;
         std::cout << "Max:         " << rainbow.GetMax() << std::endl;

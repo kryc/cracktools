@@ -6,9 +6,11 @@
 //  Copyright © 2024 Kryc. All rights reserved.
 //
 
+#include <atomic>
 #include <cinttypes>
 #include <chrono>
 #include <cmath>
+#include <csignal>
 #include <cstddef>
 #include <fstream>
 #include <format>
@@ -38,6 +40,14 @@ using EndpointSet = std::conditional_t<
     std::unordered_set<T, Hash128>,
     std::unordered_set<T>
 >;
+
+std::atomic<bool>* g_BuildComplete = nullptr;
+
+void HandleSigInt(int)
+{
+    if (g_BuildComplete)
+        g_BuildComplete->store(true, std::memory_order_relaxed);
+}
 }
 
 #include "SimdHashBuffer.hpp"
@@ -48,12 +58,11 @@ using EndpointSet = std::conditional_t<
 #include "Util.hpp"
 
 /* static */ const size_t
-RainbowTable::ChainWidthForType(
-    const TableType Type,
+RainbowTable::ChainWidth(
     const uint8_t IndexWidth
 )
 { 
-    return Type == TypeCompressed ? IndexWidth : IndexWidth * 2;
+    return IndexWidth * 2;
 }
 
 void
@@ -94,13 +103,10 @@ RainbowTable::InitAndRunBuild(
     }
 
     // Estimate table size
-    double tableSize = sizeof(TableHeader) + (m_Count * ChainWidthForType(TypeCompressed, m_IndexWidth));
+    double tableSize = sizeof(TableHeader) + (m_Count * ChainWidth(m_IndexWidth));
     std::string tableSizeCh;
     tableSize = Util::SizeFactor(tableSize, tableSizeCh);
-    std::cerr << "Estimated table size: " << std::fixed << std::setprecision(2) << tableSize << ' ' << tableSizeCh << " compressed (";
-    tableSize = sizeof(TableHeader) + (m_Count * ChainWidthForType(TypeUncompressed, m_IndexWidth));
-    tableSize = Util::SizeFactor(tableSize, tableSizeCh);
-    std::cerr << tableSize << ' ' << tableSizeCh << " uncompressed)" << std::endl;
+    std::cerr << "Estimated table size: " << std::fixed << std::setprecision(2) << tableSize << ' ' << tableSizeCh << std::endl;
 
     // Write the table header if we didn't load from disk
     if (!m_PathLoaded)
@@ -112,6 +118,36 @@ RainbowTable::InitAndRunBuild(
 
     m_StartingChains = m_Chains;
 
+    // Initialize the endpoint set for dedup
+    DispatchByWidth(m_IndexWidth, [&]<typename IndexT>()
+    {
+        EndpointSet<IndexT> set;
+        set.reserve(m_Count);
+
+        // On resume, load existing endpoints and find the max startpoint
+        if (m_StartingChains > 0)
+        {
+            if (MapTable(true))
+            {
+                auto data = m_MappedTable.subspan(sizeof(TableHeader));
+                auto records = cracktools::SpanCast<TableRecord<IndexT>>(data);
+                IndexT maxStart = 0;
+                for (const auto& r : records)
+                {
+                    set.insert(r.endpoint);
+                    if (r.startpoint > maxStart)
+                        maxStart = r.startpoint;
+                }
+                // Resume generating from after the highest used startpoint
+                m_StartingChains = static_cast<size_t>(maxStart) + 1;
+                UnmapTable();
+                std::cerr << "Loaded " << set.size() << " existing unique endpoints, resuming from index " << m_StartingChains << std::endl;
+            }
+        }
+
+        m_EndpointSet = std::move(set);
+    });
+
     m_WriteHandle = fopen(m_Path.c_str(), "a");
     if (m_WriteHandle == nullptr)
     {
@@ -119,17 +155,25 @@ RainbowTable::InitAndRunBuild(
         return;
     }
 
+    // Install SIGINT handler for graceful shutdown
+    g_BuildComplete = &m_BuildComplete;
+    struct sigaction sa = {}, oldsa = {};
+    sa.sa_handler = HandleSigInt;
+    sa.sa_flags = 0;
+    sigemptyset(&sa.sa_mask);
+    sigaction(SIGINT, &sa, &oldsa);
+
     if (m_Threads == 1)
     {
         // Single-threaded: generate and save blocks directly
         for (size_t blockId = 0; ; blockId++)
         {
-            size_t blockStartId = m_StartingChains + (m_Blocksize * blockId);
-            if (blockStartId >= m_Count)
+            if (m_BuildComplete.load(std::memory_order_relaxed))
             {
                 break;
             }
 
+            size_t blockStartId = m_StartingChains + (m_Blocksize * blockId);
             auto [block, elapsed_ms] = GenerateBlockData(blockStartId);
             SaveBlock(0, blockId, std::move(block), elapsed_ms);
         }
@@ -160,8 +204,33 @@ RainbowTable::InitAndRunBuild(
         mainDispatcher->Wait();
     }
 
+    // Restore original signal handler
+    sigaction(SIGINT, &oldsa, nullptr);
+    g_BuildComplete = nullptr;
+
     fclose(m_WriteHandle);
     m_WriteHandle = nullptr;
+
+    // Report dedup stats
+    if (m_ChainsGenerated > 0)
+    {
+        size_t discarded = m_ChainsGenerated - m_ChainsWritten;
+        std::cerr << std::endl;
+        std::cerr << "Generated: " << m_ChainsGenerated
+                  << ", Written: " << m_ChainsWritten
+                  << ", Discarded: " << discarded
+                  << " (" << std::fixed << std::setprecision(1)
+                  << (100.0 * discarded / m_ChainsGenerated) << "%)" << std::endl;
+    }
+
+    // Sort table by endpoint for binary search during crack
+    std::cerr << "Sorting table..." << std::endl;
+    LoadTable();
+    SortTable();
+    UnmapTable();
+
+    // Clear the endpoint set
+    m_EndpointSet.reset();
 
     std::cout << std::endl;
 }
@@ -240,10 +309,8 @@ RainbowTable::GenerateBlock(
     const size_t BlockId
 )
 {
-    size_t blockStartId = m_StartingChains + (m_Blocksize * BlockId);
-
-    // Check if we should end
-    if (blockStartId >= m_Count)
+    // Check if we've written enough unique chains or saturated
+    if (m_BuildComplete.load(std::memory_order_relaxed))
     {
         dispatch::PostTaskToDispatcher(
             "main",
@@ -256,6 +323,7 @@ RainbowTable::GenerateBlock(
         return;
     }
 
+    size_t blockStartId = m_StartingChains + (m_Blocksize * BlockId);
     auto [block, elapsed_ms] = GenerateBlockData(blockStartId);
 
     //
@@ -296,28 +364,14 @@ RainbowTable::WriteBlock(
 {
     DispatchByWidth(m_IndexWidth, [&]<typename IndexT>()
     {
-        if (m_TableType == TypeUncompressed)
+        std::vector<TableRecord<IndexT>> narrowed(Block.size());
+        for (size_t i = 0; i < Block.size(); i++)
         {
-            std::vector<TableRecord<IndexT>> narrowed(Block.size());
-            for (size_t i = 0; i < Block.size(); i++)
-            {
-                narrowed[i] = { static_cast<IndexT>(Block[i].startpoint), static_cast<IndexT>(Block[i].endpoint) };
-            }
-#pragma clang unsafe_buffer_usage begin
-            fwrite(narrowed.data(), sizeof(uint8_t), narrowed.size() * sizeof(TableRecord<IndexT>), m_WriteHandle);
-#pragma clang unsafe_buffer_usage end
+            narrowed[i] = { static_cast<IndexT>(Block[i].startpoint), static_cast<IndexT>(Block[i].endpoint) };
         }
-        else
-        {
-            std::vector<TableRecordCompressed<IndexT>> narrowed(Block.size());
-            for (size_t i = 0; i < Block.size(); i++)
-            {
-                narrowed[i].endpoint = static_cast<IndexT>(Block[i].endpoint);
-            }
 #pragma clang unsafe_buffer_usage begin
-            fwrite(narrowed.data(), sizeof(uint8_t), narrowed.size() * sizeof(TableRecordCompressed<IndexT>), m_WriteHandle);
+        fwrite(narrowed.data(), sizeof(uint8_t), narrowed.size() * sizeof(TableRecord<IndexT>), m_WriteHandle);
 #pragma clang unsafe_buffer_usage end
-        }
     });
     fflush(m_WriteHandle);
     m_ChainsWritten += Block.size();
@@ -343,16 +397,19 @@ RainbowTable::OutputStatus(
     chainsPerSec = Util::NumFactor(chainsPerSec, cpsChar);
     hashesPerSec = Util::NumFactor(hashesPerSec, hpsChar);
 
-    double chains = (double)(m_StartingChains + m_ChainsWritten);
+    double chains = (double)(m_Chains + m_ChainsWritten);
     std::string chainsChar;
     chains = Util::NumFactor(chains, chainsChar);
 
-    double percent = ((double)(m_StartingChains + m_ChainsWritten) / (double)m_Count) * 100.f;
+    double percent = ((double)(m_Chains + m_ChainsWritten) / (double)m_Count) * 100.f;
+
+    double discardPct = m_ChainsGenerated > 0 ?
+        100.0 * (m_ChainsGenerated - m_ChainsWritten) / m_ChainsGenerated : 0.0;
 
     const std::string lastEndpointString(LastEndpoint);
 
     std::string status = std::format(
-        "C:{:.1f}{}({:.1f}%) C/s:{:.1f}{} H/s:{:.1f}{} E:\"{}\"",
+        "C:{:.1f}{}({:.1f}%) C/s:{:.1f}{} H/s:{:.1f}{} D:{:.1f}% E:\"{}\"",
         chains,
         chainsChar,
         percent,
@@ -360,6 +417,7 @@ RainbowTable::OutputStatus(
         cpsChar,
         hashesPerSec,
         hpsChar,
+        discardPct,
         lastEndpointString
     );
 
@@ -389,6 +447,50 @@ RainbowTable::SaveBlock(
 {
     m_ThreadTimers[ThreadId] = Time;
 
+    m_ChainsGenerated += Block.size();
+
+    // Filter out chains with duplicate endpoints
+    DispatchByWidth(m_IndexWidth, [&]<typename IndexT>()
+    {
+        auto& set = std::any_cast<EndpointSet<IndexT>&>(m_EndpointSet);
+        std::erase_if(Block, [&set](const InternalRecord& record)
+        {
+            auto narrowed = static_cast<IndexT>(record.endpoint);
+            auto [it, inserted] = set.insert(narrowed);
+            return !inserted;
+        });
+    });
+
+    if (Block.empty())
+    {
+        m_ConsecutiveEmptyBlocks++;
+        // Scale patience with expected block count: tolerate more dry spells for larger builds
+        size_t maxEmpty = std::max(size_t(10), m_Count / m_Blocksize);
+        if (m_ConsecutiveEmptyBlocks >= maxEmpty)
+        {
+            std::cerr << std::endl << "Endpoint space saturated, stopping build" << std::endl;
+            m_BuildComplete.store(true, std::memory_order_relaxed);
+        }
+        return;
+    }
+
+    m_ConsecutiveEmptyBlocks = 0;
+
+    // Truncate block to avoid overshooting the target count
+    size_t remaining = m_Count > (m_Chains + m_ChainsWritten)
+        ? m_Count - (m_Chains + m_ChainsWritten)
+        : 0;
+    if (Block.size() > remaining)
+    {
+        Block.resize(remaining);
+    }
+
+    if (Block.empty())
+    {
+        m_BuildComplete.store(true, std::memory_order_relaxed);
+        return;
+    }
+
     // Generate the string for the first endpoint
     auto endpoint = WordGenerator::GenerateWord(Block[0].endpoint, m_Charset);
 
@@ -409,27 +511,12 @@ RainbowTable::SaveBlock(
     {
         m_WriteCache.emplace(BlockId, std::move(Block));
     }
-}
 
-bool
-RainbowTable::SetType(
-    const std::string_view Type
-)
-{
-    if (Type == "compressed")
+    // Check if we've reached the target
+    if (m_Chains + m_ChainsWritten >= m_Count)
     {
-        SetType(TypeCompressed);
+        m_BuildComplete.store(true, std::memory_order_relaxed);
     }
-    else if (Type == "uncompressed")
-    {
-        SetType(TypeUncompressed);
-    }
-    else
-    {
-        SetType(TypeInvalid);
-        return false;
-    }
-    return true;
 }
 
 float
@@ -458,7 +545,6 @@ RainbowTable::StoreTableHeader(
     memset(&hdr, 0, sizeof(hdr));
 #pragma clang unsafe_buffer_usage end
     hdr.magic = kMagic;
-    hdr.type = m_TableType;
     hdr.algorithm = m_Algorithm;
     hdr.min = m_Min;
     hdr.max = m_Max;
@@ -530,7 +616,6 @@ RainbowTable::LoadTable(
         return false;
     }
 
-    m_TableType = (TableType)hdr.type;
     m_Algorithm = (HashAlgorithm)hdr.algorithm;
     m_Min = hdr.min;
     m_Max = hdr.max;
@@ -539,14 +624,17 @@ RainbowTable::LoadTable(
     m_Charset = charset;
     m_IndexWidth = ComputeIndexWidth(m_Min, m_Max, m_Charset);
     m_HashWidth = GetHashWidth(m_Algorithm);
-    m_Chains = (std::filesystem::file_size(m_Path) - sizeof(TableHeader)) / GetChainWidth();
 
     size_t dataSize = fileSize - sizeof(TableHeader);
-    if (dataSize % GetChainWidth() != 0)
+    size_t chainWidth = GetChainWidth();
+    size_t remainder = dataSize % chainWidth;
+    if (remainder != 0)
     {
-        std::cerr << "Invalid or corrupt table file. Data not a multiple of chain width" << std::endl;
-        return false;
+        std::cerr << "Warning: truncating " << remainder << " bytes of partial chain data" << std::endl;
+        std::filesystem::resize_file(m_Path, fileSize - remainder);
+        dataSize -= remainder;
     }
+    m_Chains = dataSize / chainWidth;
 
     return true;
 }
@@ -631,12 +719,6 @@ RainbowTable::ValidateConfig(
     if (m_Min > optimizedMax)
     {
         std::cerr << "Min length cannot exceed optimized hash limit (" << optimizedMax << ")" << std::endl;
-        return false;
-    }
-
-    if (m_TableType == TypeInvalid)
-    {
-        std::cerr << "Invalid table type specified" << std::endl;
         return false;
     }
 
@@ -744,16 +826,8 @@ RainbowTable::GetRecordAt(
     return DispatchByWidth(m_IndexWidth, [&]<typename IndexT>() -> InternalRecord
     {
         auto data = m_MappedTable.subspan(sizeof(TableHeader));
-        if (m_TableType == TypeCompressed)
-        {
-            auto records = cracktools::SpanCast<TableRecordCompressed<IndexT>>(data);
-            return InternalRecord{ static_cast<__uint128_t>(Index), static_cast<__uint128_t>(records[Index].endpoint) };
-        }
-        else
-        {
-            auto records = cracktools::SpanCast<TableRecord<IndexT>>(data);
-            return InternalRecord{ static_cast<__uint128_t>(records[Index].startpoint), static_cast<__uint128_t>(records[Index].endpoint) };
-        }
+        auto records = cracktools::SpanCast<TableRecord<IndexT>>(data);
+        return InternalRecord{ static_cast<__uint128_t>(records[Index].startpoint), static_cast<__uint128_t>(records[Index].endpoint) };
     });
 }
 
@@ -774,24 +848,12 @@ RainbowTable::CountUniqueEndpoints(void)
     return DispatchByWidth(m_IndexWidth, [&]<typename IndexT>() -> size_t
     {
         auto data = m_MappedTable.subspan(sizeof(TableHeader));
-        if (m_TableType == TypeCompressed)
-        {
-            auto records = cracktools::SpanCast<TableRecordCompressed<IndexT>>(data);
-            EndpointSet<IndexT> seen;
-            seen.reserve(records.size());
-            for (const auto& r : records)
-                seen.insert(r.endpoint);
-            return seen.size();
-        }
-        else
-        {
-            auto records = cracktools::SpanCast<TableRecord<IndexT>>(data);
-            EndpointSet<IndexT> seen;
-            seen.reserve(records.size());
-            for (const auto& r : records)
-                seen.insert(r.endpoint);
-            return seen.size();
-        }
+        auto records = cracktools::SpanCast<TableRecord<IndexT>>(data);
+        EndpointSet<IndexT> seen;
+        seen.reserve(records.size());
+        for (const auto& r : records)
+            seen.insert(r.endpoint);
+        return seen.size();
     });
 }
 
@@ -820,41 +882,24 @@ RainbowTable::FindStartIndexForEndpoint(
         auto data = m_MappedTable.subspan(sizeof(TableHeader));
         const IndexT narrowEndpoint = static_cast<IndexT>(Endpoint);
 
-        // Compressed tables store only endpoints in startpoint order,
-        // so we need to do a linear search
-        if (m_TableType == TypeCompressed)
+        // Table is sorted by endpoint — binary search
+        auto records = cracktools::SpanCast<TableRecord<IndexT>>(data);
+        ssize_t low = 0;
+        ssize_t high = records.size() - 1;
+        while (low <= high)
         {
-            auto records = cracktools::SpanCast<TableRecordCompressed<IndexT>>(data);
-            auto comparitor = [narrowEndpoint](const TableRecordCompressed<IndexT>& record) {
-                return record.endpoint == narrowEndpoint;
-            };
-            auto it = std::find_if(records.begin(), records.end(), comparitor);
-            if (it != records.end())
+            ssize_t mid = low + (high - low) / 2;
+            if (records[mid].endpoint == narrowEndpoint)
             {
-                return std::distance(records.begin(), it);
+                return static_cast<size_t>(records[mid].startpoint);
             }
-        }
-        // Uncompressed files are sorted by endpoint — binary search
-        else
-        {
-            auto records = cracktools::SpanCast<TableRecord<IndexT>>(data);
-            ssize_t low = 0;
-            ssize_t high = records.size() - 1;
-            while (low <= high)
+            else if (records[mid].endpoint < narrowEndpoint)
             {
-                ssize_t mid = low + (high - low) / 2;
-                if (records[mid].endpoint == narrowEndpoint)
-                {
-                    return static_cast<size_t>(records[mid].startpoint);
-                }
-                else if (records[mid].endpoint < narrowEndpoint)
-                {
-                    low = mid + 1;
-                }
-                else
-                {
-                    high = mid - 1;
-                }
+                low = mid + 1;
+            }
+            else
+            {
+                high = mid - 1;
             }
         }
         return std::nullopt;
@@ -1076,7 +1121,7 @@ RainbowTable::ValidateChain(
         DoHash((uint8_t*)&reduced[0], length, &hash[0]);
         if (std::equal(hash.begin(), hash.end(), Target.begin(), Target.end()))
         {
-            return std::string(&reduced[0], &reduced[length]);
+            return std::string(reduced.data(), length);
         }
         length = reducer.Reduce(reduced, hash, i);
     }
@@ -1109,7 +1154,6 @@ RainbowTable::Reset(
     m_Charset.clear();
     m_HashWidth = 0;
     m_Chains = 0;
-    m_TableType = TypeCompressed;
     m_IndexWidth = 16;
     // For building
     m_StartingChains = 0;
@@ -1120,6 +1164,10 @@ RainbowTable::Reset(
     }
     m_NextWriteBlock = 0;
     m_WriteCache.clear();
+    m_EndpointSet.reset();
+    m_ChainsGenerated = 0;
+    m_ConsecutiveEmptyBlocks = 0;
+    m_BuildComplete.store(false, std::memory_order_relaxed);
     if (m_DispatchPool != nullptr)
     {
         m_DispatchPool->Stop();
@@ -1140,134 +1188,15 @@ RainbowTable::SortTable(
         return;
     }
 
-    if (m_TableType == TypeUncompressed)
-    {
-        DispatchByWidth(m_IndexWidth, [&]<typename IndexT>()
-        {
-            auto data = m_MappedTable.subspan(sizeof(TableHeader));
-            auto records = cracktools::SpanCast<TableRecord<IndexT>>(data);
-            // Sort uncompressed tables by endpoint
-            std::sort(records.begin(), records.end(),
-                        [](const TableRecord<IndexT>& a, const TableRecord<IndexT>& b) {
-                            return a.endpoint < b.endpoint;
-            });
-        });
-    }
-    else
-    {
-        std::cerr << "Cannot sort compressed tables" << std::endl;
-        return;
-    }
-}
-
-void
-RainbowTable::ChangeType(
-    const std::filesystem::path& Destination,
-    const TableType DestinationType
-)
-{
-    if (m_TableType == DestinationType)
-    {
-        std::cerr << "Won't convert to same type" << std::endl;
-        return;
-    }
-
-    // Output some basic information about the current table
-    std::cout << "Table type: " << GetType() << std::endl;
-    std::cout << "Exporting " << m_Chains << " chains" << std::endl;
-
-    // Map the current table to memory
-    if (!MapTable(true))
-    {
-        std::cerr << "Error mapping table"  << std::endl;
-        return;
-    }
-
-    TableHeader hdr;
-#pragma clang unsafe_buffer_usage begin
-    memset(&hdr, 0, sizeof(hdr));
-#pragma clang unsafe_buffer_usage end
-    hdr.magic = kMagic;
-    hdr.algorithm = m_Algorithm;
-    hdr.min = m_Min;
-    hdr.max = m_Max;
-    hdr.length = m_Length;
-    hdr.charsetlen = m_Charset.size();
-    std::copy(m_Charset.begin(), m_Charset.end(), hdr.charset);
-    hdr.type = DestinationType;
-
-    FILE* fhw = fopen(Destination.c_str(), "w");
-    if (fhw == nullptr)
-    {
-        std::cerr << "Error opening destination table for write: " << Destination << std::endl;
-        return;
-    }
-
-    // Write the header
-#pragma clang unsafe_buffer_usage begin
-    fwrite(&hdr, 1, sizeof(hdr), fhw);
-#pragma clang unsafe_buffer_usage end
-
     DispatchByWidth(m_IndexWidth, [&]<typename IndexT>()
     {
         auto data = m_MappedTable.subspan(sizeof(TableHeader));
-
-        if (DestinationType == TypeCompressed)
-        {
-            // Copy the existing table rows to a new vector then sort by start point
-            auto srcRecords = cracktools::SpanCast<TableRecord<IndexT>>(data);
-            std::vector<TableRecord<IndexT>> compressedTable(srcRecords.begin(), srcRecords.end());
-            std::sort(compressedTable.begin(), compressedTable.end(),
-                        [](const TableRecord<IndexT>& a, const TableRecord<IndexT>& b) {
-                            return a.startpoint < b.startpoint;
-            });
-            for (const auto& record : compressedTable)
-            {
-                TableRecordCompressed<IndexT> compressedRecord;
-                compressedRecord = record;
-#pragma clang unsafe_buffer_usage begin            
-                fwrite(&compressedRecord, 1, sizeof(TableRecordCompressed<IndexT>), fhw);
-#pragma clang unsafe_buffer_usage end
-            }
-        }
-        else
-        {
-            auto srcRecords = cracktools::SpanCast<TableRecordCompressed<IndexT>>(data);
-            for (size_t i = 0; i < srcRecords.size(); i++)
-            {
-                TableRecord<IndexT> record;
-                record.startpoint = static_cast<IndexT>(i);
-                record.endpoint = srcRecords[i].endpoint;
-#pragma clang unsafe_buffer_usage begin
-                fwrite(&record, 1, sizeof(TableRecord<IndexT>), fhw);
-#pragma clang unsafe_buffer_usage end
-            }
-        }
+        auto records = cracktools::SpanCast<TableRecord<IndexT>>(data);
+        std::sort(records.begin(), records.end(),
+                    [](const TableRecord<IndexT>& a, const TableRecord<IndexT>& b) {
+                        return a.endpoint < b.endpoint;
+        });
     });
-    fclose(fhw);
-
-    // Perform sort and cleanup work on the new table
-    RainbowTable newtable;
-    newtable.SetPath(Destination);
-
-    if (!newtable.ValidTable())
-    {
-        std::cerr << "Decompressed table does not seem valid" << std::endl;
-        return;
-    }
-
-    if (!newtable.LoadTable())
-    {
-        std::cerr << "Error loading new table" << std::endl;
-        return;
-    }
-
-    std::cout << "Sorting " << newtable.GetCount() << " chains" << std::endl;
-
-    if (m_TableType == TypeCompressed)
-    {
-        newtable.SortTable();
-    }
 }
 
 /* static */ const Chain
@@ -1283,9 +1212,8 @@ RainbowTable::GetChain(
     }
 
     std::string charset(hdr.charset, hdr.charsetlen);
-    TableType type = (TableType)hdr.type;
     uint8_t indexWidth = ComputeIndexWidth(hdr.min, hdr.max, charset);
-    size_t chainWidth = ChainWidthForType(type, indexWidth);
+    size_t chainWidth = ChainWidth(indexWidth);
 
     // Verify the index is within bounds
     size_t fileSize = std::filesystem::file_size(Path);
@@ -1309,20 +1237,10 @@ RainbowTable::GetChain(
 
     DispatchByWidth(indexWidth, [&]<typename IndexT>()
     {
-        if (type == TypeUncompressed)
-        {
-            TableRecord<IndexT> record;
-            fs.read(reinterpret_cast<char*>(&record), sizeof(record));
-            startpoint = static_cast<__uint128_t>(record.startpoint);
-            endpoint = static_cast<__uint128_t>(record.endpoint);
-        }
-        else
-        {
-            TableRecordCompressed<IndexT> record;
-            fs.read(reinterpret_cast<char*>(&record), sizeof(record));
-            startpoint = Index;
-            endpoint = static_cast<__uint128_t>(record.endpoint);
-        }
+        TableRecord<IndexT> record;
+        fs.read(reinterpret_cast<char*>(&record), sizeof(record));
+        startpoint = static_cast<__uint128_t>(record.startpoint);
+        endpoint = static_cast<__uint128_t>(record.endpoint);
     });
     fs.close();
 

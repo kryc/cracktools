@@ -9,6 +9,7 @@
 #ifndef RainbowTable_hpp
 #define RainbowTable_hpp
 
+#include <any>
 #include <atomic>
 #include <filesystem>
 #include <fstream>
@@ -30,20 +31,12 @@
 #include "Util.hpp"
 #include "WordGenerator.hpp"
 
-typedef enum _TableType
-{
-    TypeUncompressed,
-    TypeCompressed,
-    TypeInvalid
-} TableType;
-
 constexpr uint32_t kMagic = 'rt- ';
 
 typedef struct  __attribute__((__packed__)) _TableHeader
 {
     uint32_t magic;
-    uint8_t  type:2;
-    uint8_t  algorithm:6;
+    uint8_t  algorithm;
     uint8_t  min;
     uint8_t  max;
     uint8_t  charsetlen;
@@ -62,25 +55,8 @@ struct TableRecord
     IndexT endpoint;
 };
 
-template<typename IndexT>
-struct TableRecordCompressed
-{
-    bool operator<(const TableRecordCompressed& other) const
-    {
-        return endpoint < other.endpoint;
-    }
-    template<typename OtherT>
-    TableRecordCompressed& operator=(const TableRecord<OtherT>& other)
-    {
-        endpoint = static_cast<IndexT>(other.endpoint);
-        return *this;
-    }
-    IndexT endpoint;
-};
-
 // Internal record types always use __uint128_t
 using InternalRecord = TableRecord<__uint128_t>;
-using InternalRecordCompressed = TableRecordCompressed<__uint128_t>;
 
 // Determine the narrowest index width that fits the keyspace
 static inline uint8_t
@@ -137,11 +113,8 @@ public:
     const size_t GetThreads(void) const { return m_Threads; }
     void SetCharset(const std::string_view Charset) { m_Charset = ParseCharset(Charset); }
     const std::string& GetCharset(void) const { return m_Charset; }
-    void SetType(const TableType Type) { m_TableType = Type; }
-    bool SetType(const std::string_view Type);
     void SetSeparator(const char Separator) { m_Separator = Separator; }
     const char GetSeparator(void) const { return m_Separator; }
-    std::string GetType(void) const { return m_TableType == TypeCompressed ? "Compressed" : "Uncompressed";  }
     float GetCoverageEstimate(void);
     bool TableExists(void) const { return std::filesystem::exists(m_Path); }
     static bool GetTableHeader(const std::filesystem::path& Path, TableHeader* Header);
@@ -151,14 +124,13 @@ public:
     bool LoadTable(void);
     bool Complete(void) const { return m_ThreadsCompleted == m_Threads; }
     std::vector<std::tuple<std::string, std::string>> Crack(const std::string_view Target);
-    static const size_t ChainWidthForType(const TableType Type, const uint8_t IndexWidth);
-    const size_t GetChainWidth(void) const { return ChainWidthForType(m_TableType, m_IndexWidth); }
+    static const size_t ChainWidth(const uint8_t IndexWidth);
+    const size_t GetChainWidth(void) const { return ChainWidth(m_IndexWidth); }
     static void DoHash(const uint8_t* Data, const size_t Length, uint8_t* Digest, const HashAlgorithm Algorithm) { SimdHashSingle(Algorithm, Length, Data, Digest); };
     static const std::string DoHashHex(const uint8_t* Data, const size_t Length, const HashAlgorithm Algorithm);
     void DoHash(const uint8_t* Data, const size_t Length, uint8_t* Digest) const { DoHash(Data, Length, Digest, m_Algorithm); }
     std::string DoHashHex(const uint8_t* Data, const size_t Length) const { return DoHashHex(Data, Length, m_Algorithm); }
-    void Decompress(const std::filesystem::path& Destination) { ChangeType(Destination, TypeUncompressed); }
-    void Compress(const std::filesystem::path& Destination) { ChangeType(Destination, TypeCompressed); }
+
     void SortTable(void);
     static const Chain GetChain(const std::filesystem::path& Path, const size_t Index);
     static const Chain ComputeChain(const size_t Index, const size_t Min, const size_t Max, const size_t Length, const HashAlgorithm Algorithm, const std::string& Charset);
@@ -167,7 +139,6 @@ public:
     size_t CountUniqueEndpoints(void);
 private:
     // General purpose
-    void ChangeType(const std::filesystem::path& Destination, const TableType Type);
     std::optional<size_t> FindStartIndexForEndpoint(const __uint128_t) const;
     std::optional<std::string> ValidateChain(const size_t ChainIndex, const std::span<const uint8_t> Hash) const;
     bool TableMapped(void) { return m_MappedTableFd != nullptr; };
@@ -203,7 +174,6 @@ private:
     std::string m_Charset;
     size_t m_HashWidth = 0;
     size_t m_Chains = 0;
-    TableType m_TableType = TypeCompressed;
     dispatch::DispatchPoolPtr m_DispatchPool;
     size_t m_TerminalWidth = 80;
     // For building
@@ -213,6 +183,10 @@ private:
     std::map<size_t, std::vector<InternalRecord>> m_WriteCache;
     size_t m_ThreadsCompleted = 0;
     size_t m_ChainsWritten = 0;
+    size_t m_ChainsGenerated = 0;
+    size_t m_ConsecutiveEmptyBlocks = 0;
+    std::atomic<bool> m_BuildComplete = false;
+    std::any m_EndpointSet;
     std::map<size_t, uint64_t> m_ThreadTimers;
     // For cracking
     std::span<uint8_t> m_MappedTable;
