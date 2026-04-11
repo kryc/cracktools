@@ -135,6 +135,60 @@ TEST_F(RainbowTableTest, ValidateConfigRejectsKeyspaceOverflow128)
 }
 
 // ============================================================
+// Coverage configuration
+// ============================================================
+
+TEST_F(RainbowTableTest, DefaultCoverageIs99Percent)
+{
+    RainbowTable table;
+    EXPECT_DOUBLE_EQ(table.GetCoverage(), 0.99);
+}
+
+TEST_F(RainbowTableTest, SetCoverageClamps)
+{
+    RainbowTable table;
+    table.SetCoverage(0.0);
+    EXPECT_GE(table.GetCoverage(), 0.01);
+    table.SetCoverage(1.0);
+    EXPECT_LE(table.GetCoverage(), 0.999);
+}
+
+TEST_F(RainbowTableTest, CoverageAffectsChainCount)
+{
+    // Build with low coverage
+    RainbowTable low;
+    low.SetPath(m_TablePath);
+    low.SetAlgorithm("md5");
+    low.SetMin(1);
+    low.SetMax(4);
+    low.SetLength(100);
+    low.SetBlocksize(SimdLanes());
+    low.SetThreads(1);
+    low.SetCharset("lower");
+    low.SetCoverage(0.50);
+    low.InitAndRunBuild();
+    size_t lowCount = low.GetCount();
+
+    Cleanup();
+
+    // Build with high coverage
+    RainbowTable high;
+    high.SetPath(m_TablePath);
+    high.SetAlgorithm("md5");
+    high.SetMin(1);
+    high.SetMax(4);
+    high.SetLength(100);
+    high.SetBlocksize(SimdLanes());
+    high.SetThreads(1);
+    high.SetCharset("lower");
+    high.SetCoverage(0.99);
+    high.InitAndRunBuild();
+    size_t highCount = high.GetCount();
+
+    EXPECT_GT(highCount, lowCount);
+}
+
+// ============================================================
 // Table building
 // ============================================================
 

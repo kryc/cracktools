@@ -181,7 +181,7 @@ protected:
         size_t bytesWritten = 0;
         const size_t charsetSize = m_Charset.size();
         uint8_t mask;
-        const size_t bitsRequired = CalculateBitsRequired(charsetSize, &mask);
+        CalculateBitsRequired(charsetSize, &mask);
         size_t offset = Offset;
         while (bytesWritten < Length)
         {
@@ -191,17 +191,10 @@ protected:
                 offset = 0;
             }
 
-            uint8_t nextByte = Buffer[offset++];
-            // Repeatedly shift the next byte until it is in range
-            for (size_t i = bitsRequired; i <= 8; i++)
+            uint8_t value = Buffer[offset++] & mask;
+            if (value < charsetSize)
             {
-                uint8_t value = nextByte & mask;
-                if (value < m_Charset.size())
-                {
-                    Destination[bytesWritten++] = m_Charset[value % charsetSize];
-                    break;
-                }
-                nextByte >>= 1;
+                Destination[bytesWritten++] = m_Charset[value];
             }
         }
         return bytesWritten;
@@ -393,12 +386,6 @@ public:
                 }
                 // Parse the hash as a single integer
                 reduction = LoadBytesToIndex(buffer, offset, m_BytesRequired);
-                // If the value is too big we can reuse this entropy and
-                // reverse the byte order to see if the result is smaller.
-                if ((reduction & m_Mask) >= m_Limits[m_Max])
-                {
-                    reduction = Util::Byteswap128(reduction) >> (sizeof(index_t) * 8 - m_BytesRequired * 8);
-                }
                 reduction &= m_Mask;
                 // Move the offset along
                 offset++;

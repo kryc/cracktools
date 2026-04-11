@@ -131,6 +131,8 @@ public:
     const size_t GetBlocksize(void) const { return m_Blocksize; }
     void SetCount(const size_t Count) { m_Count = Count; }
     const size_t GetCount(void) const;
+    void SetCoverage(const double Coverage) { m_Coverage = std::clamp(Coverage, 0.01, 0.999); }
+    const double GetCoverage(void) const { return m_Coverage; }
     void SetThreads(const size_t Threads) { m_Threads = Threads; }
     const size_t GetThreads(void) const { return m_Threads; }
     void SetCharset(const std::string_view Charset) { m_Charset = ParseCharset(Charset); }
@@ -140,7 +142,7 @@ public:
     void SetSeparator(const char Separator) { m_Separator = Separator; }
     const char GetSeparator(void) const { return m_Separator; }
     std::string GetType(void) const { return m_TableType == TypeCompressed ? "Compressed" : "Uncompressed";  }
-    float GetCoverage(void);
+    float GetCoverageEstimate(void);
     bool TableExists(void) const { return std::filesystem::exists(m_Path); }
     static bool GetTableHeader(const std::filesystem::path& Path, TableHeader* Header);
     static bool IsTableFile(const std::filesystem::path& Path);
@@ -162,6 +164,7 @@ public:
     static const Chain ComputeChain(const size_t Index, const size_t Min, const size_t Max, const size_t Length, const HashAlgorithm Algorithm, const std::string& Charset);
     inline const __uint128_t GetEndpointAt(const size_t Index) const;
     inline const InternalRecord GetRecordAt(const size_t Index) const;
+    size_t CountUniqueEndpoints(void);
 private:
     // General purpose
     void ChangeType(const std::filesystem::path& Destination, const TableType Type);
@@ -195,6 +198,7 @@ private:
     size_t m_Length = 0;
     size_t m_Blocksize = 1024;
     size_t m_Count = 0;
+    double m_Coverage = 0.99;
     size_t m_Threads = 0;
     std::string m_Charset;
     size_t m_HashWidth = 0;

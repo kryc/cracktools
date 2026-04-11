@@ -8,6 +8,7 @@
 
 #include <cinttypes>
 #include <chrono>
+#include <cmath>
 #include <cstddef>
 #include <fstream>
 #include <format>
@@ -17,9 +18,27 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <unordered_set>
 #include <vector>
 #include <openssl/md5.h>
 #include <openssl/sha.h>
+
+namespace {
+struct Hash128 {
+    size_t operator()(const __uint128_t& v) const noexcept {
+        auto lo = static_cast<uint64_t>(v);
+        auto hi = static_cast<uint64_t>(v >> 64);
+        return std::hash<uint64_t>{}(lo) ^ (std::hash<uint64_t>{}(hi) * 0x9e3779b97f4a7c15ULL);
+    }
+};
+
+template<typename T>
+using EndpointSet = std::conditional_t<
+    std::is_same_v<T, __uint128_t>,
+    std::unordered_set<T, Hash128>,
+    std::unordered_set<T>
+>;
+}
 
 #include "SimdHashBuffer.hpp"
 
@@ -66,11 +85,12 @@ RainbowTable::InitAndRunBuild(
     if (m_Count == 0)
     {
         __uint128_t keyspace = WordGenerator::WordLengthIndex128(m_Max + 1, m_Charset) - WordGenerator::WordLengthIndex128(m_Min, m_Charset);
-        keyspace /= m_Length + 1;
-        // Add 10% for overhead
-        keyspace += (keyspace / 10);
-        std::cerr << "Calculated chains required: " << Util::Uint128ToString(keyspace) << std::endl;
-        m_Count = static_cast<size_t>(keyspace);
+        // m = N * -ln(1 - coverage) / t
+        double factor = -std::log(1.0 - m_Coverage);
+        double chains = static_cast<double>(keyspace) * factor / m_Length;
+        std::cerr << "Target coverage: " << std::fixed << std::setprecision(0) << (m_Coverage * 100) << "%" << std::endl;
+        std::cerr << "Calculated chains required: " << static_cast<size_t>(chains) << std::endl;
+        m_Count = static_cast<size_t>(chains);
     }
 
     // Estimate table size
@@ -413,18 +433,19 @@ RainbowTable::SetType(
 }
 
 float
-RainbowTable::GetCoverage(
+RainbowTable::GetCoverageEstimate(
     void
 )
 {
     __uint128_t lowerbound = WordGenerator::WordLengthIndex128(m_Min, m_Charset);
     __uint128_t upperbound = WordGenerator::WordLengthIndex128(m_Max + 1, m_Charset);
-    double delta = static_cast<double>(upperbound - lowerbound);
+    double N = static_cast<double>(upperbound - lowerbound);
 
-    double count = static_cast<double>(m_Chains) * m_Length;
-    double percentage = (count / delta) * 100;
+    double mt = static_cast<double>(m_Chains) * m_Length;
+    // 1 - e^(-mt/N)
+    double coverage = (1.0 - std::exp(-mt / N)) * 100.0;
 
-    return static_cast<float>(percentage);
+    return static_cast<float>(coverage);
 }
 
 void
@@ -742,6 +763,36 @@ RainbowTable::GetEndpointAt(
 ) const
 {
     return GetRecordAt(Index).endpoint;
+}
+
+size_t
+RainbowTable::CountUniqueEndpoints(void)
+{
+    if (!MapTable(true))
+        return 0;
+
+    return DispatchByWidth(m_IndexWidth, [&]<typename IndexT>() -> size_t
+    {
+        auto data = m_MappedTable.subspan(sizeof(TableHeader));
+        if (m_TableType == TypeCompressed)
+        {
+            auto records = cracktools::SpanCast<TableRecordCompressed<IndexT>>(data);
+            EndpointSet<IndexT> seen;
+            seen.reserve(records.size());
+            for (const auto& r : records)
+                seen.insert(r.endpoint);
+            return seen.size();
+        }
+        else
+        {
+            auto records = cracktools::SpanCast<TableRecord<IndexT>>(data);
+            EndpointSet<IndexT> seen;
+            seen.reserve(records.size());
+            for (const auto& r : records)
+                seen.insert(r.endpoint);
+            return seen.size();
+        }
+    });
 }
 
 /* static */

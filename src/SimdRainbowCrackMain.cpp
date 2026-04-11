@@ -7,6 +7,8 @@
 //
 
 #include <filesystem>
+#include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <string>
 
@@ -29,16 +31,17 @@ Actions:
   decompress  Decompress the rainbow table.
 
 Options:
-  --min <value>       Set the minimum password length.
-  --max <value>       Set the maximum password length.
-  --charset <string>  Set the character set to use.
-  --length <value>    Set the password length.
-  --blocksize <value> Set the block size.
-  --count <value>     Set the number of chains.
-  --threads <value>   Set the number of threads.
-  --algorithm <name>  Set the hash algorithm (e.g., md5, sha1).
-  --noindex           Disable indexing.
-  --help              Display this help message.
+  -m, --min <value>       Set the minimum password length.
+  -M, --max <value>       Set the maximum password length.
+  -c, --charset <string>  Set the character set to use.
+  -l, --length <value>    Set the chain length.
+  -b, --blocksize <value> Set the block size.
+  -n, --count <value>     Set the number of chains.
+  -C, --coverage <0-100>  Set the target coverage percentage (default: 99).
+  -t, --threads <value>   Set the number of threads.
+  -a, --algorithm <name>  Set the hash algorithm (e.g., md5, sha1).
+  -s, --separator <char>  Set the output separator (default: ':').
+  -h, --help              Display this help message.
 )";
 
 #define ARGCHECK() \
@@ -97,12 +100,12 @@ main(
     for (int i = 2; i < argc; i++)
 	{
 		const std::string_view arg = args[i];
-        if (arg == "--min")
+        if (arg == "-m" || arg == "--min")
         {
             ARGCHECK();
             rainbow.SetMin(Util::ParseNumber<size_t>(args[++i]));
         }
-        else if (arg == "--max")
+        else if (arg == "-M" || arg == "--max")
         {
             ARGCHECK();
             rainbow.SetMax(Util::ParseNumber<size_t>(args[++i]));
@@ -113,27 +116,32 @@ main(
             rainbow.SetMin(Util::ParseNumber<size_t>(args[++i]));
             rainbow.SetMax(rainbow.GetMin());
         }
-        else if (arg == "--charset")
+        else if (arg == "-c" || arg == "--charset")
         {
             ARGCHECK();
             rainbow.SetCharset(args[++i]);
         }
-        else if (arg == "--length")
+        else if (arg == "-l" || arg == "--length")
         {
             ARGCHECK();
             rainbow.SetLength(Util::ParseNumber<size_t>(args[++i]));
         }
-        else if (arg == "--blocksize")
+        else if (arg == "-b" || arg == "--blocksize")
         {
             ARGCHECK();
             rainbow.SetBlocksize(Util::ParseNumber<size_t>(args[++i]));
         }
-        else if (arg == "--count")
+        else if (arg == "-n" || arg == "--count")
         {
             ARGCHECK();
             rainbow.SetCount(Util::ParseNumber<size_t>(args[++i]));
         }
-        else if (arg == "--threads")
+        else if (arg == "-C" || arg == "--coverage")
+        {
+            ARGCHECK();
+            rainbow.SetCoverage(Util::ParseNumber<double>(args[++i]) / 100.0);
+        }
+        else if (arg == "-t" || arg == "--threads")
         {
             ARGCHECK();
             rainbow.SetThreads(Util::ParseNumber<size_t>(args[++i]));
@@ -142,7 +150,7 @@ main(
         {
             rainbow.SetType(TypeUncompressed);
         }
-        else if (arg == "--algorithm")
+        else if (arg == "-a" || arg == "--algorithm")
         {
             ARGCHECK();
             rainbow.SetAlgorithm(args[++i]);
@@ -167,12 +175,17 @@ main(
         {
             rainbow.SetAlgorithm("ntlm");
         }
-        else if (arg == "--help")
+        else if (arg == "-h" || arg == "--help")
         {
             std::cout << HELP_STRING << std::endl;
             return 0;
         }
-        else if (arg.starts_with("--"))
+        else if (arg == "-s" || arg == "--separator")
+        {
+            ARGCHECK();
+            rainbow.SetSeparator(args[++i][0]);
+        }
+        else if (arg.starts_with("-"))
         {
             std::cerr << "Unknown option " << arg << std::endl;
             return 1;
@@ -268,7 +281,14 @@ main(
         std::cout << "Count:       " << rainbow.GetCount() << std::endl;
         std::cout << "Charset:     \"" << rainbow.GetCharset() << "\"" << std::endl;
         std::cout << "Charset Len: " << rainbow.GetCharset().size() << std::endl;
-        std::cout << "KS Coverage: " << rainbow.GetCoverage() << std::endl;
+        std::cout << "KS Coverage: " << rainbow.GetCoverageEstimate() << std::endl;
+
+        size_t total = rainbow.GetCount();
+        size_t unique = rainbow.CountUniqueEndpoints();
+        size_t dupes = total - unique;
+        std::cout << "Endpoints:   " << unique << " unique / " << total
+                  << " total (" << std::fixed << std::setprecision(1)
+                  << (100.0 * dupes / total) << "% merged)" << std::endl;
     }
     else if (action == "test")
     {
@@ -278,10 +298,40 @@ main(
             return check;
         }
 
-        auto hash = rainbow.DoHashHex((uint8_t*)&target[0], target.size());
-        std::cout << "Testing for password \"" << target << "\": " << hash << std::endl;
+        if (std::filesystem::exists(target))
+        {
+            // Read passwords, hash them, write a temp hash file, then crack
+            std::ifstream infile(target);
+            std::string line;
+            std::vector<std::string> passwords;
+            std::filesystem::path hashFile = std::filesystem::temp_directory_path() /
+                ("rt_test_" + std::to_string(::getpid()) + ".hashes");
+            {
+                std::ofstream hfs(hashFile);
+                while (std::getline(infile, line))
+                {
+                    if (line.empty()) continue;
+                    passwords.push_back(line);
+                    auto hash = rainbow.DoHashHex((uint8_t*)&line[0], line.size());
+                    hfs << hash << "\n";
+                }
+            }
 
-        rainbow.Crack(hash);
+            auto results = rainbow.Crack(hashFile.string());
+            size_t found = results.size();
+
+            std::filesystem::remove(hashFile);
+
+            std::cout << "Found " << found << "/" << passwords.size()
+                      << " (" << std::fixed << std::setprecision(1)
+                      << (100.0 * found / passwords.size()) << "%)" << std::endl;
+        }
+        else
+        {
+            auto hash = rainbow.DoHashHex((uint8_t*)&target[0], target.size());
+            std::cout << "Testing for password \"" << target << "\": " << hash << std::endl;
+            rainbow.Crack(hash);
+        }
     }
 
     return 0;
