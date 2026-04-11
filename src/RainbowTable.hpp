@@ -12,6 +12,7 @@
 #include <atomic>
 #include <filesystem>
 #include <fstream>
+#include <latch>
 #include <limits>
 #include <map>
 #include <mutex>
@@ -150,7 +151,7 @@ private:
     void BuildThreadCompleted(const size_t ThreadId);
     // Cracking
     std::optional<std::string> CrackOne(const std::string_view Target);
-    void CrackOneWorker(const size_t ThreadId, const std::vector<uint8_t> Target);
+    void CrackOneWorker(const size_t ThreadId, const std::vector<uint8_t> Target, std::latch& Done);
     std::optional<std::string> CheckIteration(const HybridReducer& Reducer, const std::span<const uint8_t> Hash, const size_t Iteration) const;
 
     // General purpose
@@ -188,7 +189,6 @@ private:
     std::mutex m_HashFileStreamLock;
     char m_Separator = ':';
     std::atomic<bool> m_Cracked = false;
-    std::atomic<size_t> m_CrackingThreadsRunning = 0;
     std::vector<std::tuple<std::string, std::string>> m_CrackedResults;
     std::tuple<std::string, std::string> m_LastCracked;
 };

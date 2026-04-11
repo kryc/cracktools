@@ -13,6 +13,7 @@
 #include <format>
 #include <iomanip>
 #include <iostream>
+#include <latch>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -862,12 +863,11 @@ RainbowTable::CheckIteration(
 void
 RainbowTable::CrackOneWorker(
     const size_t ThreadId,
-    const std::vector<uint8_t> Target
+    const std::vector<uint8_t> Target,
+    std::latch& Done
 )
 {
     HybridReducer reducer(m_Min, m_Max, m_Charset);
-
-    m_CrackingThreadsRunning++;
 
     for (ssize_t i = m_Length - 1 - ThreadId; i >= 0 && !m_Cracked; i -= m_Threads)
     {
@@ -880,7 +880,7 @@ RainbowTable::CrackOneWorker(
         }
     }
 
-    m_CrackingThreadsRunning--;
+    Done.count_down();
 }
 
 std::optional<std::string>
@@ -915,7 +915,7 @@ RainbowTable::CrackOne(
     }
     else
     {
-        m_ThreadsCompleted = m_Threads;
+        std::latch done(m_Threads);
 
         // Dispatch the work to the worker threads
         for (size_t i = 0; i < m_Threads; i++)
@@ -925,22 +925,14 @@ RainbowTable::CrackOne(
                     &RainbowTable::CrackOneWorker,
                     this,
                     i,
-                    target
+                    target,
+                    std::ref(done)
                 )
             );
         }
 
-        // Wait for at least one thread to start
-        while (m_CrackingThreadsRunning == 0)
-        {
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        }
-
-        // Wait for the threads to finish
-        while (m_CrackingThreadsRunning != 0)
-        {
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        }
+        // Wait for all threads to finish
+        done.wait();
 
         // Check if we found the result
         if (m_Cracked)
