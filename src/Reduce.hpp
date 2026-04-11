@@ -322,12 +322,12 @@ protected:
     index_t m_Mask;
 };
 
-class HybridReducerOld final : public Reducer
+class HybridReducer final : public Reducer
 {
     static constexpr size_t kHybridReducerMaxHashSize = 512u / 8u;
     static constexpr uint64_t kHybridReducerRoundConstant = 0x5a827999;
 public:
-    HybridReducerOld(
+    HybridReducer(
         const size_t Min,
         const size_t Max,
         const std::string_view Charset
@@ -412,18 +412,18 @@ public:
                     length = i;
                 }
             }
+
+            // Now read bytes from the remaining input buffer
+            // Update the used bytes to account for entropy used in length calculation
+            offset += m_BytesRequired - 1;
+            // Or... just reset it to zero to minimize entropy extension.. Is reusing
+            // the entropy used in the length calculation a bad thing...?
+            // offset = 0;
         }
         else
         {
             length = m_Max;
         }
-
-        // Now read bytes from the remaining input buffer
-        // Update the used bytes to account for entropy used in length calculation
-        offset += m_BytesRequired - 1;
-        // Or... just reset it to zero to minimize entropy extension.. Is reusing
-        // the entropy used in the length calculation a bad thing...?
-        // offset = 0;
 
         return GetCharsUnbiased(
             Destination,
@@ -437,79 +437,6 @@ private:
     size_t m_BytesRequired;
     index_t m_Mask;
     std::array<index_t, kSmallStringMaxLength> m_Limits{};
-};
-
-class HybridReducer final : public Reducer
-{
-    static constexpr size_t kHybridReducerMaxHashSize = 512u / 8u;
-    static constexpr uint64_t kHybridReducerRoundConstant = 0x6a09e667f3bcc908;
-public:
-    HybridReducer(
-        const size_t Min,
-        const size_t Max,
-        const std::string_view Charset
-    ) : Reducer(Min, Max, Charset)
-    {
-        const __uint128_t lower = WordGenerator::WordLengthIndex128(Min, Charset);
-        const __uint128_t upper = WordGenerator::WordLengthIndex128(Max + 1, Charset);
-        m_KeyspaceSize = upper - lower;
-
-        // We need to calculate the number of bytes required
-        // to represent the largest range of the keyspace
-        CalculateBytesRequired(
-            m_KeyspaceSize,
-            &m_BitsRequired,
-            &m_BytesRequired,
-            &m_Mask
-        );
-
-        assert(m_BytesRequired <= sizeof(index_t));
-    }
-
-    size_t Reduce(
-        std::span<char> Destination,
-        std::span<const uint8_t> Hash,
-        const size_t Iteration
-    ) const override
-    {
-        uint64_t iterationModifier = kHybridReducerRoundConstant * Iteration;
-        size_t roundConstantModifier = 0;
-        
-        // Repeatedly try to load the hash integer until it is in range
-        // we do this to avoid a modulo bias favouring reduction at the bottom
-        // end of the password space
-        size_t offset = 0;
-        index_t reduction = m_KeyspaceSize + 1;
-        while (reduction >= m_KeyspaceSize)
-        {
-            if (offset + m_BytesRequired == Hash.size())
-            {
-                CHECKA(roundConstantModifier < 64, "Exhausted reduction rounds. Unable to reduce hash.");
-                roundConstantModifier++;
-                iterationModifier = std::rotl(iterationModifier, 1);
-                offset = 0;
-            }
-            // Parse the hash as a single integer
-            reduction = LoadBytesToIndex(Hash, offset++, m_BytesRequired);
-            reduction ^= iterationModifier;
-            // Apply the mask to ensure it is in range
-            reduction &= m_Mask;
-        }
-
-        // Now just use the reduction to generate the word
-        size_t length = WordGenerator::GenerateWord(
-            Destination,
-            reduction,
-            m_Charset
-        );
-
-        return length;
-    }
-private:
-    index_t m_KeyspaceSize;
-    size_t m_BitsRequired;
-    size_t m_BytesRequired;
-    index_t m_Mask;
 };
 
 class BytewiseReducer final : public Reducer
