@@ -1232,38 +1232,61 @@ RainbowTable::GetChain(
     const size_t Index
 )
 {
-    /*TableHeader hdr;
-    GetTableHeader(Path, &hdr);
+    TableHeader hdr;
+    if (!GetTableHeader(Path, &hdr))
+    {
+        return Chain();
+    }
 
-    std::string charset(&hdr.charset[0], &hdr.charset[hdr.charsetlen]);
+    std::string charset(hdr.charset, hdr.charsetlen);
+    TableType type = (TableType)hdr.type;
+    size_t chainWidth = ChainWidthForType(type, hdr.max);
+
+    // Verify the index is within bounds
+    size_t fileSize = std::filesystem::file_size(Path);
+    size_t dataSize = fileSize - sizeof(TableHeader);
+    size_t chainCount = dataSize / chainWidth;
+    if (Index >= chainCount)
+    {
+        return Chain();
+    }
+
+    // Read the record at the given index
+    std::ifstream fs(Path, std::ios::binary);
+    if (!fs.is_open())
+    {
+        return Chain();
+    }
+    fs.seekg(sizeof(TableHeader) + chainWidth * Index);
+
+    uint64_t startpoint;
+    uint64_t endpoint;
+
+    if (type == TypeUncompressed)
+    {
+        TableRecord record;
+        fs.read(reinterpret_cast<char*>(&record), sizeof(TableRecord));
+        startpoint = record.startpoint;
+        endpoint = record.endpoint;
+    }
+    else
+    {
+        TableRecordCompressed record;
+        fs.read(reinterpret_cast<char*>(&record), sizeof(TableRecordCompressed));
+        startpoint = Index;
+        endpoint = record.endpoint;
+    }
+    fs.close();
+
+    mpz_class lowerbound = WordGenerator::WordLengthIndex(hdr.min, charset);
 
     Chain chain;
-    chain.SetIndex(Index);
+    chain.SetIndex(startpoint);
     chain.SetLength(hdr.length);
+    chain.SetStart(std::string_view(WordGenerator::GenerateWord(lowerbound + startpoint, charset)));
+    chain.SetEnd(std::string_view(WordGenerator::GenerateWord(endpoint, charset)));
 
-    FILE* fh = fopen(Path.c_str(), "r");
-    fseek(fh, sizeof(TableHeader), SEEK_SET);
-    fseek(fh, ChainWidthForType((TableType)hdr.type, hdr.max) * Index, SEEK_CUR);
-
-    rowindex_t start = Index;
-    if (hdr.type == (uint8_t)TypeUncompressed)
-    {
-        fread(&start, sizeof(rowindex_t), 1, fh);
-    }
-    mpz_class lowerbound = WordGenerator::WordLengthIndex(hdr.min, charset);
-    static_assert(sizeof(rowindex_t) == 4 || (sizeof(unsigned long int) == sizeof(rowindex_t)));
-    auto word = WordGenerator::GenerateWord(lowerbound + (unsigned long int)start, charset);
-    chain.SetStart(std::string_view(word));
-
-    std::string endpoint;
-    endpoint.resize(hdr.max);
-    fread(&endpoint[0], sizeof(char), hdr.max, fh);
-    // Trim nulls
-    endpoint.resize(strlen(endpoint.c_str()));
-    chain.SetEnd(std::string_view(endpoint));
-
-    return chain;*/
-    return Chain();
+    return chain;
 }
 
 /* static */ const Chain

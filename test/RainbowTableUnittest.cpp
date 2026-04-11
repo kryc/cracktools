@@ -572,6 +572,70 @@ TEST_F(RainbowTableTest, DoHashHexSHA1)
 }
 
 // ============================================================
+// GetChain
+// ============================================================
+
+TEST_F(RainbowTableTest, GetChainCompressedMatchesComputeChain)
+{
+    const std::string charset = "abcdefghijklmnopqrstuvwxyz";
+    const size_t min = 1, max = 4, length = 100;
+
+    // Build a compressed table
+    RainbowTable builder;
+    ConfigureSmallTable(builder);
+    builder.InitAndRunBuild();
+
+    // GetChain from the file should match ComputeChain for the same index
+    for (size_t i = 0; i < SimdLanes() * 4; i++)
+    {
+        auto fromFile = RainbowTable::GetChain(m_TablePath, i);
+        auto computed = RainbowTable::ComputeChain(i, min, max, length, HashAlgorithmMD5, charset);
+
+        EXPECT_EQ(fromFile.Start(), computed.Start()) << "Start mismatch at chain " << i;
+        EXPECT_EQ(fromFile.End(), computed.End()) << "End mismatch at chain " << i;
+        EXPECT_EQ(fromFile.Length(), length);
+    }
+}
+
+TEST_F(RainbowTableTest, GetChainUncompressedMatchesComputeChain)
+{
+    const std::string charset = "abcdefghijklmnopqrstuvwxyz";
+    const size_t min = 1, max = 4, length = 100;
+
+    // Build compressed then decompress
+    RainbowTable builder;
+    ConfigureSmallTable(builder);
+    builder.InitAndRunBuild();
+
+    RainbowTable table;
+    table.SetPath(m_TablePath);
+    ASSERT_TRUE(table.LoadTable());
+    table.Decompress(m_UncompressedPath);
+
+    // GetChain from the uncompressed file should match ComputeChain
+    for (size_t i = 0; i < SimdLanes() * 4; i++)
+    {
+        auto fromFile = RainbowTable::GetChain(m_UncompressedPath, i);
+        auto computed = RainbowTable::ComputeChain(fromFile.Index().get_ui(), min, max, length, HashAlgorithmMD5, charset);
+
+        EXPECT_EQ(fromFile.Start(), computed.Start()) << "Start mismatch at chain " << i;
+        EXPECT_EQ(fromFile.End(), computed.End()) << "End mismatch at chain " << i;
+        EXPECT_EQ(fromFile.Length(), length);
+    }
+}
+
+TEST_F(RainbowTableTest, GetChainOutOfBoundsReturnsEmpty)
+{
+    RainbowTable builder;
+    ConfigureSmallTable(builder);
+    builder.InitAndRunBuild();
+
+    auto chain = RainbowTable::GetChain(m_TablePath, SimdLanes() * 4 + 100);
+    EXPECT_TRUE(chain.Start().empty());
+    EXPECT_TRUE(chain.End().empty());
+}
+
+// ============================================================
 // Deterministic crack test (bug #7 regression)
 // ============================================================
 
