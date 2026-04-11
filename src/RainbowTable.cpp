@@ -133,6 +133,9 @@ RainbowTable::InitAndRunBuild(
         mainDispatcher->Wait();
     }
 
+    fclose(m_WriteHandle);
+    m_WriteHandle = nullptr;
+
     std::cout << std::endl;
 }
 
@@ -872,7 +875,6 @@ RainbowTable::CrackOneWorker(
         bool cracked = m_Cracked;
         if (result.has_value() && !cracked && m_Cracked.compare_exchange_strong(cracked, true))
         {
-            m_Cracked = true;
             m_LastCracked = std::make_tuple(Util::ToHex(&Target[0], Target.size()), result.value());
             m_CrackedResults.push_back(m_LastCracked);
         }
@@ -905,6 +907,8 @@ RainbowTable::CrackOne(
             result = CheckIteration(reducer, target, i);
             if (result.has_value())
             {
+                m_LastCracked = std::make_tuple(Util::ToHex(&target[0], target.size()), result.value());
+                m_CrackedResults.push_back(m_LastCracked);
                 break;
             }
         }
@@ -1082,7 +1086,11 @@ RainbowTable::Reset(
     m_TableType = TypeCompressed;
     // For building
     m_StartingChains = 0;
-    m_WriteHandle = nullptr;
+    if (m_WriteHandle != nullptr)
+    {
+        fclose(m_WriteHandle);
+        m_WriteHandle = nullptr;
+    }
     m_NextWriteBlock = 0;
     m_WriteCache.clear();
     if (m_DispatchPool != nullptr)
@@ -1144,6 +1152,9 @@ RainbowTable::ChangeType(
     }
 
     TableHeader hdr;
+#pragma clang unsafe_buffer_usage begin
+    memset(&hdr, 0, sizeof(hdr));
+#pragma clang unsafe_buffer_usage end
     hdr.magic = kMagic;
     hdr.algorithm = m_Algorithm;
     hdr.min = m_Min;

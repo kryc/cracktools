@@ -111,7 +111,7 @@ main(
         {
             ARGCHECK();
             rainbow.SetMin(Util::ParseNumber<size_t>(args[++i]));
-            rainbow.SetMax(Util::ParseNumber<size_t>(args[i]));
+            rainbow.SetMax(rainbow.GetMin());
         }
         else if (arg == "--charset")
         {

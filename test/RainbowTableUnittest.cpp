@@ -13,6 +13,7 @@ class RainbowTableTest : public ::testing::Test
 protected:
     std::filesystem::path m_TablePath;
     std::filesystem::path m_UncompressedPath;
+    std::filesystem::path m_RecompressedPath;
 
     void SetUp() override
     {
@@ -21,6 +22,8 @@ protected:
             ("rainbow_test_" + std::to_string(::getpid()) + ".tbl");
         m_UncompressedPath = std::filesystem::temp_directory_path() /
             ("rainbow_test_" + std::to_string(::getpid()) + ".utbl");
+        m_RecompressedPath = std::filesystem::temp_directory_path() /
+            ("rainbow_test_" + std::to_string(::getpid()) + ".rtbl");
         Cleanup();
     }
 
@@ -33,6 +36,7 @@ protected:
     {
         std::filesystem::remove(m_TablePath);
         std::filesystem::remove(m_UncompressedPath);
+        std::filesystem::remove(m_RecompressedPath);
     }
 
     // Helper: configure a small, fast table for testing
@@ -358,6 +362,123 @@ TEST_F(RainbowTableTest, DecompressPreservesChainCount)
     EXPECT_EQ(compressedChains, uncompressedChains);
 }
 
+TEST_F(RainbowTableTest, DecompressPreservesEndpoints)
+{
+    RainbowTable builder;
+    ConfigureSmallTable(builder);
+    builder.InitAndRunBuild();
+
+    // Decompress
+    RainbowTable compressed;
+    compressed.SetPath(m_TablePath);
+    ASSERT_TRUE(compressed.LoadTable());
+    compressed.Decompress(m_UncompressedPath);
+
+    // Read endpoints from the compressed table (sequential endpoint-only records)
+    size_t compressedCount = compressed.GetCount();
+    std::ifstream cfs(m_TablePath, std::ios::binary);
+    cfs.seekg(sizeof(TableHeader));
+    std::vector<TableRecordCompressed> compRecords(compressedCount);
+    cfs.read(reinterpret_cast<char*>(compRecords.data()), compressedCount * sizeof(TableRecordCompressed));
+    cfs.close();
+
+    // Read records from the uncompressed table (startpoint + endpoint pairs, sorted by endpoint)
+    RainbowTable decompressed;
+    decompressed.SetPath(m_UncompressedPath);
+    ASSERT_TRUE(decompressed.LoadTable());
+    size_t uncompressedCount = decompressed.GetCount();
+    ASSERT_EQ(compressedCount, uncompressedCount);
+
+    std::ifstream ufs(m_UncompressedPath, std::ios::binary);
+    ufs.seekg(sizeof(TableHeader));
+    std::vector<TableRecord> uncompRecords(uncompressedCount);
+    ufs.read(reinterpret_cast<char*>(uncompRecords.data()), uncompressedCount * sizeof(TableRecord));
+    ufs.close();
+
+    // Every compressed endpoint must appear in the uncompressed records
+    for (size_t i = 0; i < compressedCount; i++)
+    {
+        bool found = false;
+        for (size_t j = 0; j < uncompressedCount; j++)
+        {
+            if (uncompRecords[j].endpoint == compRecords[i].endpoint &&
+                uncompRecords[j].startpoint == i)
+            {
+                found = true;
+                break;
+            }
+        }
+        EXPECT_TRUE(found) << "Compressed chain " << i << " endpoint not found in decompressed table";
+    }
+}
+
+TEST_F(RainbowTableTest, CompressFromUncompressed)
+{
+    // Build compressed, decompress, then compress back
+    RainbowTable builder;
+    ConfigureSmallTable(builder);
+    builder.InitAndRunBuild();
+
+    RainbowTable table;
+    table.SetPath(m_TablePath);
+    ASSERT_TRUE(table.LoadTable());
+    table.Decompress(m_UncompressedPath);
+
+    // Now compress the uncompressed table
+    RainbowTable uncompressed;
+    uncompressed.SetPath(m_UncompressedPath);
+    ASSERT_TRUE(uncompressed.LoadTable());
+    uncompressed.Compress(m_RecompressedPath);
+
+    // Verify the recompressed table is valid
+    RainbowTable recompressed;
+    recompressed.SetPath(m_RecompressedPath);
+    ASSERT_TRUE(recompressed.ValidTable());
+    ASSERT_TRUE(recompressed.LoadTable());
+
+    EXPECT_EQ(recompressed.GetMin(), 1u);
+    EXPECT_EQ(recompressed.GetMax(), 4u);
+    EXPECT_EQ(recompressed.GetLength(), 100u);
+    EXPECT_EQ(recompressed.GetAlgorithmString(), "MD5");
+    EXPECT_EQ(recompressed.GetType(), "Compressed");
+}
+
+TEST_F(RainbowTableTest, RoundTripPreservesEndpoints)
+{
+    // Build compressed → decompress → compress
+    // Compare compressed data byte-for-byte (both sorted by startpoint)
+    RainbowTable builder;
+    ConfigureSmallTable(builder);
+    builder.InitAndRunBuild();
+
+    size_t originalSize = std::filesystem::file_size(m_TablePath);
+
+    // Decompress
+    RainbowTable original;
+    original.SetPath(m_TablePath);
+    ASSERT_TRUE(original.LoadTable());
+    original.Decompress(m_UncompressedPath);
+
+    // Compress back
+    RainbowTable uncompressed;
+    uncompressed.SetPath(m_UncompressedPath);
+    ASSERT_TRUE(uncompressed.LoadTable());
+    uncompressed.Compress(m_RecompressedPath);
+
+    // Both compressed files should be identical
+    size_t roundtripSize = std::filesystem::file_size(m_RecompressedPath);
+    ASSERT_EQ(originalSize, roundtripSize);
+
+    std::ifstream origFs(m_TablePath, std::ios::binary);
+    std::ifstream rtFs(m_RecompressedPath, std::ios::binary);
+    std::vector<char> origData(originalSize);
+    std::vector<char> rtData(roundtripSize);
+    origFs.read(origData.data(), originalSize);
+    rtFs.read(rtData.data(), roundtripSize);
+
+    EXPECT_EQ(origData, rtData) << "Round-trip compressed files differ";
+}
+
 // ============================================================
 // WriteBlock fwrite correctness (regression for bug #2)
 // ============================================================
@@ -448,4 +569,65 @@ TEST_F(RainbowTableTest, DoHashHexSHA1)
     auto hash = RainbowTable::DoHashHex(
         (const uint8_t*)empty.data(), 0, HashAlgorithmSHA1);
     EXPECT_EQ(hash, "da39a3ee5e6b4b0d3255bfef95601890afd80709");
+}
+
+// ============================================================
+// Deterministic crack test (bug #7 regression)
+// ============================================================
+
+TEST_F(RainbowTableTest, CrackReturnsCrackedResults)
+{
+    const std::string charset = "abcdefghijklmnopqrstuvwxyz";
+    const size_t min = 1, max = 4, length = 100;
+    const HashAlgorithm algo = HashAlgorithmMD5;
+
+    // Compute chain 0 to learn the start word
+    auto chain = RainbowTable::ComputeChain(0, min, max, length, algo, charset);
+    std::string startWord = chain.Start();
+    ASSERT_FALSE(startWord.empty());
+
+    // Hash the start word — this hash is guaranteed crackable via chain 0
+    auto targetHash = RainbowTable::DoHashHex(
+        (const uint8_t*)startWord.data(), startWord.size(), algo);
+
+    // Build a table that includes chain 0
+    RainbowTable builder;
+    builder.SetPath(m_TablePath);
+    builder.SetAlgorithm("md5");
+    builder.SetMin(min);
+    builder.SetMax(max);
+    builder.SetLength(length);
+    builder.SetBlocksize(SimdLanes());
+    builder.SetCount(SimdLanes() * 4);
+    builder.SetThreads(1);
+    builder.SetCharset("lower");
+    builder.InitAndRunBuild();
+
+    // Decompress to uncompressed (sorted) for binary search lookup
+    RainbowTable decompressor;
+    decompressor.SetPath(m_TablePath);
+    ASSERT_TRUE(decompressor.LoadTable());
+    decompressor.Decompress(m_UncompressedPath);
+    ASSERT_TRUE(std::filesystem::exists(m_UncompressedPath));
+
+    // Crack the hash
+    RainbowTable cracker;
+    cracker.SetPath(m_UncompressedPath);
+    ASSERT_TRUE(cracker.LoadTable());
+    cracker.SetThreads(1);
+
+    auto results = cracker.Crack(targetHash);
+
+    // Verify the returned vector contains the cracked result
+    ASSERT_FALSE(results.empty());
+    bool found = false;
+    for (const auto& [crackedHash, password] : results)
+    {
+        if (password == startWord)
+        {
+            found = true;
+            break;
+        }
+    }
+    EXPECT_TRUE(found) << "Expected to find '" << startWord << "' in cracked results";
 }
