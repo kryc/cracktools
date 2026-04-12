@@ -10,6 +10,9 @@
 #define WordGenerator_hpp
 
 #include <cstdint>
+#include <iostream>
+#include <cmath>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -116,6 +119,11 @@ private:
 const std::string_view
 ParseCharset(
     const std::string_view Name
+);
+
+const std::optional<std::string_view>
+CharsetName(
+    const std::string_view Charset
 );
 
 #endif /* WordGenerator_hpp */

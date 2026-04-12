@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <iostream>
 #include <cmath>
+#include <optional>
 #include <span>
 #include <ranges>
 #include <string>
@@ -630,4 +631,22 @@ ParseCharset(
         return COMMON_SHORTER;
     }
     return ASCII;
+}
+
+const std::optional<std::string_view>
+CharsetName(
+    const std::string_view Charset
+)
+{
+    if (Charset == ASCII) return "ascii";
+    else if (Charset == LOWER) return "lower";
+    else if (Charset == UPPER) return "upper";
+    else if (Charset == NUMERIC) return "numeric";
+    else if (Charset == ALPHANUMERIC) return "alnum";
+    else if (Charset == LOWERNUMERIC) return "lownum";
+    else if (Charset == UPPERNUMERIC) return "upnum";
+    else if (Charset == COMMON) return "common90";
+    else if (Charset == COMMON_SHORT) return "common75";
+    else if (Charset == COMMON_SHORTER) return "common50";
+    else return {};
 }

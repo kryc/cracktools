@@ -61,16 +61,11 @@ RainbowTableSet::GenerateFilename(
 {
     std::string algo = HashAlgorithmToString(m_Algorithm);
     std::transform(algo.begin(), algo.end(), algo.begin(), ::tolower);
-    // Find a short charset name, or use the length
-    std::string charsetName;
-    if (m_Charset == ASCII) charsetName = "ascii";
-    else if (m_Charset == LOWER) charsetName = "lower";
-    else if (m_Charset == UPPER) charsetName = "upper";
-    else if (m_Charset == NUMERIC) charsetName = "numeric";
-    else if (m_Charset == ALPHANUMERIC) charsetName = "alnum";
-    else if (m_Charset == LOWERNUMERIC) charsetName = "lownum";
-    else if (m_Charset == UPPERNUMERIC) charsetName = "upnum";
-    else charsetName = "c" + std::to_string(m_Charset.size());
+    // Find a short charset name, or use the length 
+    auto maybeCharsetName = CharsetName(m_Charset);
+    std::string charsetName = maybeCharsetName
+        ? std::string(*maybeCharsetName)
+        : "c" + std::to_string(m_Charset.size());
 
     return algo + "_" + charsetName + "_" +
            std::to_string(m_Min) + "-" + std::to_string(m_Max) + "_" +
