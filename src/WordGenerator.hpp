@@ -32,13 +32,17 @@ static const std::string ALPHANUMERIC = NUMERIC + UPPER + LOWER;
 static const std::string LOWERNUMERIC = NUMERIC + LOWER;
 static const std::string UPPERNUMERIC = NUMERIC + UPPER;
 static const std::string ASCII = ASCII_SPECIAL_LO + NUMERIC + ASCII_SPECIAL_ML + UPPER + ASCII_SPECIAL_MH + LOWER + ASCII_SPECIAL_HI;
-// Based on an analysis of cracked passwords
-static const std::string COMMON = "a1e20ion9r3sl85746tumdychbkgfpvjwzxqAE._SRMNILTODCBKPHG-UF!YJVWZ@QX*$#?& :+/";
-static const std::string COMMON_SHORT = "a1e20ion9r3sl85746tumdychbkgfpvjwzxqAE._SRMNILTODCBKPHG-UF!YJVWZ@QX";
 // Used for parsing of email addresses
 static const std::string EMAIL_SPECIAL = "!#$%&'*+-/=?^_`{|}~";
 static const std::string EMAIL_LOCAL = LOWER + UPPER + NUMERIC + EMAIL_SPECIAL;
 static const std::string EMAIL_DOMAIN = LOWER + UPPER + NUMERIC + "-.";
+// The common character set is based on an analysis of cracked passwords
+// The plain COMMON set is 68 characters and covers over 90% of all 2,033,891,063 passwords analysed
+static const std::string COMMON = "a1e2io0nr3s9l8t4756mudchykbgpfvjwzAxq@!SM.ERLCDBTNPKHG_JFIOUVWY-$ZQX";
+// The COMMON_SHORT set is 56 characters and covers over 75% of all 2,033,891,063 passwords analysed
+static const std::string COMMON_SHORT = "a1e2io0nr3s9l8t4756mudchykbgpfvjwzAxq@!SM.ERLCDBTNPKHG_J";
+// The COMMON_SHORTER set is 37 characters and covers over 50% of all 2,033,891,063 passwords analysed
+static const std::string COMMON_SHORTER = "a1e2io0nr3s9l8t4756mudchykbgpfvjwzAxq";
 
 class WordGenerator
 {

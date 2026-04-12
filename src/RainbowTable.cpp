@@ -26,21 +26,6 @@
 #include <openssl/sha.h>
 
 namespace {
-struct Hash128 {
-    size_t operator()(const __uint128_t& v) const noexcept {
-        auto lo = static_cast<uint64_t>(v);
-        auto hi = static_cast<uint64_t>(v >> 64);
-        return std::hash<uint64_t>{}(lo) ^ (std::hash<uint64_t>{}(hi) * 0x9e3779b97f4a7c15ULL);
-    }
-};
-
-template<typename T>
-using EndpointSet = std::conditional_t<
-    std::is_same_v<T, __uint128_t>,
-    std::unordered_set<T, Hash128>,
-    std::unordered_set<T>
->;
-
 std::atomic<bool>* g_BuildComplete = nullptr;
 
 void HandleSigInt(int)
@@ -118,35 +103,32 @@ RainbowTable::InitAndRunBuild(
 
     m_StartingChains = m_Chains;
 
-    // Initialize the endpoint set for dedup
-    DispatchByWidth(m_IndexWidth, [&]<typename IndexT>()
-    {
-        EndpointSet<IndexT> set;
-        set.reserve(m_Count);
+    // Initialize the Bloom filter for endpoint dedup
+    m_EndpointFilter = std::make_unique<BloomFilter>(m_Count);
 
-        // On resume, load existing endpoints and find the max startpoint
-        if (m_StartingChains > 0)
+    // On resume, load existing endpoints and find the max startpoint
+    if (m_StartingChains > 0)
+    {
+        if (MapTable(true))
         {
-            if (MapTable(true))
+            DispatchByWidth(m_IndexWidth, [&]<typename IndexT>()
             {
                 auto data = m_MappedTable.subspan(sizeof(TableHeader));
                 auto records = cracktools::SpanCast<TableRecord<IndexT>>(data);
                 IndexT maxStart = 0;
                 for (const auto& r : records)
                 {
-                    set.insert(r.endpoint);
+                    m_EndpointFilter->Insert(r.endpoint);
                     if (r.startpoint > maxStart)
                         maxStart = r.startpoint;
                 }
                 // Resume generating from after the highest used startpoint
                 m_StartingChains = static_cast<size_t>(maxStart) + 1;
-                UnmapTable();
-                std::cerr << "Loaded " << set.size() << " existing unique endpoints, resuming from index " << m_StartingChains << std::endl;
-            }
+                std::cerr << "Loaded " << m_EndpointFilter->Count() << " existing endpoints, resuming from index " << m_StartingChains << std::endl;
+            });
+            UnmapTable();
         }
-
-        m_EndpointSet = std::move(set);
-    });
+    }
 
     m_WriteHandle = fopen(m_Path.c_str(), "a");
     if (m_WriteHandle == nullptr)
@@ -229,8 +211,8 @@ RainbowTable::InitAndRunBuild(
     SortTable();
     UnmapTable();
 
-    // Clear the endpoint set
-    m_EndpointSet.reset();
+    // Clear the endpoint filter
+    m_EndpointFilter.reset();
 
     std::cout << std::endl;
 }
@@ -242,7 +224,7 @@ RainbowTable::GenerateBlockData(
 {
     WordGenerator wordGenerator(m_Charset);
     wordGenerator.GenerateParsingLookupTable();
-    HybridReducer reducer(m_Min, m_Max, m_Charset);
+    HybridReducer reducer(m_Min, m_Max, m_Charset, m_Seed);
     std::vector<InternalRecord> block(m_Blocksize);
 
     SimdHashBufferFixed<kSmallStringMaxLength> words;
@@ -452,12 +434,10 @@ RainbowTable::SaveBlock(
     // Filter out chains with duplicate endpoints
     DispatchByWidth(m_IndexWidth, [&]<typename IndexT>()
     {
-        auto& set = std::any_cast<EndpointSet<IndexT>&>(m_EndpointSet);
-        std::erase_if(Block, [&set](const InternalRecord& record)
+        std::erase_if(Block, [this](const InternalRecord& record)
         {
             auto narrowed = static_cast<IndexT>(record.endpoint);
-            auto [it, inserted] = set.insert(narrowed);
-            return !inserted;
+            return !m_EndpointFilter->Insert(narrowed);
         });
     });
 
@@ -549,6 +529,7 @@ RainbowTable::StoreTableHeader(
     hdr.min = m_Min;
     hdr.max = m_Max;
     hdr.length = m_Length;
+    hdr.seed = m_Seed;
     hdr.charsetlen = m_Charset.size();
 #pragma clang unsafe_buffer_usage begin
     strncpy(hdr.charset, &m_Charset[0], sizeof(hdr.charset));
@@ -620,6 +601,7 @@ RainbowTable::LoadTable(
     m_Min = hdr.min;
     m_Max = hdr.max;
     m_Length = hdr.length;
+    m_Seed = hdr.seed;
     std::string_view charset(hdr.charset, hdr.charsetlen);
     m_Charset = charset;
     m_IndexWidth = ComputeIndexWidth(m_Min, m_Max, m_Charset);
@@ -849,7 +831,21 @@ RainbowTable::CountUniqueEndpoints(void)
     {
         auto data = m_MappedTable.subspan(sizeof(TableHeader));
         auto records = cracktools::SpanCast<TableRecord<IndexT>>(data);
-        EndpointSet<IndexT> seen;
+
+        struct Hash128 {
+            size_t operator()(const __uint128_t& v) const noexcept {
+                auto lo = static_cast<uint64_t>(v);
+                auto hi = static_cast<uint64_t>(v >> 64);
+                return std::hash<uint64_t>{}(lo) ^ (std::hash<uint64_t>{}(hi) * 0x9e3779b97f4a7c15ULL);
+            }
+        };
+        using Set = std::conditional_t<
+            std::is_same_v<IndexT, __uint128_t>,
+            std::unordered_set<IndexT, Hash128>,
+            std::unordered_set<IndexT>
+        >;
+
+        Set seen;
         seen.reserve(records.size());
         for (const auto& r : records)
             seen.insert(r.endpoint);
@@ -950,7 +946,7 @@ RainbowTable::CrackOneWorker(
     std::latch& Done
 )
 {
-    HybridReducer reducer(m_Min, m_Max, m_Charset);
+    HybridReducer reducer(m_Min, m_Max, m_Charset, m_Seed);
 
     for (ssize_t i = m_Length - 1 - ThreadId; i >= 0 && !m_Cracked; i -= m_Threads)
     {
@@ -978,7 +974,7 @@ RainbowTable::CrackOne(
         return std::nullopt;
     }
 
-    HybridReducer reducer(m_Min, m_Max, m_Charset);
+    HybridReducer reducer(m_Min, m_Max, m_Charset, m_Seed);
     auto target = Util::ParseHex(Hash);
     std::optional<std::string> result;
 
@@ -1027,23 +1023,15 @@ RainbowTable::CrackOne(
     return result;
 }
 
-std::vector<std::tuple<std::string, std::string>>
-RainbowTable::Crack(
-    const std::string_view Target
+bool
+RainbowTable::PrepareCrack(
+    void
 )
 {
-    // Mmap the table
     if (!MapTable(true))
     {
         std::cerr << "Error mapping the table" << std::endl;
-        return {};
-    }
-
-    // Check the argument
-    if (!Util::IsHex(Target) && !std::filesystem::exists(Target))
-    {
-        std::cerr << "Invalid target hash or file" << std::endl;
-        return {};
+        return false;
     }
 
     m_Operation = "Cracking";
@@ -1053,10 +1041,43 @@ RainbowTable::Crack(
         m_Threads = std::thread::hardware_concurrency();
     }
 
-    // Create the dispatch pool
     if (m_Threads > 1)
     {
         m_DispatchPool = dispatch::CreateDispatchPool("pool", m_Threads);
+    }
+
+    return true;
+}
+
+void
+RainbowTable::FinishCrack(
+    void
+)
+{
+    if (m_DispatchPool != nullptr)
+    {
+        m_DispatchPool->Stop();
+        m_DispatchPool->Wait();
+        m_DispatchPool = nullptr;
+    }
+    UnmapTable();
+}
+
+std::vector<std::tuple<std::string, std::string>>
+RainbowTable::Crack(
+    const std::string_view Target
+)
+{
+    if (!PrepareCrack())
+    {
+        return {};
+    }
+
+    // Check the argument
+    if (!Util::IsHex(Target) && !std::filesystem::exists(Target))
+    {
+        std::cerr << "Invalid target hash or file" << std::endl;
+        return {};
     }
 
     // Figure out if this is a single hash
@@ -1087,12 +1108,7 @@ RainbowTable::Crack(
         }
     }
 
-    // Stop the pool
-    if (m_DispatchPool != nullptr)
-    {
-        m_DispatchPool->Stop();
-        m_DispatchPool->Wait();
-    }
+    FinishCrack();
 
     return std::move(m_CrackedResults);
 }
@@ -1107,7 +1123,7 @@ RainbowTable::ValidateChain(
     std::span<uint8_t> hashspan = hashBuffer;
     auto hash = hashspan.subspan(0, m_HashWidth);
     std::vector<char> reduced(m_Max);
-    HybridReducer reducer(m_Min, m_Max, m_Charset);
+    HybridReducer reducer(m_Min, m_Max, m_Charset, m_Seed);
     size_t length;
     __uint128_t counter = WordGenerator::WordLengthIndex128(m_Min, m_Charset);
     counter += ChainIndex;
@@ -1148,6 +1164,7 @@ RainbowTable::Reset(
     m_Min = 0;
     m_Max = 0;
     m_Length = 0;
+    m_Seed = 0;
     m_Blocksize = 1024;
     m_Count = 0;
     m_Threads = 0;
@@ -1164,7 +1181,7 @@ RainbowTable::Reset(
     }
     m_NextWriteBlock = 0;
     m_WriteCache.clear();
-    m_EndpointSet.reset();
+    m_EndpointFilter.reset();
     m_ChainsGenerated = 0;
     m_ConsecutiveEmptyBlocks = 0;
     m_BuildComplete.store(false, std::memory_order_relaxed);

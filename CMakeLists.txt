@@ -100,7 +100,9 @@ target_link_libraries(crackdb++ dispatchqueue simdhash crypto gmp gmpxx)
 # SimdRainbowCrack
 set(SIMDRAINBOWCRACK_SOURCES
     src/SimdRainbowCrackMain.cpp
+    src/BloomFilter.cpp
     src/RainbowTable.cpp
+    src/RainbowTableSet.cpp
     src/Util.cpp
     src/WordGenerator.cpp
 )

@@ -9,13 +9,14 @@
 #ifndef RainbowTable_hpp
 #define RainbowTable_hpp
 
-#include <any>
+
 #include <atomic>
 #include <filesystem>
 #include <fstream>
 #include <latch>
 #include <limits>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -24,6 +25,7 @@
 #include "DispatchQueue.hpp"
 #include "simdhash.h"
 
+#include "BloomFilter.hpp"
 #include "Chain.hpp"
 #include "HashList.hpp"
 #include "Reduce.hpp"
@@ -41,6 +43,7 @@ typedef struct  __attribute__((__packed__)) _TableHeader
     uint8_t  max;
     uint8_t  charsetlen;
     uint64_t length;
+    uint32_t seed;
     char     charset[128];
 } TableHeader;
 
@@ -112,7 +115,10 @@ public:
     void SetThreads(const size_t Threads) { m_Threads = Threads; }
     const size_t GetThreads(void) const { return m_Threads; }
     void SetCharset(const std::string_view Charset) { m_Charset = ParseCharset(Charset); }
+    void SetCharsetRaw(const std::string_view Charset) { m_Charset = Charset; }
     const std::string& GetCharset(void) const { return m_Charset; }
+    void SetSeed(const uint32_t Seed) { m_Seed = Seed; }
+    const uint32_t GetSeed(void) const { return m_Seed; }
     void SetSeparator(const char Separator) { m_Separator = Separator; }
     const char GetSeparator(void) const { return m_Separator; }
     float GetCoverageEstimate(void);
@@ -124,6 +130,10 @@ public:
     bool LoadTable(void);
     bool Complete(void) const { return m_ThreadsCompleted == m_Threads; }
     std::vector<std::tuple<std::string, std::string>> Crack(const std::string_view Target);
+    // For external orchestration (e.g. RainbowTableSet)
+    bool PrepareCrack(void);
+    void FinishCrack(void);
+    std::optional<std::string> CrackOne(const std::string_view Hash);
     static const size_t ChainWidth(const uint8_t IndexWidth);
     const size_t GetChainWidth(void) const { return ChainWidth(m_IndexWidth); }
     static void DoHash(const uint8_t* Data, const size_t Length, uint8_t* Digest, const HashAlgorithm Algorithm) { SimdHashSingle(Algorithm, Length, Data, Digest); };
@@ -134,8 +144,8 @@ public:
     void SortTable(void);
     static const Chain GetChain(const std::filesystem::path& Path, const size_t Index);
     static const Chain ComputeChain(const size_t Index, const size_t Min, const size_t Max, const size_t Length, const HashAlgorithm Algorithm, const std::string& Charset);
-    inline const __uint128_t GetEndpointAt(const size_t Index) const;
-    inline const InternalRecord GetRecordAt(const size_t Index) const;
+    const __uint128_t GetEndpointAt(const size_t Index) const;
+    const InternalRecord GetRecordAt(const size_t Index) const;
     size_t CountUniqueEndpoints(void);
 private:
     // General purpose
@@ -155,7 +165,6 @@ private:
     void WriteBlock(const size_t BlockId, std::span<const InternalRecord> Block);
     void BuildThreadCompleted(const size_t ThreadId);
     // Cracking
-    std::optional<std::string> CrackOne(const std::string_view Target);
     void CrackOneWorker(const size_t ThreadId, const std::vector<uint8_t> Target, std::latch& Done);
     std::optional<std::string> CheckIteration(const HybridReducer& Reducer, const std::span<const uint8_t> Hash, const size_t Iteration) const;
 
@@ -172,6 +181,7 @@ private:
     double m_Coverage = 0.99;
     size_t m_Threads = 0;
     std::string m_Charset;
+    uint32_t m_Seed = 0;
     size_t m_HashWidth = 0;
     size_t m_Chains = 0;
     dispatch::DispatchPoolPtr m_DispatchPool;
@@ -186,7 +196,7 @@ private:
     size_t m_ChainsGenerated = 0;
     size_t m_ConsecutiveEmptyBlocks = 0;
     std::atomic<bool> m_BuildComplete = false;
-    std::any m_EndpointSet;
+    std::unique_ptr<BloomFilter> m_EndpointFilter;
     std::map<size_t, uint64_t> m_ThreadTimers;
     // For cracking
     std::span<uint8_t> m_MappedTable;

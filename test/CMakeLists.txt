@@ -60,8 +60,11 @@ add_test(NAME unittest COMMAND unittest)
 # RainbowTable unittest (needs simdhash, dispatchqueue, crypto)
 add_executable(rainbow_unittest EXCLUDE_FROM_ALL
     RainbowTableUnittest.cpp
+    RainbowTableSetUnittest.cpp
     ReduceUnittest.cpp
+    ../src/BloomFilter.cpp
     ../src/RainbowTable.cpp
+    ../src/RainbowTableSet.cpp
     ../src/Util.cpp
     ../src/WordGenerator.cpp)
 target_include_directories(rainbow_unittest

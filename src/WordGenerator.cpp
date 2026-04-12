@@ -617,13 +617,17 @@ ParseCharset(
     {
         return UPPERNUMERIC;
     }
-    else if (Name == "common")
+    else if (Name == "common" || Name == "commonfull" || Name == "commonlong" || Name == "common90")
     {
         return COMMON;
     }
-    else if (Name == "commonshort")
+    else if (Name == "commonshort" || Name == "common75")
     {
         return COMMON_SHORT;
+    }
+    else if (Name == "commonshorter" || Name == "common50")
+    {
+        return COMMON_SHORTER;
     }
     return ASCII;
 }

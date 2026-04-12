@@ -318,13 +318,15 @@ protected:
 class HybridReducer final : public Reducer
 {
     static constexpr size_t kHybridReducerMaxHashSize = 512u / 8u;
-    static constexpr uint64_t kHybridReducerRoundConstant = 0x5a827999;
+    static constexpr uint32_t kHybridReducerRoundConstant = 0x5a827999;
+    static constexpr uint32_t kHybridReducerSeedConstant  = 0xd41e1281;
 public:
     HybridReducer(
         const size_t Min,
         const size_t Max,
-        const std::string_view Charset
-    ) : Reducer(Min, Max, Charset)
+        const std::string_view Charset,
+        const uint32_t Seed = 0
+    ) : Reducer(Min, Max, Charset), m_Seed(Seed)
     {
         index_t total = 0;
         for (size_t i = Min; i <= Max; i++)
@@ -364,9 +366,10 @@ public:
         const std::span<const uint32_t> hash32 = cracktools::SpanCast<const uint32_t>(Hash);
         size_t length, offset = 0;
         // Copy and mix in the iteration
+        const uint32_t seed = kHybridReducerSeedConstant * m_Seed;
         for (size_t i = 0; i < hash32.size(); i++)
         {
-            buffer32[i] = hash32[i] ^ std::rotl(kHybridReducerRoundConstant * Iteration, i);
+            buffer32[i] = hash32[i] ^ std::rotl(static_cast<uint32_t>(kHybridReducerRoundConstant * Iteration), i) ^ seed;
         }
         
         // If we are using variable lengths we use a bigint
@@ -420,6 +423,7 @@ public:
         );
     }
 private:
+    uint32_t m_Seed;
     size_t m_BitsRequired;
     size_t m_BytesRequired;
     index_t m_Mask;
