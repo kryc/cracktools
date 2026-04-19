@@ -698,7 +698,7 @@ CalculateKeyspaceForMask(
 	return keyspace;
 }
 
-std::array<char, 256> MASK_MAP = {
+std::array<signed char, 256> MASK_MAP = {
     /* 0x00 - 0x0f */  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,
     /* 0x10 - 0x1f */  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,
     /* 0x20 - 0x2f */ 's', 's', 's', 's', 's', 's', 's', 's', 's', 's', 's', 's', 's', 's', 's', 's',

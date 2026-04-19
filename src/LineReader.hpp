@@ -15,6 +15,8 @@
 
 #if defined(__AVX512F__) || defined(__AVX2__) || defined(__SSE4_2__) || defined(__SSSE3__) || defined(__SSE2__)
 #include <immintrin.h>
+#elif defined(__arm64__) || defined(__aarch64__)
+#include <arm_neon.h>
 #endif
 
 #include "UnsafeBuffer.hpp"
@@ -328,25 +330,22 @@ public:
     static_assert(BlockSize % 16 == 0, "BlockSize must be a multiple of 16 for NEON");
     const size_t CountLines(void) {
         static const uint8x16_t newline = vdupq_n_u8('\n');
-        auto bufferSpan = cracktools::SpanCast<uint8x16_t>(m_BufferView);
         size_t lineCount = 0;
         while (!m_FileStream.eof()) {
-            m_FileStream.read(m_BufferSpan.data(), BlockSize);
+            m_FileStream.read(m_BufferSpanChars.data(), BlockSize);
             const size_t bytesRead = m_FileStream.gcount();
             if (bytesRead == 0) {
                 break;
             }
             // Fill the remainder of the buffer with zeros if needed
             if (bytesRead < BlockSize) {
-                std::fill(m_BufferSpan.begin() + bytesRead, m_BufferSpan.end(), 0);
+                std::fill(m_BufferSpanChars.begin() + bytesRead, m_BufferSpanChars.end(), 0);
             }
-            for (auto chunk : bufferSpan) {
+            for (auto chunk : m_BufferSpanVector) {
                 // Compare each byte in the chunk to '\n'
                 uint8x16_t cmp = vceqq_u8(chunk, newline);
-                // Create a bitmask from the comparison result
-                uint64_t mask = vmovq_u64(vreinterpretq_u64_u8(cmp));
-                // Count the number of set bits in the mask
-                lineCount += __builtin_popcountll(mask);
+                // Count matching bytes (vceqq returns 0xFF per match, so sum and divide by 255)
+                lineCount += vaddvq_u8(cmp) / 255;
             }
         }
         return lineCount;
