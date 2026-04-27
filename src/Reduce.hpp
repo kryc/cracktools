@@ -25,8 +25,6 @@
 #include "Util.hpp"
 #include "WordGenerator.hpp"
 
-typedef __uint128_t index_t;
-
 // For a given charset size, calculate the number of bits
 // required to represent the maximum value
 static inline const size_t
@@ -54,15 +52,15 @@ CalculateBitsRequired(
 
 static inline void
 CalculateBytesRequired(
-    const index_t Value,
+    const __uint128_t Value,
     size_t* BitsRequired,
     size_t* BytesRequired,
-    index_t* Mask
+    __uint128_t* Mask
 )
 {
     const size_t bitsRequired = Util::BitWidth128(Value);
     const size_t bytesRequired = (bitsRequired + 7) / 8;
-    const index_t mask = bitsRequired >= 128 ? ~index_t(0) : (index_t(1) << bitsRequired) - 1;
+    const __uint128_t mask = bitsRequired >= 128 ? ~__uint128_t(0) : (__uint128_t(1) << bitsRequired) - 1;
     
     if (BitsRequired != nullptr)
     {
@@ -76,36 +74,6 @@ CalculateBytesRequired(
     {
         *Mask = mask;
     }
-}
-
-static inline index_t
-LoadBytesToIndex(
-    std::span<const uint8_t> Buffer,
-    const size_t Offset,
-    const size_t Length
-)
-{
-    assert(Length <= sizeof(index_t));
-    assert(Offset + Length <= Buffer.size());
-    // If there are enough bytes after the offset we can optimize the load
-    index_t reduction = 0;
-    if (Length <= sizeof(uint64_t) && Buffer.size() >= Offset + sizeof(uint64_t))
-    {
-        reduction = cracktools::LoadUint64BigEndian(
-            Buffer.subspan(Offset, sizeof(uint64_t))
-        );
-        // Shift off the unused bytes
-        reduction >>= (sizeof(uint64_t) - Length) * 8;
-    }
-    else
-    {
-        for (size_t i = 0; i < Length; i++)
-        {
-            reduction <<= 8;
-            reduction |= Buffer[Offset + i];
-        }
-    }
-    return reduction;
 }
 
 class Reducer
@@ -130,9 +98,9 @@ public:
     const size_t GetMin(void) const { return m_Min; }
     const size_t GetMax(void) const { return m_Max; }
     const std::string_view GetCharset(void) const  { return m_Charset; }
-    const index_t GetMinIndex(void) const { return m_MinIndex; }
-    const index_t GetMaxIndex(void) const { return m_MaxIndex; }
-    const index_t GetKeyspace(void) const { return m_MaxIndex - m_MinIndex; }
+    const __uint128_t GetMinIndex(void) const { return m_MinIndex; }
+    const __uint128_t GetMaxIndex(void) const { return m_MaxIndex; }
+    const __uint128_t GetKeyspace(void) const { return m_MaxIndex - m_MinIndex; }
 protected:
     // A basic entropy extension function based on SHA256 extension
     // It replaces the data in a destination buffer. there are two entropy
@@ -203,8 +171,8 @@ protected:
     const size_t m_Min;
     const size_t m_Max;
     const std::string_view m_Charset;
-    const index_t m_MinIndex;
-    const index_t m_MaxIndex;
+    const __uint128_t m_MinIndex;
+    const __uint128_t m_MaxIndex;
 };
 
 class BasicModuloReducer : public Reducer
@@ -224,7 +192,7 @@ public:
     {
         
         // Parse the hash as a single bigint
-        index_t reduction = LoadBytesToIndex(Hash, 0, Hash.size());
+        __uint128_t reduction = cracktools::LoadTypeLittleEndian<__uint128_t>(Hash);
         return PerformReduction(
             Destination,
             reduction,
@@ -236,7 +204,7 @@ protected:
 
     inline size_t PerformReduction(
         std::span<char> Destination,
-        index_t& Value,
+        __uint128_t& Value,
         const size_t Iteration
     ) const
     {
@@ -283,10 +251,11 @@ public:
     {
         std::vector<uint8_t> hashBuffer(Hash.size());
         std::copy(Hash.begin(), Hash.end(), hashBuffer.begin());
+        std::span<uint8_t> hashBufferSpan(hashBuffer);
         // Repeatedly try to load the hash integer until it is in range
         // we do this to avoid a modulo bias favouring reduction at the bottom
         // end of the password space
-        index_t reduction = GetKeyspace() + 1;
+        __uint128_t reduction = GetKeyspace() + 1;
         size_t offset = 0;
         while (reduction > GetKeyspace())
         {
@@ -296,7 +265,8 @@ public:
                 offset = 0;
             }
             // Parse the hash as a single integer
-            reduction = LoadBytesToIndex(hashBuffer, offset, m_BytesRequired);
+            auto offsetspan = hashBufferSpan.subspan(offset);
+            reduction = cracktools::LoadBytesToTypeLittleEndian<__uint128_t>(offsetspan, m_BytesRequired);
             // Mask the value to ensure it is in range
             reduction &= m_Mask;
             // Move the offset along
@@ -312,7 +282,7 @@ public:
 protected:
     size_t m_BitsRequired;
     size_t m_BytesRequired;
-    index_t m_Mask;
+    __uint128_t m_Mask;
 };
 
 class HybridReducer final : public Reducer
@@ -328,12 +298,12 @@ public:
         const uint32_t Seed = 0
     ) : Reducer(Min, Max, Charset), m_Seed(Seed)
     {
-        index_t total = 0;
+        __uint128_t total = 0;
         for (size_t i = Min; i <= Max; i++)
         {
             const __uint128_t lower = WordGenerator::WordLengthIndex128(i, Charset);
             const __uint128_t upper = WordGenerator::WordLengthIndex128(i + 1, Charset);
-            const index_t keyspace = upper - lower;
+            const __uint128_t keyspace = upper - lower;
             total += keyspace;
             m_Limits[i] = total;
         }
@@ -347,7 +317,7 @@ public:
             &m_Mask
         );
 
-        assert(m_BytesRequired <= sizeof(index_t));
+        assert(m_BytesRequired <= sizeof(__uint128_t));
     }
 
     size_t Reduce(
@@ -379,7 +349,7 @@ public:
             // Repeatedly try to load the hash integer until it is in range
             // we do this to avoid a modulo bias favouring reduction at the bottom
             // end of the password space
-            index_t reduction = m_Limits[m_Max] + 1;
+            __uint128_t reduction = m_Limits[m_Max] + 1;
             while (reduction >= m_Limits[m_Max])
             {
                 if (offset + m_BytesRequired == Hash.size())
@@ -388,7 +358,9 @@ public:
                     offset = 0;
                 }
                 // Parse the hash as a single integer
-                reduction = LoadBytesToIndex(buffer, offset, m_BytesRequired);
+                auto offsetspan = buffer.subspan(offset);
+                reduction = cracktools::LoadBytesToTypeLittleEndian<__uint128_t>(offsetspan, m_BytesRequired);
+                // Mask the value to ensure it is in range
                 reduction &= m_Mask;
                 // Move the offset along
                 offset++;
@@ -426,8 +398,8 @@ private:
     uint32_t m_Seed;
     size_t m_BitsRequired;
     size_t m_BytesRequired;
-    index_t m_Mask;
-    std::array<index_t, kSmallStringMaxLength> m_Limits{};
+    __uint128_t m_Mask;
+    std::array<__uint128_t, kSmallStringMaxLength> m_Limits{};
 };
 
 class BytewiseReducer final : public Reducer
