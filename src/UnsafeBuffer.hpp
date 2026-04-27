@@ -63,7 +63,7 @@ std::span<T> UnsafeSpan(
     std::string_view StringView
 )
 {
-    return std::span<T>(StringView.data(), StringView.size());
+    return std::span<T>((T*)StringView.data(), StringView.size());
 }
 
 template <typename T, typename T2>
@@ -166,13 +166,96 @@ AsString(
     return std::string((char*)Span.data(), Span.size_bytes());
 }
 
+template <typename T>
+inline static T
+LoadTypeNative(
+    std::span<const uint8_t> Span
+)
+{
+    CHECKA(Span.size() >= sizeof(T), "Span size is less than type size");
+    return *(T*)Span.data();
+}
+
+template <typename T>
+inline static T
+LoadTypeNative(
+    const std::string_view String
+)
+{
+    CHECKA(String.size() >= sizeof(T), "String size is less than type size");
+    return *(T*)String.data();
+}
+
+template <typename T>
+inline static T
+LoadTypeLittleEndian(
+    std::span<const uint8_t> Span
+)
+{
+    if (std::endian::native == std::endian::little)
+    {
+        return LoadTypeNative<T>(Span);
+    }
+    else
+    {
+        return std::byteswap(LoadTypeNative<T>(Span));
+    }
+}
+
+template <typename T>
+inline static T
+LoadTypeLittleEndian(
+    const std::string_view String
+)
+{
+    if (std::endian::native == std::endian::little)
+    {
+        return LoadTypeNative<T>(String);
+    }
+    else
+    {
+        return std::byteswap(LoadTypeNative<T>(String));
+    }
+}
+
+template <typename T>
+inline static T
+LoadTypeBigEndian(
+    std::span<const uint8_t> Span
+)
+{
+    if (std::endian::native == std::endian::little)
+    {
+        return std::byteswap(LoadTypeNative<T>(Span));
+    }
+    else
+    {
+        return LoadTypeNative<T>(Span);
+    }
+}
+
+template <typename T>
+inline static T
+LoadTypeBigEndian(
+    const std::string_view String
+)
+{
+    if (std::endian::native == std::endian::little)
+    {
+        return std::byteswap(LoadTypeNative<T>(String));
+    }
+    else
+    {        
+        return LoadTypeNative<T>(String);
+    }
+}
+
 inline static uint32_t
 LoadUint32Native(
     std::span<const uint8_t> Span
 )
 {
-    CHECKA(Span.size() >= sizeof(uint32_t), "Span size is less than uint32_t");
-    return *(uint32_t*)Span.data();
+    return LoadTypeNative<uint32_t>(Span);
 }
 
 inline static uint32_t
@@ -180,8 +263,7 @@ LoadUint32Native(
     const std::string_view String
 )
 {
-    CHECKA(String.size() >= sizeof(uint32_t), "String size is less than uint32_t");
-    return *(uint32_t*)String.data();
+    return LoadTypeNative<uint32_t>(String);
 }
 
 template <typename T>
@@ -190,14 +272,7 @@ LoadUint32LittleEndian(
     T Value
 )
 {
-    if (std::endian::native == std::endian::little)
-    {
-        return LoadUint32Native(Value);
-    }
-    else
-    {
-        return std::byteswap(LoadUint32Native(Value));
-    }
+    return LoadTypeLittleEndian<uint32_t>(Value);
 }
 
 template <typename T>
@@ -206,14 +281,7 @@ LoadUint32BigEndian(
     T Value
 )
 {
-    if (std::endian::native == std::endian::little)
-    {
-        return std::byteswap(LoadUint32Native(Value));
-    }
-    else
-    {
-        return LoadUint32Native(Value);
-    }
+    return LoadTypeBigEndian<uint32_t>(Value);
 }
 
 inline static uint64_t
@@ -221,8 +289,7 @@ LoadUint64Native(
     std::span<const uint8_t> Span
 )
 {
-    CHECKA(Span.size() >= sizeof(uint64_t), "Span size is less than uint64_t");
-    return *(uint64_t*)Span.data();
+    return LoadTypeNative<uint64_t>(Span);
 }
 
 inline static uint64_t
@@ -230,8 +297,7 @@ LoadUint64Native(
     const std::string_view String
 )
 {
-    CHECKA(String.size() >= sizeof(uint64_t), "String size is less than uint64_t");
-    return *(uint64_t*)String.data();
+    return LoadTypeNative<uint64_t>(String);
 }
 
 template <typename T>
@@ -240,14 +306,7 @@ LoadUint64LittleEndian(
     T Value
 )
 {
-    if (std::endian::native == std::endian::little)
-    {
-        return LoadUint64Native(Value);
-    }
-    else
-    {
-        return std::byteswap(LoadUint64Native(Value));
-    }
+    return LoadTypeLittleEndian<uint64_t>(Value);
 }
 
 template <typename T>
@@ -256,14 +315,7 @@ LoadUint64BigEndian(
     T Value
 )
 {
-    if (std::endian::native == std::endian::little)
-    {
-        return std::byteswap(LoadUint64Native(Value));
-    }
-    else
-    {
-        return LoadUint64Native(Value);
-    }
+    return LoadTypeBigEndian<uint64_t>(Value);
 }
 
 inline static __uint128_t
@@ -271,8 +323,7 @@ LoadUint128Native(
     std::span<const uint8_t> Span
 )
 {
-    CHECKA(Span.size() >= sizeof(__uint128_t), "Span size is less than uint128_t");
-    return *(__uint128_t*)Span.data();
+    return LoadTypeNative<__uint128_t>(Span);
 }
 
 inline static __uint128_t
@@ -280,8 +331,7 @@ LoadUint128Native(
     const std::string_view String
 )
 {
-    CHECKA(String.size() >= sizeof(__uint128_t), "String size is less than uint128_t");
-    return *(__uint128_t*)String.data();
+    return LoadTypeNative<__uint128_t>(String);
 }
 
 template <typename T>
@@ -290,14 +340,7 @@ LoadUint128LittleEndian(
     T Value
 )
 {
-    if (std::endian::native == std::endian::little)
-    {
-        return LoadUint128Native(Value);
-    }
-    else
-    {
-        return std::byteswap(LoadUint128Native(Value));
-    }
+    return LoadTypeLittleEndian<__uint128_t>(Value);
 }
 
 template <typename T>
@@ -306,14 +349,134 @@ LoadUint128BigEndian(
     T Value
 )
 {
-    if (std::endian::native == std::endian::little)
+    return LoadTypeBigEndian<__uint128_t>(Value);
+}
+
+/*
+ * Load bytes into a type using the native endianness of the system.
+ * The number of bytes can be less than the size of the type
+ */
+template <typename T>
+inline static T
+LoadBytesToTypeLittleEndian(
+    std::span<const uint8_t> Span,
+    const size_t Length = sizeof(T)
+)
+{
+    CHECKA(Span.size() >= Length, "Span size is less than the specified length");
+    T Value = 0;
+
+    // Fast path if there are enough bytes for the full type, load it and remove the excess
+    if (Length >= sizeof(T))
     {
-        return std::byteswap(LoadUint128Native(Value));
+        Value = LoadTypeLittleEndian<T>(Span);
+        if (Length < sizeof(T))
+        {
+            const size_t shiftcount = (sizeof(T) - Length) * 8;
+            Value <<= shiftcount; // Shift left to remove excess bytes
+            Value >>= shiftcount; // Shift back to the right
+        }
+        return Value;
     }
-    else
+
+    // Slower path.
+    // Load in chunks of 8, 4, 2, or 1 bytes until we've loaded the specified length
+    size_t remaining = Length;
+    size_t offset = 0;
+    while (remaining > 0)
     {
-        return LoadUint128Native(Value);
+        if (remaining >= sizeof(uint64_t))
+        {
+            uint64_t chunk = LoadTypeLittleEndian<uint64_t>(Span.subspan(offset, sizeof(uint64_t)));
+            Value |= static_cast<T>(chunk) << (offset * 8);
+            offset += sizeof(uint64_t);
+            remaining -= sizeof(uint64_t);
+        }
+        else if (remaining >= sizeof(uint32_t))
+        {
+            uint32_t chunk = LoadTypeLittleEndian<uint32_t>(Span.subspan(offset, sizeof(uint32_t)));
+            Value |= static_cast<T>(chunk) << (offset * 8);
+            offset += sizeof(uint32_t);
+            remaining -= sizeof(uint32_t);
+        }
+        else if (remaining >= sizeof(uint16_t))
+        {
+            uint16_t chunk = LoadTypeLittleEndian<uint16_t>(Span.subspan(offset, sizeof(uint16_t)));
+            Value |= static_cast<T>(chunk) << (offset * 8);
+            offset += sizeof(uint16_t);
+            remaining -= sizeof(uint16_t);
+        }
+        else
+        {
+            uint8_t chunk = LoadTypeLittleEndian<uint8_t>(Span.subspan(offset, sizeof(uint8_t)));
+            Value |= static_cast<T>(chunk) << (offset * 8);
+            offset += sizeof(uint8_t);
+            remaining -= sizeof(uint8_t);
+        }
     }
+    return Value;
+}
+
+template <typename T>
+inline static T
+LoadBytesToTypeBigEndian(
+    std::span<const uint8_t> Span,
+    const size_t Length = sizeof(T)
+)
+{
+    CHECKA(Span.size() >= Length, "Span size is less than the specified length");
+    T Value = 0;
+
+    // Fast path if there are enough bytes for the full type, load it and remove the excess
+    if (Length >= sizeof(T))
+    {
+        Value = LoadTypeBigEndian<T>(Span);
+        if (Length < sizeof(T))
+        {
+            const size_t shiftcount = (sizeof(T) - Length) * 8;
+            Value <<= shiftcount; // Shift left to remove excess bytes
+            Value >>= shiftcount; // Shift back to the right
+        }
+        return Value;
+    }
+
+    // Slower path.
+    /// Same as ittle endian but we need to load from the end of the span and shift the value by (Length - offset - chunk_size) * 8 instead of offset * 8
+    size_t remaining = Length;
+    size_t offset = 0;
+    while (remaining > 0)
+    {
+        if (remaining >= sizeof(uint64_t))
+        {
+            uint64_t chunk = LoadTypeBigEndian<uint64_t>(Span.subspan(Length - offset - sizeof(uint64_t), sizeof(uint64_t)));
+            Value |= static_cast<T>(chunk) << (offset * 8);
+            offset += sizeof(uint64_t);
+            remaining -= sizeof(uint64_t);
+        }
+        else if (remaining >= sizeof(uint32_t))
+        {
+            uint32_t chunk = LoadTypeBigEndian<uint32_t>(Span.subspan(Length - offset - sizeof(uint32_t), sizeof(uint32_t)));
+            Value |= static_cast<T>(chunk) << (offset * 8);
+            offset += sizeof(uint32_t);
+            remaining -= sizeof(uint32_t);
+        }
+        else if (remaining >= sizeof(uint16_t))
+        {
+            uint16_t chunk = LoadTypeBigEndian<uint16_t>(Span.subspan(Length - offset - sizeof(uint16_t), sizeof(uint16_t)));
+            Value |= static_cast<T>(chunk) << (offset * 8);
+            offset += sizeof(uint16_t);
+            remaining -= sizeof(uint16_t);
+        }
+        else
+        {
+            uint8_t chunk = LoadTypeBigEndian<uint8_t>(Span.subspan(Length - offset - sizeof(uint8_t), sizeof(uint8_t)));
+            Value |= static_cast<T>(chunk) << (offset * 8);
+            offset += sizeof(uint8_t);
+            remaining -= sizeof(uint8_t);
+        }
+    }
+
+    return Value;
 }
 
 template <typename T>

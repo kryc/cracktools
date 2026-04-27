@@ -2,6 +2,7 @@
 
 #include <string>
 
+#include "UnsafeBuffer.hpp"
 #include "Util.hpp"
 
 TEST(Util, IsNumeric)
@@ -40,11 +41,17 @@ TEST(Util, IsRadix64)
 
 TEST(Util, IsPrintableASCII)
 {
-    EXPECT_TRUE(Util::IsPrintableASCII("Hello, World!"));
-    EXPECT_FALSE(Util::IsPrintableASCII("Hello,\nWorld!"));
-    EXPECT_FALSE(Util::IsPrintableASCII("Hello,\x01World!"));
-    EXPECT_TRUE(Util::IsPrintableASCII(std::span<const uint8_t>{(const uint8_t*)"Hello, World!", 13}));
-    EXPECT_FALSE(Util::IsPrintableASCII(std::span<const uint8_t>{(const uint8_t*)"Hello,\nWorld!", 14}));
+    const std::string_view helloWorld = "Hello, World!";
+    const std::string_view helloWorldWithNewline = "Hello,\nWorld!";
+    const std::string_view helloWorldWithNonPrintable = "Hello,\x01World!";
+
+    EXPECT_TRUE(Util::IsPrintableASCII(helloWorld));
+    EXPECT_FALSE(Util::IsPrintableASCII(helloWorldWithNewline));
+    EXPECT_FALSE(Util::IsPrintableASCII(helloWorldWithNonPrintable));
+    auto helloWorldSpan = cracktools::UnsafeSpan<const uint8_t>(helloWorld);
+    auto helloWorldWithNewlineSpan = cracktools::UnsafeSpan<const uint8_t>(helloWorldWithNewline);
+    EXPECT_TRUE(Util::IsPrintableASCII(helloWorldSpan));
+    EXPECT_FALSE(Util::IsPrintableASCII(helloWorldWithNewlineSpan));
 }
 
 TEST(Util, IsPrintableASCIIHexlified)
