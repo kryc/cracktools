@@ -237,6 +237,7 @@ RainbowTableSet::ConfigureTable(
     Table.SetCharsetRaw(m_Charset);
     if (m_Threads > 0) Table.SetThreads(m_Threads);
     if (m_Blocksize > 0) Table.SetBlocksize(m_Blocksize);
+    Table.SetFlushThreshold(m_FlushThresholdChains);
 }
 
 void
@@ -247,8 +248,31 @@ RainbowTableSet::Build(
     size_t tableCount = ComputeTableCount();
     size_t chainsPerTable = ComputeChainsPerTable();
 
-    // Estimate memory needed for Bloom filter dedup (~10 bits per element)
-    size_t estimatedSetMemory = (chainsPerTable * 10 + 7) / 8;
+    // Approximate per-pending-chain cost: InternalRecord (32 B) in the
+    // pending vector + ~10 bits/element in the bloom filter.
+    constexpr size_t kBytesPerPending = 32 + 2;
+
+    // If user didn't specify --flush-size, pick one based on available memory.
+    if (m_FlushThresholdChains == 0)
+    {
+        struct sysinfo si;
+        size_t available = 0;
+        if (sysinfo(&si) == 0)
+        {
+            available = static_cast<size_t>(si.freeram + si.bufferram) * si.mem_unit;
+        }
+        // Use up to 80% of currently free memory for the pending buffer
+        // (per table; tables build sequentially).
+        size_t budgetChains = (available * 4 / 5) / kBytesPerPending;
+        // Floor of 1M to avoid tiny flushes; cap at chainsPerTable so we never
+        // flush more chains than we plan to generate.
+        size_t lo = 1'000'000;
+        size_t hi = std::max(lo, chainsPerTable);
+        m_FlushThresholdChains = std::clamp(budgetChains, lo, hi);
+    }
+
+    // Estimate per-table peak in-memory dedup buffer.
+    size_t estimatedSetMemory = m_FlushThresholdChains * kBytesPerPending;
     uint8_t indexWidth = ComputeIndexWidth(m_Min, m_Max, m_Charset);
     size_t estimatedTableSize = chainsPerTable * indexWidth * 2;
 
@@ -260,7 +284,7 @@ RainbowTableSet::Build(
               << chainsPerTable << " chains each" << std::endl;
     std::cerr << "Per-table size: " << std::fixed << std::setprecision(1)
               << tblSize << " " << tblChar
-              << ", dedup memory: ~" << memSize << " " << memChar << std::endl;
+              << ", peak pending buffer: ~" << memSize << " " << memChar << std::endl;
 
     // Check against available system memory
     struct sysinfo si;
@@ -271,12 +295,12 @@ RainbowTableSet::Build(
         {
             std::string availChar;
             double availSize = Util::SizeFactor(static_cast<double>(availableMemory), availChar);
-            std::cerr << "Error: Bloom filter requires ~"
+            std::cerr << "Error: pending buffer requires ~"
                       << memSize << " " << memChar
                       << " but only " << std::fixed << std::setprecision(1)
                       << availSize << " " << availChar << " available." << std::endl;
-            std::cerr << "Use -n to specify a smaller chain count, e.g.:" << std::endl;
-            std::cerr << "  simdrainbowcrack build -n 10000000 ..." << std::endl;
+            std::cerr << "Use -F to lower the flush threshold, e.g.:" << std::endl;
+            std::cerr << "  simdrainbowcrack build -F 100000 ..." << std::endl;
             return;
         }
     }
@@ -310,7 +334,11 @@ RainbowTableSet::Build(
         RainbowTable table;
         ConfigureTable(table, seed);
         table.SetCount(chainsPerTable);
-        table.InitAndRunBuild();
+        if (!table.InitAndRunBuild())
+        {
+            std::cerr << "Build interrupted; stopping further tables." << std::endl;
+            break;
+        }
     }
 
     // Print combined summary

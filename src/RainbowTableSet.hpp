@@ -60,6 +60,8 @@ public:
     void SetBlocksize(const size_t Blocksize) { m_Blocksize = Blocksize; }
     void SetSeparator(const char Separator) { m_Separator = Separator; }
     const char GetSeparator(void) const { return m_Separator; }
+    void SetFlushThreshold(const size_t N) { m_FlushThresholdChains = N; }
+    const size_t GetFlushThreshold(void) const { return m_FlushThresholdChains; }
 
     // Actions
     void Build(void);
@@ -86,6 +88,7 @@ private:
     size_t m_Length = 0;
     size_t m_Blocksize = 0;
     size_t m_Threads = 0;
+    size_t m_FlushThresholdChains = 0;  // 0 = auto-detect from available memory
     std::string m_Charset;
     double m_Coverage = 0.99;
     size_t m_TableCount = 0;    // 0 = auto from coverage

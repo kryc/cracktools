@@ -7,11 +7,13 @@
 //
 
 #include <atomic>
+#include <charconv>
 #include <cinttypes>
 #include <chrono>
 #include <cmath>
 #include <csignal>
 #include <cstddef>
+#include <cstring>
 #include <fstream>
 #include <format>
 #include <iomanip>
@@ -19,6 +21,7 @@
 #include <latch>
 #include <mutex>
 #include <optional>
+#include <queue>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -27,9 +30,11 @@
 
 namespace {
 std::atomic<bool>* g_BuildComplete = nullptr;
+std::atomic<bool> g_BuildInterrupted{false};
 
 void HandleSigInt(int)
 {
+    g_BuildInterrupted.store(true, std::memory_order_relaxed);
     if (g_BuildComplete)
         g_BuildComplete->store(true, std::memory_order_relaxed);
 }
@@ -50,7 +55,7 @@ RainbowTable::ChainWidth(
     return IndexWidth * 2;
 }
 
-void
+bool
 RainbowTable::InitAndRunBuild(
     void
 )
@@ -64,7 +69,7 @@ RainbowTable::InitAndRunBuild(
     if (!ValidateConfig())
     {
         std::cerr << "Configuration error" << std::endl;
-        return;
+        return false;
     }
 
     m_Operation = "Building";
@@ -96,46 +101,18 @@ RainbowTable::InitAndRunBuild(
     // Write the table header if we didn't load from disk
     if (!m_PathLoaded)
     {
-        StoreTableHeader();
         m_HashWidth = GetHashWidth(m_Algorithm);
-        m_Chains = (std::filesystem::file_size(m_Path) - sizeof(TableHeader)) / GetChainWidth();
     }
 
-    m_StartingChains = m_Chains;
+    // Detect existing build state (interrupted segments or completed base table)
+    // and set m_StartingChains, m_Chains accordingly
+    OpenExistingBuildState();
 
-    // Initialize the Bloom filter for endpoint dedup
-    m_EndpointFilter = std::make_unique<BloomFilter>(m_Count);
-
-    // On resume, load existing endpoints and find the max startpoint
-    if (m_StartingChains > 0)
-    {
-        if (MapTable(true))
-        {
-            DispatchByWidth(m_IndexWidth, [&]<typename IndexT>()
-            {
-                auto data = m_MappedTable.subspan(sizeof(TableHeader));
-                auto records = cracktools::SpanCast<TableRecord<IndexT>>(data);
-                IndexT maxStart = 0;
-                for (const auto& r : records)
-                {
-                    m_EndpointFilter->Insert(r.endpoint);
-                    if (r.startpoint > maxStart)
-                        maxStart = r.startpoint;
-                }
-                // Resume generating from after the highest used startpoint
-                m_StartingChains = static_cast<size_t>(maxStart) + 1;
-                std::cerr << "Loaded " << m_EndpointFilter->Count() << " existing endpoints, resuming from index " << m_StartingChains << std::endl;
-            });
-            UnmapTable();
-        }
-    }
-
-    m_WriteHandle = fopen(m_Path.c_str(), "a");
-    if (m_WriteHandle == nullptr)
-    {
-        std::cerr << "Unable to open table for writing" << std::endl;
-        return;
-    }
+    // Pre-reserve the pending vector and create the bloom filter sized for
+    // a full flush window so we don't pay rehash/realloc cost during the hot
+    // dedup path.
+    m_PendingChains.reserve(m_FlushThresholdChains);
+    m_PendingFilter = std::make_unique<BloomFilter>(m_FlushThresholdChains);
 
     // Install SIGINT handler for graceful shutdown
     g_BuildComplete = &m_BuildComplete;
@@ -190,8 +167,11 @@ RainbowTable::InitAndRunBuild(
     sigaction(SIGINT, &oldsa, nullptr);
     g_BuildComplete = nullptr;
 
-    fclose(m_WriteHandle);
-    m_WriteHandle = nullptr;
+    // Final flush of any remaining pending chains
+    if (!m_PendingChains.empty())
+    {
+        FlushPending();
+    }
 
     // Report dedup stats
     if (m_ChainsGenerated > 0)
@@ -205,16 +185,13 @@ RainbowTable::InitAndRunBuild(
                   << (100.0 * discarded / m_ChainsGenerated) << "%)" << std::endl;
     }
 
-    // Sort table by endpoint for binary search during crack
-    std::cerr << "Sorting table..." << std::endl;
-    LoadTable();
-    SortTable();
-    UnmapTable();
-
-    // Clear the endpoint filter
-    m_EndpointFilter.reset();
+    // Merge all segments into the final sorted table file
+    std::cerr << "Merging segments..." << std::endl;
+    MergeSegmentsIntoFinal();
+    CleanupSegments();
 
     std::cout << std::endl;
+    return !g_BuildInterrupted.load(std::memory_order_relaxed);
 }
 
 std::tuple<std::vector<InternalRecord>, uint64_t>
@@ -339,25 +316,334 @@ RainbowTable::GenerateBlock(
 }
 
 void
-RainbowTable::WriteBlock(
-    const size_t BlockId,
-    std::span<const InternalRecord> Block
+RainbowTable::OpenExistingBuildState(
+    void
 )
 {
+    // Discover existing segment files matching <m_Path>.seg.<N>
+    std::vector<std::pair<size_t, std::filesystem::path>> segPaths;
+    auto dir = m_Path.parent_path();
+    if (dir.empty())
+    {
+        dir = ".";
+    }
+    const std::string prefix = m_Path.filename().string() + ".seg.";
+    if (std::filesystem::exists(dir))
+    {
+        for (const auto& entry : std::filesystem::directory_iterator(dir))
+        {
+            if (!entry.is_regular_file())
+                continue;
+            const auto& name = entry.path().filename().string();
+            if (!name.starts_with(prefix))
+                continue;
+            std::string suffix = name.substr(prefix.size());
+            // Skip in-progress writes
+            if (suffix.ends_with(".tmp"))
+            {
+                std::error_code ec;
+                std::filesystem::remove(entry.path(), ec);
+                continue;
+            }
+            // Parse trailing decimal number
+            size_t id = 0;
+#pragma clang unsafe_buffer_usage begin
+            const char* suffixEnd = suffix.data() + suffix.size();
+            auto parseRes = std::from_chars(
+                suffix.data(),
+                suffixEnd,
+                id);
+            if (parseRes.ec != std::errc() || parseRes.ptr != suffixEnd)
+                continue;
+#pragma clang unsafe_buffer_usage end
+            segPaths.emplace_back(id, entry.path());
+        }
+    }
+
+    std::sort(segPaths.begin(), segPaths.end(),
+              [](const auto& a, const auto& b) { return a.first < b.first; });
+
+    const size_t recordWidth = ChainWidth(m_IndexWidth);
+
+    for (auto& [id, path] : segPaths)
+    {
+        BuildSegment seg;
+        seg.path = path;
+        auto mapping = cracktools::MmapFileSpan<uint8_t>(path, PROT_READ, MAP_PRIVATE, /*madvise*/ true);
+        if (!mapping.has_value())
+        {
+            std::cerr << "Warning: failed to map segment " << path << std::endl;
+            continue;
+        }
+        auto [mapped, fp] = mapping.value();
+        // Close fd immediately; mmap keeps its own reference
+        fclose(fp);
+        seg.mapped = mapped;
+        seg.fp = nullptr;
+        seg.headerOffset = 0;
+        seg.recordCount = mapped.size() / recordWidth;
+        m_Segments.push_back(std::move(seg));
+        if (id + 1 > m_NextSegmentId)
+            m_NextSegmentId = id + 1;
+    }
+
+    // If a completed table file exists at m_Path, treat its records as a base segment.
+    // (Only valid if it was produced by a completed merge — i.e. sorted by endpoint.)
+    if (std::filesystem::exists(m_Path) && IsTableFile(m_Path))
+    {
+        size_t fsz = std::filesystem::file_size(m_Path);
+        if (fsz > sizeof(TableHeader))
+        {
+            BuildSegment seg;
+            seg.path = m_Path;
+            auto mapping = cracktools::MmapFileSpan<uint8_t>(m_Path, PROT_READ, MAP_PRIVATE, /*madvise*/ true);
+            if (mapping.has_value())
+            {
+                auto [mapped, fp] = mapping.value();
+                fclose(fp);
+                seg.mapped = mapped;
+                seg.fp = nullptr;
+                seg.headerOffset = sizeof(TableHeader);
+                seg.recordCount = (mapped.size() - sizeof(TableHeader)) / recordWidth;
+                m_Segments.push_back(std::move(seg));
+            }
+        }
+    }
+
+    if (m_Segments.empty())
+    {
+        m_StartingChains = 0;
+        m_Chains = 0;
+        return;
+    }
+
+    // Find max startpoint and total existing chain count
+    size_t maxStart = 0;
+    size_t totalChains = 0;
     DispatchByWidth(m_IndexWidth, [&]<typename IndexT>()
     {
-        std::vector<TableRecord<IndexT>> narrowed(Block.size());
-        for (size_t i = 0; i < Block.size(); i++)
+        for (const auto& seg : m_Segments)
         {
-            narrowed[i] = { static_cast<IndexT>(Block[i].startpoint), static_cast<IndexT>(Block[i].endpoint) };
+            auto data = seg.mapped.subspan(seg.headerOffset);
+            auto records = cracktools::SpanCast<TableRecord<IndexT>>(data);
+            for (const auto& r : records)
+            {
+                if (static_cast<size_t>(r.startpoint) > maxStart)
+                    maxStart = static_cast<size_t>(r.startpoint);
+            }
+            totalChains += records.size();
+        }
+    });
+
+    m_Chains = totalChains;
+    m_StartingChains = maxStart + 1;
+    std::cerr << "Resuming: " << totalChains << " existing chains in "
+              << m_Segments.size() << " segment(s), continuing from index "
+              << m_StartingChains << std::endl;
+}
+
+void
+RainbowTable::FlushPending(
+    void
+)
+{
+    if (m_PendingChains.empty())
+        return;
+
+    // Sort the pending buffer by endpoint
+    std::sort(m_PendingChains.begin(), m_PendingChains.end(),
+              [](const InternalRecord& a, const InternalRecord& b)
+              {
+                  return a.endpoint < b.endpoint;
+              });
+
+    auto tmpPath = m_Path;
+    tmpPath += ".seg." + std::to_string(m_NextSegmentId) + ".tmp";
+    auto finalPath = m_Path;
+    finalPath += ".seg." + std::to_string(m_NextSegmentId);
+
+    FILE* fp = fopen(tmpPath.c_str(), "wb");
+    if (fp == nullptr)
+    {
+        std::cerr << "Error: failed to open segment file " << tmpPath << " for write" << std::endl;
+        return;
+    }
+
+    DispatchByWidth(m_IndexWidth, [&]<typename IndexT>()
+    {
+        std::vector<TableRecord<IndexT>> narrowed;
+        narrowed.reserve(m_PendingChains.size());
+        for (const auto& r : m_PendingChains)
+        {
+            narrowed.push_back({
+                static_cast<IndexT>(r.startpoint),
+                static_cast<IndexT>(r.endpoint)
+            });
         }
 #pragma clang unsafe_buffer_usage begin
-        fwrite(narrowed.data(), sizeof(uint8_t), narrowed.size() * sizeof(TableRecord<IndexT>), m_WriteHandle);
+        fwrite(narrowed.data(), sizeof(TableRecord<IndexT>), narrowed.size(), fp);
 #pragma clang unsafe_buffer_usage end
     });
-    fflush(m_WriteHandle);
-    m_ChainsWritten += Block.size();
-    return;
+
+    fflush(fp);
+    fclose(fp);
+
+    std::error_code ec;
+    std::filesystem::rename(tmpPath, finalPath, ec);
+    if (ec)
+    {
+        std::cerr << "Error: failed to rename segment: " << ec.message() << std::endl;
+        return;
+    }
+
+    BuildSegment seg;
+    seg.path = finalPath;
+    auto mapping = cracktools::MmapFileSpan<uint8_t>(finalPath, PROT_READ, MAP_PRIVATE, /*madvise*/ true);
+    if (mapping.has_value())
+    {
+        auto [mapped, fph] = mapping.value();
+        fclose(fph);
+        seg.mapped = mapped;
+        seg.fp = nullptr;
+        seg.headerOffset = 0;
+        seg.recordCount = m_PendingChains.size();
+    }
+    else
+    {
+        std::cerr << "Warning: failed to map newly written segment " << finalPath << std::endl;
+    }
+
+    m_ChainsWritten += m_PendingChains.size();
+    m_PendingChains.clear();
+    m_PendingChains.reserve(m_FlushThresholdChains);
+    m_PendingFilter->Clear();
+    m_NextSegmentId++;
+    m_Segments.push_back(std::move(seg));
+}
+
+void
+RainbowTable::MergeSegmentsIntoFinal(
+    void
+)
+{
+    auto tmpPath = m_Path;
+    tmpPath += ".tmp";
+
+    FILE* fp = fopen(tmpPath.c_str(), "wb");
+    if (fp == nullptr)
+    {
+        std::cerr << "Error: failed to open output " << tmpPath << " for merge" << std::endl;
+        return;
+    }
+
+    // Write header
+    TableHeader hdr = {};
+    hdr.magic = kMagic;
+    hdr.algorithm = static_cast<uint8_t>(m_Algorithm);
+    hdr.min = static_cast<uint8_t>(m_Min);
+    hdr.max = static_cast<uint8_t>(m_Max);
+    hdr.charsetlen = static_cast<uint8_t>(m_Charset.size());
+    hdr.length = m_Length;
+    hdr.seed = m_Seed;
+#pragma clang unsafe_buffer_usage begin
+    std::memset(hdr.charset, 0, sizeof(hdr.charset));
+    std::memcpy(hdr.charset, m_Charset.data(), m_Charset.size());
+    fwrite(&hdr, sizeof(hdr), 1, fp);
+#pragma clang unsafe_buffer_usage end
+
+    size_t finalCount = 0;
+
+    DispatchByWidth(m_IndexWidth, [&]<typename IndexT>()
+    {
+        struct Entry
+        {
+            IndexT endpoint;
+            size_t segIdx;
+            size_t recordIdx;
+            bool operator>(const Entry& o) const { return endpoint > o.endpoint; }
+        };
+
+        std::vector<std::span<const TableRecord<IndexT>>> segRecords;
+        segRecords.reserve(m_Segments.size());
+        for (const auto& seg : m_Segments)
+        {
+            auto data = seg.mapped.subspan(seg.headerOffset);
+            segRecords.push_back(cracktools::SpanCast<const TableRecord<IndexT>>(data));
+        }
+
+        std::priority_queue<Entry, std::vector<Entry>, std::greater<>> pq;
+        for (size_t i = 0; i < segRecords.size(); i++)
+        {
+            if (!segRecords[i].empty())
+            {
+                pq.push({segRecords[i][0].endpoint, i, 0});
+            }
+        }
+
+        IndexT lastEndpoint = 0;
+        bool first = true;
+
+        while (!pq.empty())
+        {
+            auto top = pq.top();
+            pq.pop();
+            const auto& r = segRecords[top.segIdx][top.recordIdx];
+
+            if (first || r.endpoint != lastEndpoint)
+            {
+                fwrite(&r, sizeof(TableRecord<IndexT>), 1, fp);
+                lastEndpoint = r.endpoint;
+                first = false;
+                finalCount++;
+            }
+
+            size_t next = top.recordIdx + 1;
+            if (next < segRecords[top.segIdx].size())
+            {
+                pq.push({segRecords[top.segIdx][next].endpoint, top.segIdx, next});
+            }
+        }
+    });
+
+    fflush(fp);
+    fclose(fp);
+
+    // Unmap segments before rename so the OS lets us replace them
+    for (auto& seg : m_Segments)
+    {
+        if (!seg.mapped.empty())
+        {
+            cracktools::UnmapFileSpan(seg.mapped, seg.fp);
+            seg.mapped = {};
+            seg.fp = nullptr;
+        }
+    }
+
+    std::error_code ec;
+    std::filesystem::rename(tmpPath, m_Path, ec);
+    if (ec)
+    {
+        std::cerr << "Error: failed to rename merged file to " << m_Path
+                  << ": " << ec.message() << std::endl;
+        return;
+    }
+
+    std::cerr << "Merged " << finalCount << " unique chains into " << m_Path.filename().string() << std::endl;
+}
+
+void
+RainbowTable::CleanupSegments(
+    void
+)
+{
+    for (const auto& seg : m_Segments)
+    {
+        if (seg.path == m_Path)
+            continue;
+        std::error_code ec;
+        std::filesystem::remove(seg.path, ec);
+    }
+    m_Segments.clear();
 }
 
 void
@@ -379,11 +665,11 @@ RainbowTable::OutputStatus(
     chainsPerSec = Util::NumFactor(chainsPerSec, cpsChar);
     hashesPerSec = Util::NumFactor(hashesPerSec, hpsChar);
 
-    double chains = (double)(m_Chains + m_ChainsWritten);
+    double chains = (double)(m_Chains + m_ChainsWritten + m_PendingChains.size());
     std::string chainsChar;
     chains = Util::NumFactor(chains, chainsChar);
 
-    double percent = ((double)(m_Chains + m_ChainsWritten) / (double)m_Count) * 100.f;
+    double percent = ((double)(m_Chains + m_ChainsWritten + m_PendingChains.size()) / (double)m_Count) * 100.f;
 
     double discardPct = m_ChainsGenerated > 0 ?
         100.0 * (m_ChainsGenerated - m_ChainsWritten) / m_ChainsGenerated : 0.0;
@@ -427,24 +713,46 @@ RainbowTable::SaveBlock(
     const uint64_t Time
 )
 {
+    (void)BlockId;
     m_ThreadTimers[ThreadId] = Time;
 
     m_ChainsGenerated += Block.size();
 
-    // Filter out chains with duplicate endpoints
+    // Dedup: against on-disk segments (binary search) and in-memory pending (hash).
     DispatchByWidth(m_IndexWidth, [&]<typename IndexT>()
     {
-        std::erase_if(Block, [this](const InternalRecord& record)
+        std::vector<std::span<const TableRecord<IndexT>>> segRecords;
+        segRecords.reserve(m_Segments.size());
+        for (const auto& seg : m_Segments)
         {
-            auto narrowed = static_cast<IndexT>(record.endpoint);
-            return !m_EndpointFilter->Insert(narrowed);
+            auto data = seg.mapped.subspan(seg.headerOffset);
+            segRecords.push_back(cracktools::SpanCast<const TableRecord<IndexT>>(data));
+        }
+
+        std::erase_if(Block, [&](const InternalRecord& record)
+        {
+            const IndexT narrow = static_cast<IndexT>(record.endpoint);
+            // Check on-disk segments (sorted) via binary search
+            for (const auto& records : segRecords)
+            {
+                auto it = std::lower_bound(
+                    records.begin(), records.end(), narrow,
+                    [](const TableRecord<IndexT>& r, IndexT v)
+                    {
+                        return r.endpoint < v;
+                    });
+                if (it != records.end() && it->endpoint == narrow)
+                    return true;
+            }
+            // Check + insert into in-memory pending bloom filter.
+            // Insert returns true if the bits were not all set (probably new).
+            return !m_PendingFilter->Insert(record.endpoint);
         });
     });
 
     if (Block.empty())
     {
         m_ConsecutiveEmptyBlocks++;
-        // Scale patience with expected block count: tolerate more dry spells for larger builds
         size_t maxEmpty = std::max(size_t(10), m_Count / m_Blocksize);
         if (m_ConsecutiveEmptyBlocks >= maxEmpty)
         {
@@ -456,12 +764,13 @@ RainbowTable::SaveBlock(
 
     m_ConsecutiveEmptyBlocks = 0;
 
-    // Truncate block to avoid overshooting the target count
-    size_t remaining = m_Count > (m_Chains + m_ChainsWritten)
-        ? m_Count - (m_Chains + m_ChainsWritten)
-        : 0;
+    // Truncate to avoid overshooting the target count
+    size_t totalSoFar = m_Chains + m_ChainsWritten + m_PendingChains.size();
+    size_t remaining = m_Count > totalSoFar ? m_Count - totalSoFar : 0;
     if (Block.size() > remaining)
     {
+        // Bloom filter has no erase; the dropped chains' bits remain set,
+        // marginally raising FP rate within this flush window. Acceptable.
         Block.resize(remaining);
     }
 
@@ -471,31 +780,26 @@ RainbowTable::SaveBlock(
         return;
     }
 
-    // Generate the string for the first endpoint
-    auto endpoint = WordGenerator::GenerateWord(Block[0].endpoint, m_Charset);
-
+    // Display progress using last accepted endpoint
+    auto endpoint = WordGenerator::GenerateWord(Block.back().endpoint, m_Charset);
     OutputStatus(endpoint);
 
-    if (BlockId == m_NextWriteBlock)
-    {
-        WriteBlock(BlockId, Block);
-        m_NextWriteBlock++;
-        while (m_WriteCache.find(m_NextWriteBlock) != m_WriteCache.end())
-        {
-            WriteBlock(m_NextWriteBlock, m_WriteCache.at(m_NextWriteBlock));
-            m_WriteCache.erase(m_NextWriteBlock);
-            m_NextWriteBlock++;
-        }
-    }
-    else
-    {
-        m_WriteCache.emplace(BlockId, std::move(Block));
-    }
+    // Append survivors to pending buffer
+    m_PendingChains.insert(
+        m_PendingChains.end(),
+        std::make_move_iterator(Block.begin()),
+        std::make_move_iterator(Block.end()));
 
-    // Check if we've reached the target
-    if (m_Chains + m_ChainsWritten >= m_Count)
+    // Reached target? signal completion
+    if (m_Chains + m_ChainsWritten + m_PendingChains.size() >= m_Count)
     {
         m_BuildComplete.store(true, std::memory_order_relaxed);
+    }
+
+    // Flush if pending buffer hits threshold
+    if (m_PendingChains.size() >= m_FlushThresholdChains)
+    {
+        FlushPending();
     }
 }
 
@@ -1174,14 +1478,20 @@ RainbowTable::Reset(
     m_IndexWidth = 16;
     // For building
     m_StartingChains = 0;
-    if (m_WriteHandle != nullptr)
+    m_PendingChains.clear();
+    m_PendingFilter.reset();
+    for (auto& seg : m_Segments)
     {
-        fclose(m_WriteHandle);
-        m_WriteHandle = nullptr;
+        if (!seg.mapped.empty())
+        {
+            cracktools::UnmapFileSpan(seg.mapped, seg.fp);
+            seg.mapped = {};
+            seg.fp = nullptr;
+        }
     }
-    m_NextWriteBlock = 0;
-    m_WriteCache.clear();
-    m_EndpointFilter.reset();
+    m_Segments.clear();
+    m_NextSegmentId = 0;
+    m_ChainsWritten = 0;
     m_ChainsGenerated = 0;
     m_ConsecutiveEmptyBlocks = 0;
     m_BuildComplete.store(false, std::memory_order_relaxed);

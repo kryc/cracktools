@@ -33,6 +33,7 @@ Options:
   -c, --charset <string>  Set the character set to use.
   -l, --length <value>    Set the chain length.
   -b, --blocksize <value> Set the block size.
+  -F, --flush-size <N>    Pending chains buffered before flushing to a segment (default: auto, sized to available memory).
   -n, --count <value>     Set the number of chains per table.
   -C, --coverage <0-100>  Set the target combined coverage (default: 99).
   -T, --tables <value>    Set the number of tables (default: auto).
@@ -108,6 +109,11 @@ main(
         {
             ARGCHECK();
             tableSet.SetBlocksize(Util::ParseNumber<size_t>(args[++i]));
+        }
+        else if (arg == "-F" || arg == "--flush-size")
+        {
+            ARGCHECK();
+            tableSet.SetFlushThreshold(Util::ParseNumber<size_t>(args[++i]));
         }
         else if (arg == "-n" || arg == "--count")
         {

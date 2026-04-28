@@ -19,8 +19,11 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <span>
 #include <string>
 #include <tuple>
+#include <unordered_set>
+#include <vector>
 
 #include "DispatchQueue.hpp"
 #include "simdhash.h"
@@ -93,7 +96,7 @@ class RainbowTable
 public:
     ~RainbowTable(void);
     void Reset(void);
-    void InitAndRunBuild(void);
+    bool InitAndRunBuild(void);
     bool ValidateConfig(void);
     void SetPath(std::filesystem::path Path) { m_Path = Path; }
     std::filesystem::path GetPath(void) const { return m_Path; }
@@ -121,6 +124,8 @@ public:
     const uint32_t GetSeed(void) const { return m_Seed; }
     void SetSeparator(const char Separator) { m_Separator = Separator; }
     const char GetSeparator(void) const { return m_Separator; }
+    void SetFlushThreshold(const size_t N) { m_FlushThresholdChains = N; }
+    const size_t GetFlushThreshold(void) const { return m_FlushThresholdChains; }
     float GetCoverageEstimate(void);
     bool TableExists(void) const { return std::filesystem::exists(m_Path); }
     static bool GetTableHeader(const std::filesystem::path& Path, TableHeader* Header);
@@ -162,8 +167,11 @@ private:
     void GenerateBlock(const size_t ThreadId, const size_t BlockId);
     void SaveBlock(const size_t ThreadId, const size_t BlockId, std::vector<InternalRecord> Block, const uint64_t Time);
     void OutputStatus(const std::string_view LastEndpoint) const;
-    void WriteBlock(const size_t BlockId, std::span<const InternalRecord> Block);
     void BuildThreadCompleted(const size_t ThreadId);
+    void FlushPending(void);
+    void OpenExistingBuildState(void);
+    void MergeSegmentsIntoFinal(void);
+    void CleanupSegments(void);
     // Cracking
     void CrackOneWorker(const size_t ThreadId, const std::vector<uint8_t> Target, std::latch& Done);
     std::optional<std::string> CheckIteration(const HybridReducer& Reducer, const std::span<const uint8_t> Hash, const size_t Iteration) const;
@@ -187,16 +195,34 @@ private:
     dispatch::DispatchPoolPtr m_DispatchPool;
     size_t m_TerminalWidth = 80;
     // For building
+    struct Hash128
+    {
+        size_t operator()(const __uint128_t& v) const noexcept
+        {
+            auto lo = static_cast<uint64_t>(v);
+            auto hi = static_cast<uint64_t>(v >> 64);
+            return std::hash<uint64_t>{}(lo) ^ (std::hash<uint64_t>{}(hi) * 0x9e3779b97f4a7c15ULL);
+        }
+    };
+    struct BuildSegment
+    {
+        std::filesystem::path path;
+        std::span<uint8_t> mapped;
+        FILE* fp = nullptr;
+        size_t headerOffset = 0;   // 0 for .seg files; sizeof(TableHeader) for resume base
+        size_t recordCount = 0;
+    };
     size_t m_StartingChains = 0;
-    FILE* m_WriteHandle = NULL;
-    size_t m_NextWriteBlock = 0;
-    std::map<size_t, std::vector<InternalRecord>> m_WriteCache;
     size_t m_ThreadsCompleted = 0;
     size_t m_ChainsWritten = 0;
     size_t m_ChainsGenerated = 0;
     size_t m_ConsecutiveEmptyBlocks = 0;
     std::atomic<bool> m_BuildComplete = false;
-    std::unique_ptr<BloomFilter> m_EndpointFilter;
+    std::vector<InternalRecord> m_PendingChains;
+    std::unique_ptr<BloomFilter> m_PendingFilter;
+    std::vector<BuildSegment> m_Segments;
+    size_t m_FlushThresholdChains = 1'000'000;
+    size_t m_NextSegmentId = 0;
     std::map<size_t, uint64_t> m_ThreadTimers;
     // For cracking
     std::span<uint8_t> m_MappedTable;
