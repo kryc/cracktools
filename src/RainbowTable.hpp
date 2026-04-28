@@ -11,6 +11,7 @@
 
 
 #include <atomic>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <latch>
@@ -222,6 +223,11 @@ private:
     std::unique_ptr<BloomFilter> m_PendingFilter;
     std::vector<BuildSegment> m_Segments;
     size_t m_FlushThresholdChains = 1'000'000;
+    // Wall-clock checkpoint: flush pending buffer at least this often so a hard
+    // crash (SIGKILL/OOM/power loss) on a large-RAM build doesn't lose hours of
+    // work sitting in m_PendingChains. 0 disables.
+    size_t m_FlushIntervalSeconds = 300;
+    std::chrono::steady_clock::time_point m_LastFlushTime;
     size_t m_NextSegmentId = 0;
     std::map<size_t, uint64_t> m_ThreadTimers;
     // For cracking

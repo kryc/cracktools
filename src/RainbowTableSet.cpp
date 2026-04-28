@@ -265,9 +265,12 @@ RainbowTableSet::Build(
         // (per table; tables build sequentially).
         size_t budgetChains = (available * 4 / 5) / kBytesPerPending;
         // Floor of 1M to avoid tiny flushes; cap at chainsPerTable so we never
-        // flush more chains than we plan to generate.
+        // flush more chains than we plan to generate. Also enforce a hard
+        // ceiling so a huge-RAM box still checkpoints periodically and doesn't
+        // risk losing billions of in-memory chains on a hard crash.
         size_t lo = 1'000'000;
-        size_t hi = std::max(lo, chainsPerTable);
+        size_t hardCeiling = 500'000'000;
+        size_t hi = std::max(lo, std::min(chainsPerTable, hardCeiling));
         m_FlushThresholdChains = std::clamp(budgetChains, lo, hi);
     }
 

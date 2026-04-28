@@ -113,6 +113,7 @@ RainbowTable::InitAndRunBuild(
     // dedup path.
     m_PendingChains.reserve(m_FlushThresholdChains);
     m_PendingFilter = std::make_unique<BloomFilter>(m_FlushThresholdChains);
+    m_LastFlushTime = std::chrono::steady_clock::now();
 
     // Install SIGINT handler for graceful shutdown
     g_BuildComplete = &m_BuildComplete;
@@ -518,6 +519,7 @@ RainbowTable::FlushPending(
     m_PendingChains.reserve(m_FlushThresholdChains);
     m_PendingFilter->Clear();
     m_NextSegmentId++;
+    m_LastFlushTime = std::chrono::steady_clock::now();
     m_Segments.push_back(std::move(seg));
 }
 
@@ -800,6 +802,20 @@ RainbowTable::SaveBlock(
     if (m_PendingChains.size() >= m_FlushThresholdChains)
     {
         FlushPending();
+        return;
+    }
+
+    // Wall-clock checkpoint: flush at least once every m_FlushIntervalSeconds
+    // so a hard crash on a large-RAM build doesn't lose hours of pending work.
+    if (m_FlushIntervalSeconds > 0 && !m_PendingChains.empty())
+    {
+        auto now = std::chrono::steady_clock::now();
+        auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+            now - m_LastFlushTime).count();
+        if (static_cast<size_t>(elapsed) >= m_FlushIntervalSeconds)
+        {
+            FlushPending();
+        }
     }
 }
 
