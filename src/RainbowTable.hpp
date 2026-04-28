@@ -176,6 +176,16 @@ private:
     // Cracking
     void CrackOneWorker(const size_t ThreadId, const std::vector<uint8_t> Target, std::latch& Done);
     std::optional<std::string> CheckIteration(const HybridReducer& Reducer, const std::span<const uint8_t> Hash, const size_t Iteration) const;
+    // SIMD-batched offset checker. Issues offsets starting at StartOffset and
+    // stepping by Step (typically negative) while the next-issue cursor stays
+    // strictly past MinOffsetExcl (e.g. -1 to include offset 0). Returns the
+    // cracked plaintext if any chain hits and validates.
+    std::optional<std::string> CheckIterationsSimd(
+        const HybridReducer& Reducer,
+        const std::span<const uint8_t> Target,
+        const ssize_t StartOffset,
+        const ssize_t Step,
+        const ssize_t MinOffsetExcl) const;
 
     // General purpose
     std::string m_Operation;

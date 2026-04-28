@@ -1259,6 +1259,133 @@ RainbowTable::CheckIteration(
     return std::nullopt;
 }
 
+// SIMD-batched offset checker. Packs multiple chain offsets into the SIMD
+// hash kernel. Each lane carries its own (offset, current step) state so the
+// hash batch is fully utilized in steady state. When a lane reaches the final
+// reduce it parses its endpoint, looks it up in the table, validates if it
+// hits, then is refilled with the next un-issued offset.
+std::optional<std::string>
+RainbowTable::CheckIterationsSimd(
+    const HybridReducer& Reducer,
+    const std::span<const uint8_t> Target,
+    const ssize_t StartOffset,
+    const ssize_t Step,
+    const ssize_t MinOffsetExcl
+) const
+{
+    const size_t lanes = SimdLanes();
+    const size_t hashWidth = m_HashWidth;
+    const ssize_t finalStep = static_cast<ssize_t>(m_Length) - 1;
+
+    SimdHashBufferFixed<kSmallStringMaxLength> words;
+    std::array<uint8_t, MAX_HASH_SIZE * MAX_LANES> hashBuffer{};
+    auto hashes = cracktools::UnsafeSpan<uint8_t>(hashBuffer.data(), hashWidth * lanes);
+
+    std::array<ssize_t, MAX_LANES> laneStep{};
+    std::array<bool, MAX_LANES> laneActive{};
+    laneActive.fill(false);
+
+    ssize_t nextIssue = StartOffset;
+    auto canIssue = [&]() {
+        return Step < 0 ? (nextIssue > MinOffsetExcl) : (nextIssue < MinOffsetExcl);
+    };
+
+    auto refill = [&](size_t k) {
+        if (!canIssue()) return false;
+        laneStep[k] = nextIssue;
+        nextIssue += Step;
+        laneActive[k] = true;
+        // Seed the lane's hash slot with the target hash.
+        auto laneSlot = hashes.subspan(k * hashWidth, hashWidth);
+        cracktools::SpanCopy(laneSlot, Target);
+        words.SetLength(k, 0);
+        return true;
+    };
+
+    // Initial fill
+    for (size_t k = 0; k < lanes; k++)
+    {
+        refill(k);
+    }
+
+    std::array<bool, MAX_LANES> finalized{};
+
+    while (true)
+    {
+        // Refill any inactive lanes from the issue cursor.
+        size_t activeCount = 0;
+        for (size_t k = 0; k < lanes; k++)
+        {
+            if (!laneActive[k]) refill(k);
+            if (laneActive[k]) activeCount++;
+            else words.SetLength(k, 0);
+        }
+        if (activeCount == 0)
+            break;
+
+        if (m_Cracked.load(std::memory_order_relaxed))
+            return std::nullopt;
+
+        // Per-lane reduce on each lane's current hash. Lanes whose laneStep
+        // has reached finalStep produce the chain's endpoint and terminate.
+        finalized.fill(false);
+        for (size_t k = 0; k < lanes; k++)
+        {
+            if (!laneActive[k]) continue;
+            auto laneHash = hashes.subspan(k * hashWidth, hashWidth);
+            auto laneWord = words.GetBufferChar(k);
+            const size_t length = Reducer.Reduce(laneWord, laneHash, static_cast<size_t>(laneStep[k]));
+            words.SetLength(k, length);
+            if (laneStep[k] == finalStep)
+                finalized[k] = true;
+        }
+
+        // Handle any finalized lanes: parse endpoint, look up, validate.
+        for (size_t k = 0; k < lanes; k++)
+        {
+            if (!finalized[k]) continue;
+            const auto endpointStr = words.GetStringView(k);
+            const __uint128_t endpoint = WordGenerator::Parse128(endpointStr, m_Charset);
+            auto idx = FindStartIndexForEndpoint(endpoint);
+            if (idx.has_value())
+            {
+                auto cracked = ValidateChain(idx.value(), Target);
+                if (cracked.has_value())
+                    return cracked;
+            }
+            laneActive[k] = false;
+            words.SetLength(k, 0);
+        }
+
+        // Advance non-finalized active lanes ready for the next reduce after
+        // this batch's hash.
+        for (size_t k = 0; k < lanes; k++)
+        {
+            if (laneActive[k] && !finalized[k])
+                laneStep[k]++;
+        }
+
+        // SIMD hash across all lanes (inactive lanes have length 0; their
+        // output is ignored). Skips when nothing remains to hash.
+        bool anyToHash = false;
+        for (size_t k = 0; k < lanes; k++)
+        {
+            if (laneActive[k]) { anyToHash = true; break; }
+        }
+        if (!anyToHash)
+            continue;
+
+        SimdHashOptimized(
+            m_Algorithm,
+            words.GetLengths(),
+            words.ConstBuffers(),
+            &hashes[0]
+        );
+    }
+
+    return std::nullopt;
+}
+
 void
 RainbowTable::CrackOneWorker(
     const size_t ThreadId,
@@ -1268,11 +1395,20 @@ RainbowTable::CrackOneWorker(
 {
     HybridReducer reducer(m_Min, m_Max, m_Charset, m_Seed);
 
-    for (ssize_t i = m_Length - 1 - ThreadId; i >= 0 && !m_Cracked; i -= m_Threads)
+    // Each thread covers a stride: offsets {L-1-ThreadId, L-1-ThreadId-T, ...}
+    // Issue from highest offset (shortest chain) to lowest, stopping past 0.
+    auto result = CheckIterationsSimd(
+        reducer,
+        Target,
+        static_cast<ssize_t>(m_Length) - 1 - static_cast<ssize_t>(ThreadId),
+        -static_cast<ssize_t>(m_Threads),
+        -1
+    );
+
+    if (result.has_value())
     {
-        auto result = CheckIteration(reducer, Target, i);
         bool cracked = m_Cracked;
-        if (result.has_value() && !cracked && m_Cracked.compare_exchange_strong(cracked, true))
+        if (!cracked && m_Cracked.compare_exchange_strong(cracked, true))
         {
             m_LastCracked = std::make_tuple(Util::ToHex(&Target[0], Target.size()), result.value());
             m_CrackedResults.push_back(m_LastCracked);
@@ -1298,18 +1434,26 @@ RainbowTable::CrackOne(
     auto target = Util::ParseHex(Hash);
     std::optional<std::string> result;
 
+    // Reset per-call state so repeated CrackOne calls (e.g. from
+    // RainbowTableSet::Test on a hash list) don't short-circuit on a stale
+    // m_Cracked flag from a previous call.
+    m_Cracked.store(false, std::memory_order_relaxed);
+    m_ThreadsCompleted = 0;
+
     // Perform linear check
     if (m_Threads == 1)
     {
-        for (ssize_t i = m_Length - 1; i >= 0; i--)
+        result = CheckIterationsSimd(
+            reducer,
+            target,
+            static_cast<ssize_t>(m_Length) - 1,
+            -1,
+            -1
+        );
+        if (result.has_value())
         {
-            result = CheckIteration(reducer, target, i);
-            if (result.has_value())
-            {
-                m_LastCracked = std::make_tuple(Util::ToHex(&target[0], target.size()), result.value());
-                m_CrackedResults.push_back(m_LastCracked);
-                break;
-            }
+            m_LastCracked = std::make_tuple(Util::ToHex(&target[0], target.size()), result.value());
+            m_CrackedResults.push_back(m_LastCracked);
         }
     }
     else
@@ -1418,8 +1562,6 @@ RainbowTable::Crack(
         std::string line;
         while (std::getline(m_HashFileStream, line))
         {
-            m_ThreadsCompleted = 0;
-            m_Cracked = false;
             auto result = CrackOne(line);
             if (result.has_value())
             {

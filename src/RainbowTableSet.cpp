@@ -574,6 +574,7 @@ RainbowTableSet::Test(
                 {
                     cracked[i] = true;
                     found++;
+                    std::cout << hashes[i] << m_Separator << result.value() << std::endl;
                 }
             }
 
