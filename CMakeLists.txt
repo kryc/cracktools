@@ -307,6 +307,18 @@ target_include_directories(randstring
                         )
 target_link_libraries(randstring gmp gmpxx)
 
+# WordListInfo
+set(WORDLISTINFO_SOURCES
+    src/WordListInfoMain.cpp
+    src/Util.cpp
+)
+add_executable(wordlistinfo ${WORDLISTINFO_SOURCES})
+target_include_directories(wordlistinfo
+                            PUBLIC
+                                ./src/
+                        )
+target_link_libraries(wordlistinfo gmp gmpxx)
+
 # Create a set of all targets
 set(ALL_TARGETS
     cracklist
@@ -327,6 +339,7 @@ set(ALL_TARGETS
     hashlistlookup
     credparse
     randstring
+    wordlistinfo
 )
 
 # Create install targets
