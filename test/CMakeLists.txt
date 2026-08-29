@@ -57,6 +57,18 @@ target_include_directories(unittest
 target_link_libraries(unittest gtest_main gmp gmpxx)
 add_test(NAME unittest COMMAND unittest)
 
+# Hashcat rule engine unittest
+add_executable(rules_unittest EXCLUDE_FROM_ALL
+    RulesUnittest.cpp
+    ../src/Rules.cpp
+    ../src/Util.cpp)
+target_include_directories(rules_unittest
+    PUBLIC
+        ../src/
+)
+target_link_libraries(rules_unittest gtest_main gmp gmpxx)
+add_test(NAME rules_unittest COMMAND rules_unittest)
+
 # RainbowTable unittest (needs simdhash, dispatchqueue, crypto)
 add_executable(rainbow_unittest EXCLUDE_FROM_ALL
     RainbowTableUnittest.cpp

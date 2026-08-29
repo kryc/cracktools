@@ -90,8 +90,48 @@ IsHex(
 );
 
 const bool
+IsLowerHex(
+    const char Character
+);
+
+const bool
+IsUpperHex(
+    const char Character
+);
+
+const bool
 IsHex(
     const std::string_view String
+);
+
+const bool
+IsLower(
+    const char Character
+);
+
+const bool
+IsUpper(
+    const char Character
+);
+
+const bool
+IsNumeric(
+    const char Character
+);
+
+const char
+ToLower(
+    const char Character
+);
+
+const char
+ToUpper(
+    const char Character
+);
+
+const char
+ToggleCase(
+    const char Character
 );
 
 const bool
@@ -106,6 +146,11 @@ IsBase64(
 
 std::string
 ToLower(
+    const std::string_view String
+);
+
+std::string
+ToUpper(
     const std::string_view String
 );
 

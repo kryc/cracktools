@@ -13,6 +13,22 @@ TEST(Util, IsNumeric)
     EXPECT_FALSE(Util::IsNumeric(""));
 }
 
+TEST(Util, AsciiCase)
+{
+    EXPECT_TRUE(Util::IsLower('a'));
+    EXPECT_FALSE(Util::IsLower('A'));
+    EXPECT_TRUE(Util::IsUpper('Z'));
+    EXPECT_FALSE(Util::IsUpper('z'));
+    EXPECT_TRUE(Util::IsNumeric('5'));
+    EXPECT_FALSE(Util::IsNumeric('x'));
+    EXPECT_EQ(Util::ToLower('A'), 'a');
+    EXPECT_EQ(Util::ToUpper('z'), 'Z');
+    EXPECT_EQ(Util::ToggleCase('a'), 'A');
+    EXPECT_EQ(Util::ToggleCase('A'), 'a');
+    EXPECT_EQ(Util::ToggleCase('1'), '1');
+    EXPECT_EQ(Util::ToUpper("Hello, World!"), "HELLO, WORLD!");
+}
+
 TEST(Util, IsHex)
 {
     EXPECT_TRUE(Util::IsHex("48656C6C6F2C20576F726C6421"));
@@ -20,6 +36,21 @@ TEST(Util, IsHex)
     EXPECT_FALSE(Util::IsHex("48656C6C6F2C20576F726C642Z"));
     EXPECT_FALSE(Util::IsHex("48656C6C6F2C20576F726C642"));
     EXPECT_FALSE(Util::IsHex(""));
+}
+
+TEST(Util, IsHexCase)
+{
+    EXPECT_TRUE(Util::IsLowerHex('0'));
+    EXPECT_TRUE(Util::IsLowerHex('a'));
+    EXPECT_TRUE(Util::IsLowerHex('f'));
+    EXPECT_FALSE(Util::IsLowerHex('A'));
+    EXPECT_FALSE(Util::IsLowerHex('g'));
+
+    EXPECT_TRUE(Util::IsUpperHex('0'));
+    EXPECT_TRUE(Util::IsUpperHex('A'));
+    EXPECT_TRUE(Util::IsUpperHex('F'));
+    EXPECT_FALSE(Util::IsUpperHex('a'));
+    EXPECT_FALSE(Util::IsUpperHex('G'));
 }
 
 TEST(Util, IsBase64)

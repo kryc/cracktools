@@ -213,7 +213,7 @@ IsHex(
 		std::all_of(
 			String.begin(),
 			String.end(),
-			[](const char c) { return isxdigit(c); }
+			[](const char c) { return IsHex(c); }
 		);
 }
 
@@ -247,17 +247,27 @@ ToLower(
 )
 {
 	std::string result;
+	result.reserve(String.size());
 
 	for (char c : String)
 	{
-		if (c >= 'A' && c <= 'Z')
-		{
-			result.push_back(c + ('a' - 'A'));
-		}
-		else
-		{
-			result.push_back(c);
-		}
+		result.push_back(ToLower(c));
+	}
+
+	return result;
+}
+
+std::string
+ToUpper(
+    const std::string_view String
+)
+{
+	std::string result;
+	result.reserve(String.size());
+
+	for (char c : String)
+	{
+		result.push_back(ToUpper(c));
 	}
 
 	return result;
@@ -423,8 +433,62 @@ IsNumeric(
 	return Value.size() > 0 && std::all_of(
 		Value.begin(),
 		Value.end(),
-		[](const char c) { return isdigit(c); }
+		[](const char c) { return IsNumeric(c); }
 	);
+}
+
+const bool
+IsLower(
+	const char Character
+)
+{
+	return Character >= 'a' && Character <= 'z';
+}
+
+const bool
+IsUpper(
+	const char Character
+)
+{
+	return Character >= 'A' && Character <= 'Z';
+}
+
+const bool
+IsNumeric(
+	const char Character
+)
+{
+	return Character >= '0' && Character <= '9';
+}
+
+const char
+ToLower(
+	const char Character
+)
+{
+	return IsUpper(Character)
+		? static_cast<char>(Character + ('a' - 'A'))
+		: Character;
+}
+
+const char
+ToUpper(
+	const char Character
+)
+{
+	return IsLower(Character)
+		? static_cast<char>(Character - ('a' - 'A'))
+		: Character;
+}
+
+const char
+ToggleCase(
+	const char Character
+)
+{
+	if (IsLower(Character)) return ToUpper(Character);
+	if (IsUpper(Character)) return ToLower(Character);
+	return Character;
 }
 
 const bool
@@ -435,6 +499,22 @@ IsHex(
 	return (Character >= '0' && Character <= '9') ||
 		   (Character >= 'a' && Character <= 'f') ||
 		   (Character >= 'A' && Character <= 'F');
+}
+
+const bool
+IsLowerHex(
+	const char Character
+)
+{
+	return IsNumeric(Character) || (Character >= 'a' && Character <= 'f');
+}
+
+const bool
+IsUpperHex(
+	const char Character
+)
+{
+	return IsNumeric(Character) || (Character >= 'A' && Character <= 'F');
 }
 
 const bool
