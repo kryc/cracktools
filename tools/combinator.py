@@ -256,11 +256,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     bp.add_argument(
         "--hybrid-threshold",
         type=int,
-        default=3,
+        default=0,
         help="Word lengths <= this value use a ?a mask instead of a "
              "wordlist, turning the attack into a hybrid (-a 6/-a 7). "
              "Pairs where both sides are below the threshold are "
-             "skipped.  0 disables (default: 3).",
+             "skipped.  0 disables (default: 0).",
     )
     bp.add_argument(
         "--min-input-length",
