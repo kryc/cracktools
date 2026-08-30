@@ -70,6 +70,7 @@ set(CRACKLIST_SOURCES
     src/CrackList.cpp
     src/CrackListMain.cpp
     src/HashList.cpp
+    src/Rules.cpp
     src/Util.cpp
 )
 add_executable(cracklist ${CRACKLIST_SOURCES})
@@ -117,6 +118,7 @@ target_link_libraries(simdrainbowcrack simdhash dispatchqueue crypto gmp gmpxx)
 # SimdCrack
 set(SIMDCRACK_SOURCES
     src/HashList.cpp
+    src/Rules.cpp
     src/SimdCrack.cpp
     src/SimdCrackMain.cpp
     src/Util.cpp

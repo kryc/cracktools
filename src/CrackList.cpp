@@ -24,6 +24,7 @@
 #include "CrackList.hpp"
 #include "HashList.hpp"
 #include "LineReader.hpp"
+#include "Rules.hpp"
 #include "Util.hpp"
 
 const size_t
@@ -70,6 +71,112 @@ CrackList::ReadBlock(
     return count;
 }
 
+const size_t
+CrackList::ReadRuleBlock(
+    SimdHashBufferFixed<MAX_STRING_LENGTH>& Words
+)
+{
+    static const size_t Lanes = SimdLanes();
+    size_t Count = 0;
+    size_t Attempts = 0;
+
+    while (Count < Lanes && Attempts < Lanes)
+    {
+        if (!m_HaveRuleInput)
+        {
+            if (m_LineReader.IsEof())
+            {
+                m_Exhausted = true;
+                break;
+            }
+
+            std::string_view Line;
+            if (!m_LineReader.ReadLine(Line))
+            {
+                m_Exhausted = true;
+                break;
+            }
+
+            const size_t SeparatorPosition = Line.find(m_Separator);
+            if (SeparatorPosition != std::string_view::npos
+                && Util::IsHex(Line.substr(0, SeparatorPosition)))
+            {
+                Line = Line.substr(SeparatorPosition + m_Separator.size());
+            }
+
+            if (Util::IsHexlified(Line) && m_ParseHexInput)
+            {
+                m_RuleInput = Util::UnHexlify(Line);
+            }
+            else
+            {
+                m_RuleInput = Line;
+            }
+
+            m_RuleIndex = 0;
+            m_HaveRuleInput = true;
+            m_WordsProcessed++;
+        }
+
+        const Rules::Result Result = Rules::Apply(m_RuleInput, m_Rules[m_RuleIndex]);
+        Attempts++;
+        m_RuleIndex++;
+
+        if (m_RuleIndex == m_Rules.size())
+        {
+            m_RuleIndex = 0;
+            m_HaveRuleInput = false;
+        }
+
+        if (!Result.Succeeded()) continue;
+
+        Words.Set(Count, Result.word);
+        Count++;
+    }
+
+    return Count;
+}
+
+const bool
+CrackList::LoadRulesFile(
+    void
+)
+{
+    std::ifstream Input(m_RulesFile);
+    if (!Input.is_open())
+    {
+        std::cerr << "Unable to open rules file: " << m_RulesFile << std::endl;
+        return false;
+    }
+
+    m_Rules.clear();
+    std::string Rule;
+    while (std::getline(Input, Rule))
+    {
+        if (!Rule.empty() && Rule.back() == '\r') Rule.pop_back();
+
+        const size_t First = Rule.find_first_not_of(" \t\r");
+        if (First == std::string::npos || Rule[First] == '#') continue;
+
+        m_Rules.push_back(Rules::Compile(Rule));
+    }
+
+    if (Input.bad())
+    {
+        std::cerr << "Unable to read rules file: " << m_RulesFile << std::endl;
+        return false;
+    }
+
+    if (m_Rules.empty())
+    {
+        std::cerr << "No rules found in: " << m_RulesFile << std::endl;
+        return false;
+    }
+
+    std::cerr << "Loaded " << m_Rules.size() << " rules from " << m_RulesFile << std::endl;
+    return true;
+}
+
 const bool
 CrackList::CrackLinear(
     void
@@ -90,7 +197,7 @@ CrackList::CrackLinear(
     while (!m_Exhausted)
     {
         words.Clear();
-        auto count = ReadBlock(words);
+        auto count = m_Rules.empty() ? ReadBlock(words) : ReadRuleBlock(words);
 
         // Can be empty if the input is blocksize aligned
         if (count == 0)
@@ -321,7 +428,7 @@ CrackList::CrackWorker(
         size_t count = 0;
         {
             std::lock_guard<std::mutex> lock(m_InputMutex);
-            count = ReadBlock(words);
+            count = m_Rules.empty() ? ReadBlock(words) : ReadRuleBlock(words);
         }
 
         if (count == 0)
@@ -424,6 +531,11 @@ CrackList::Crack(
     if (m_BlockSize % SimdLanes() != 0)
     {
         std::cerr << "Error: Block Size must be a multiple of Simd Lanes (" << SimdLanes() << ")" << std::endl;
+        return false;
+    }
+
+    if (!m_RulesFile.empty() && !LoadRulesFile())
+    {
         return false;
     }
 

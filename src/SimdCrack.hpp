@@ -22,6 +22,7 @@
 #include <gmpxx.h>
 
 #include "HashList.hpp"
+#include "Rules.hpp"
 #include "Util.hpp"
 #include "WordGenerator.hpp"
 #include "DispatchQueue.hpp"
@@ -39,6 +40,7 @@ public:
     void SetThreads(const size_t Threads) { m_Threads = Threads; }
     void SetOutFile(const std::filesystem::path Outfile) { m_Outfile = Outfile; }
     void SetResume(const std::string_view Resume) { m_ResumeString = Resume; }
+    void SetRulesFile(const std::filesystem::path RulesFile) { m_RulesFile = RulesFile; }
     void SetPrefix(const std::string_view Prefix) { m_Prefix = Prefix; }
     void SetPostfix(const std::string_view Postfix) { m_Postfix = Postfix; }
     void SetCharset(const std::string_view Charset) { m_Charset = ParseCharset(Charset); }
@@ -54,7 +56,9 @@ public:
     const bool GetHexlify(void) const { return m_Hexlify; }
 private:
     void GenerateBlocks(const size_t ThreadId, const mpz_class Start, const size_t Step);
+    void GenerateRuleBlocks(const size_t ThreadId, const mpz_class Start, const size_t Step, const size_t StartRule);
     void FoundResults(std::vector<std::tuple<std::string, std::string>> Results);
+    bool LoadRulesFile(void);
     bool ProcessHashList(void);
     bool AddHashToList(const std::string_view Hash);
     bool AddHashToList(std::span<const uint8_t> Hash);
@@ -88,6 +92,8 @@ private:
     std::string_view m_Postfix;
     std::string m_Charset = ASCII;
     std::string_view m_ResumeString;
+    std::filesystem::path m_RulesFile;
+    std::vector<Rules::CompiledRule> m_Rules;
     size_t m_Min = 1;
     size_t m_Max = MAX_OPTIMIZED_BUFFER_SIZE;
     mpz_class m_Limit;

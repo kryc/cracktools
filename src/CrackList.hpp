@@ -20,12 +20,14 @@
 #include <string>
 #include <string_view>
 #include <tuple>
+#include <vector>
 
 #include "DispatchQueue.hpp"
 #include "SimdHashBuffer.hpp"
 
 #include "HashList.hpp"
 #include "LineReader.hpp"
+#include "Rules.hpp"
 
 typedef enum
 {
@@ -35,7 +37,7 @@ typedef enum
     InputTypeSingle
 } HashFileType;
 
-constexpr size_t MAX_STRING_LENGTH = 128;
+constexpr size_t MAX_STRING_LENGTH = Rules::MAX_PASSWORD_SIZE;
 
 class CrackList
 {
@@ -44,6 +46,7 @@ public:
     void SetHashFile(const std::string_view HashFile) { m_HashFile = HashFile; }
     void SetOutFile(const std::filesystem::path OutFile) { m_OutFile = OutFile; }
     void SetWordlist(const std::string_view Wordlist) { m_Wordlist = Wordlist; }
+    void SetRulesFile(const std::filesystem::path RulesFile) { m_RulesFile = RulesFile; }
     void SetAlgorithm(const HashAlgorithm Algorithm) { m_Algorithm = Algorithm; }
     void SetSeparator(const std::string_view Separator) { m_Separator = Separator; }
     void SetThreads(const size_t Threads) { m_Threads = Threads; }
@@ -79,6 +82,8 @@ private:
     void ThreadPulse(const size_t ThreadId, const uint64_t BlockTime);
     void WorkerFinished(void);
     const size_t ReadBlock(SimdHashBufferFixed<MAX_STRING_LENGTH>& Words);
+    const size_t ReadRuleBlock(SimdHashBufferFixed<MAX_STRING_LENGTH>& Words);
+    const bool LoadRulesFile(void);
     void OutputResultInternal(const std::string_view Hash, const std::string_view Cracked, std::ostream& Output, const bool SetLastCracked = true);
     void OutputResultsInternal(std::vector<std::tuple<std::vector<uint8_t>,std::string,std::string>> Results);
     bool m_PasswordOnly = false;
@@ -90,6 +95,11 @@ private:
     HashFileType m_HashType = InputTypeUnknown;
     std::filesystem::path m_OutFile;
     std::string m_Wordlist;
+    std::filesystem::path m_RulesFile;
+    std::vector<Rules::CompiledRule> m_Rules;
+    std::string m_RuleInput;
+    size_t m_RuleIndex = 0;
+    bool m_HaveRuleInput = false;
     HashAlgorithm m_Algorithm = HashAlgorithmUndefined;
     size_t m_DigestLength = 0;
     HashList m_HashList;

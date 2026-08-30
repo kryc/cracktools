@@ -34,6 +34,8 @@ cracklist -o <output> <hashfile> [wordlist]
 
 An optional `--threads (-t)` parameter can be used to specify the number of threads to use for lookup. This will reduce lookup time but result order will not match the order of input words.
 
+Hashcat-compatible rules can be applied with `--rules <file>` or `-r <file>`. Every rule in the file is independently applied to every input word before hashing; rejected or invalid candidates are skipped.
+
 The `--bitmask (-m)` flag can be used to configure the size of the hash lookup mask. A large size will consume more memory but increase the performance. A value in the range 1-32 (default: `16`).
 
 For advanced usage and options see `cracklist --help`

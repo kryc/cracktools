@@ -208,6 +208,19 @@ TEST(Rules, HexBytesWhitespaceAndComments)
     ExpectApplied("word", "   # comment", "word");
 }
 
+TEST(Rules, CompiledRules)
+{
+    const Rules::CompiledRule append = Rules::Compile("$\\x31");
+    const Rules::Result appended = Rules::Apply("word", append);
+    ASSERT_EQ(appended.status, Rules::Status::Applied);
+    EXPECT_EQ(appended.word, "word1");
+
+    const Rules::CompiledRule comment = Rules::Compile("  # comment");
+    const Rules::Result unchanged = Rules::Apply("word", comment);
+    ASSERT_EQ(unchanged.status, Rules::Status::Applied);
+    EXPECT_EQ(unchanged.word, "word");
+}
+
 TEST(Rules, InvalidRulesAndLimits)
 {
     ExpectSyntaxError("word", "?");

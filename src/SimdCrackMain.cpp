@@ -32,7 +32,8 @@ Options:
   --outfile, -o <file>          Specify the output file for cracked hashes.
   --min <value>                 Set the minimum password length.
   --max <value>                 Set the maximum password length.
-  --resume, -r <file>           Resume from a previous cracking session.
+	--resume, -R <word>           Resume from a previous cracking session.
+	--rules, -r <file>            Apply each rule in a rules file to every generated word.
   --blocksize, -b <value>       Set the block size for processing.
   --threads, -t <value>         Set the number of threads to use.
   --prefix, -f <string>         Add a prefix to all generated passwords.
@@ -95,10 +96,15 @@ int main(
 			ARGCHECK();
 			simdcrack.SetMax(Util::ParseNumber<size_t>(args[++i]));
 		}
-		else if (arg == "--resume" || arg == "-r")
+		else if (arg == "--resume" || arg == "-R")
 		{
 			ARGCHECK();
 			simdcrack.SetResume(args[++i]);
+		}
+		else if (arg == "--rules" || arg == "-r")
+		{
+			ARGCHECK();
+			simdcrack.SetRulesFile(args[++i]);
 		}
 		else if (arg == "--blocksize" || arg == "-b")
 		{

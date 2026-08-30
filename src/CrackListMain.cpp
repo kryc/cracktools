@@ -24,6 +24,7 @@ Usage: cracklist [options] hashfile wordlist
 Options:
   --out, --outfile, -o <file>   Specify the output file for cracked hashes.
   --threads, -t <value>         Set the number of threads to use.
+  --rules, -r <file>            Apply each rule in a rules file to every input word.
   --blocksize <value>           Set the block size for processing.
   --sha1, --ntlm, --md5, --md4  Specify the hash algorithm to use.
   --linkedin                    Enable LinkedIn hash processing mode.
@@ -81,6 +82,11 @@ int main(
         {
             ARGCHECK();
             cracklist.SetThreads(Util::ParseNumber<size_t>(args[++i]));
+        }
+        else if (arg == "--rules" || arg == "-r")
+        {
+            ARGCHECK();
+            cracklist.SetRulesFile(args[++i]);
         }
         else if (arg == "--blocksize")
         {

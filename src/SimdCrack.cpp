@@ -16,6 +16,7 @@
 #include <sys/mman.h>
 
 #include "SimdCrack.hpp"
+#include "Rules.hpp"
 #include "SimdHashBuffer.hpp"
 #include "SharedRefptr.hpp"
 #include "Util.hpp"
@@ -65,6 +66,11 @@ SimdCrack::InitAndRun(
         return;
     }
 
+    if (!m_RulesFile.empty() && !LoadRulesFile())
+    {
+        return;
+    }
+
     std::cerr << "Using character set: " << m_Charset << std::endl;
 
     //
@@ -83,16 +89,72 @@ SimdCrack::InitAndRun(
     {
         mpz_class start(m_Resume + i + 1);
 
-        m_DispatchPool->PostTask(
-            dispatch::bind(
-                &SimdCrack::GenerateBlocks,
-                this,
-                i,
-                std::move(start),
-                m_Threads
-            )
-        );
+        if (m_Rules.empty())
+        {
+            m_DispatchPool->PostTask(
+                dispatch::bind(
+                    &SimdCrack::GenerateBlocks,
+                    this,
+                    i,
+                    std::move(start),
+                    m_Threads
+                )
+            );
+        }
+        else
+        {
+            m_DispatchPool->PostTask(
+                dispatch::bind(
+                    &SimdCrack::GenerateRuleBlocks,
+                    this,
+                    i,
+                    std::move(start),
+                    m_Threads,
+                    0
+                )
+            );
+        }
     }
+}
+
+bool
+SimdCrack::LoadRulesFile(
+    void
+)
+{
+    std::ifstream Input(m_RulesFile);
+    if (!Input.is_open())
+    {
+        std::cerr << "Unable to open rules file: " << m_RulesFile << std::endl;
+        return false;
+    }
+
+    m_Rules.clear();
+    std::string Rule;
+    while (std::getline(Input, Rule))
+    {
+        if (!Rule.empty() && Rule.back() == '\r') Rule.pop_back();
+
+        const size_t First = Rule.find_first_not_of(" \t\r");
+        if (First == std::string::npos || Rule[First] == '#') continue;
+
+        m_Rules.push_back(Rules::Compile(Rule));
+    }
+
+    if (Input.bad())
+    {
+        std::cerr << "Unable to read rules file: " << m_RulesFile << std::endl;
+        return false;
+    }
+
+    if (m_Rules.empty())
+    {
+        std::cerr << "No rules found in: " << m_RulesFile << std::endl;
+        return false;
+    }
+
+    std::cerr << "Loaded " << m_Rules.size() << " rules from " << m_RulesFile << std::endl;
+    return true;
 }
 
 inline bool
@@ -378,6 +440,153 @@ SimdCrack::GenerateBlocks(
             ThreadId,
             index,
             Step
+        )
+    );
+}
+
+void
+SimdCrack::GenerateRuleBlocks(
+    const size_t ThreadId,
+    const mpz_class Start,
+    const size_t Step,
+    const size_t StartRule
+)
+{
+    mpz_class Index(Start);
+    size_t RuleIndex = StartRule;
+    SimdHashBufferFixed<Rules::MAX_PASSWORD_SIZE> Words;
+    std::array<uint8_t, MAX_HASH_SIZE * MAX_LANES> Hashes;
+    std::span<uint8_t, MAX_HASH_SIZE * MAX_LANES> HashSpan(Hashes);
+    std::vector<std::tuple<std::string, std::string>> Results;
+
+    if (Index >= m_Limit)
+    {
+        dispatch::PostTaskToDispatcher(
+            "main",
+            dispatch::bind(
+                &SimdCrack::ThreadCompleted,
+                this,
+                ThreadId
+            )
+        );
+        return;
+    }
+
+    auto StartTime = std::chrono::system_clock::now();
+    size_t RuleAttempts = 0;
+    const size_t MaxRuleAttempts = m_Blocksize * SimdLanes();
+    std::string Input = m_Generator.Generate(Index);
+
+    for (size_t Counter = 0;
+         Counter < m_Blocksize && Index < m_Limit && RuleAttempts < MaxRuleAttempts;
+         Counter++)
+    {
+        std::array<bool, MAX_LANES> Valid{};
+        bool AnyValid = false;
+        bool CanUseOptimizedHash = true;
+
+        for (size_t Lane = 0; Lane < SimdLanes(); Lane++)
+        {
+            bool CandidateFound = false;
+
+            while (Index < m_Limit && !CandidateFound && RuleAttempts < MaxRuleAttempts)
+            {
+                const Rules::Result RuleResult = Rules::Apply(Input, m_Rules[RuleIndex]);
+                RuleAttempts++;
+                RuleIndex++;
+
+                if (RuleIndex == m_Rules.size())
+                {
+                    RuleIndex = 0;
+                    Index += Step;
+                    if (Index < m_Limit && RuleAttempts < MaxRuleAttempts)
+                    {
+                        Input = m_Generator.Generate(Index);
+                    }
+                }
+
+                if (!RuleResult.Succeeded()) continue;
+
+                Words.Set(Lane, RuleResult.word);
+                Valid[Lane] = true;
+                AnyValid = true;
+                CandidateFound = true;
+                CanUseOptimizedHash &= RuleResult.word.size() <= MAX_OPTIMIZED_BUFFER_SIZE;
+            }
+
+            if (!CandidateFound) Words.Set(Lane, "");
+        }
+
+        if (!AnyValid) break;
+
+        if (CanUseOptimizedHash)
+        {
+            SimdHashOptimized(
+                m_Algorithm,
+                Words.GetLengths(),
+                Words.ConstBuffers(),
+                &Hashes[0]
+            );
+        }
+        else
+        {
+            SimdHash(
+                m_Algorithm,
+                Words.GetLengths(),
+                Words.ConstBuffers(),
+                &Hashes[0]
+            );
+        }
+
+        for (size_t Lane = 0; Lane < SimdLanes(); Lane++)
+        {
+            if (!Valid[Lane]) continue;
+
+            auto Hash = HashSpan.subspan(Lane * m_HashWidth, m_HashWidth);
+            if (m_HashList.Lookup(Hash))
+            {
+                Results.push_back({
+                    Util::ToHex(Hash),
+                    Words.GetString(Lane)
+                });
+            }
+        }
+    }
+
+    auto EndTime = std::chrono::system_clock::now();
+    auto ElapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(EndTime - StartTime);
+
+    if (!Results.empty())
+    {
+        dispatch::PostTaskToDispatcher(
+            "main",
+            dispatch::bind(
+                &SimdCrack::FoundResults,
+                this,
+                std::move(Results)
+            )
+        );
+    }
+
+    dispatch::PostTaskToDispatcher(
+        "main",
+        dispatch::bind(
+            &SimdCrack::ThreadPulse,
+            this,
+            ThreadId,
+            ElapsedMs.count(),
+            Index
+        )
+    );
+
+    dispatch::PostTaskFast(
+        dispatch::bind(
+            &SimdCrack::GenerateRuleBlocks,
+            this,
+            ThreadId,
+            Index,
+            Step,
+            RuleIndex
         )
     );
 }

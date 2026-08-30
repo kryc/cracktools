@@ -213,21 +213,40 @@ Rejected(
 
 }
 
+CompiledRule
+Compile(
+    const std::string_view Rule
+)
+{
+    const size_t First = Rule.find_first_not_of(" \t\r");
+    if (First == std::string_view::npos || Rule[First] == '#') return {};
+
+    return {DecodeHexNotation(Rule)};
+}
+
 Result
 Apply(
     const std::string_view Input,
     const std::string_view Rule
 )
 {
+    return Apply(Input, Compile(Rule));
+}
+
+Result
+Apply(
+    const std::string_view Input,
+    const CompiledRule& Rule
+)
+{
     if (Input.size() > MAX_PASSWORD_SIZE) return SyntaxError(std::string(Input), 0);
 
-    const size_t first = Rule.find_first_not_of(" \t\r");
-    if (first == std::string_view::npos || Rule[first] == '#')
+    if (Rule.commands.empty())
     {
         return {Status::Applied, std::string(Input), NO_ERROR};
     }
 
-    const std::string commands = DecodeHexNotation(Rule);
+    const std::string_view commands = Rule.commands;
     std::string word(Input);
     std::string memory;
     std::optional<size_t> savedPosition;
