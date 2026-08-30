@@ -32,8 +32,8 @@ Options:
   --outfile, -o <file>          Specify the output file for cracked hashes.
   --min <value>                 Set the minimum password length.
   --max <value>                 Set the maximum password length.
-	--resume, -R <word>           Resume from a previous cracking session.
-	--rules, -r <file>            Apply each rule in a rules file to every generated word.
+  --resume, -R <word>           Resume from a previous cracking session.
+  --rules, -r <file>            Apply each rule in a rules file to every generated word.
   --blocksize, -b <value>       Set the block size for processing.
   --threads, -t <value>         Set the number of threads to use.
   --prefix, -f <string>         Add a prefix to all generated passwords.
