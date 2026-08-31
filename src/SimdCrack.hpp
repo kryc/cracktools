@@ -47,7 +47,7 @@ public:
     void SetExtra(const std::string_view Charset) { m_Charset += ParseCharset(Charset); }
     void AddTarget(const std::string_view Target) { m_Target.push_back(Target); }
     void SetMin(const size_t Min) { m_Min = Min; }
-    void SetMax(const size_t Max) { m_Max = Max; }
+    void SetMax(const size_t Max) { m_Max = Max; m_MaxSpecified = true; }
     void SetSeparator(const char Separator) { m_Separator = Separator; }
     void SetBitmaskSize(const size_t BitmaskSize) { m_BitmaskSize = BitmaskSize; }
     void SetHexlify(const bool Hexlify) { m_Hexlify = Hexlify; }
@@ -96,6 +96,7 @@ private:
     std::vector<Rules::CompiledRule> m_Rules;
     size_t m_Min = 1;
     size_t m_Max = MAX_OPTIMIZED_BUFFER_SIZE;
+    bool m_MaxSpecified = false;
     mpz_class m_Limit;
     size_t m_ThreadsCompleted = 0;
     char m_Separator = ':';

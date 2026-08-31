@@ -605,16 +605,10 @@ SimdCrack::ThreadPulse(
 
     if (!m_Outfile.empty() && ThreadId == 0)
     {
-        // Get the upper and lower bound for this current length
-        std::string diffch, ooch;
+        std::string DiffFactor;
         auto lower = m_Generator.WordLengthIndex(m_Min);
-        auto upper = m_Generator.WordLengthIndex(m_Max + 1);
-
         mpz_class diff = Last - lower;
-        mpz_class outof = upper - lower;
-        mpf_class percent = (mpf_class(diff) * 100)/ outof;
-        diff = Util::NumFactor(diff, diffch);
-        outof = Util::NumFactor(outof, ooch);
+        diff = Util::NumFactor(diff, DiffFactor);
 
         uint64_t averageMs = 0;
         for (auto const& [thread, val] : m_LastBlockMs)
@@ -627,20 +621,35 @@ SimdCrack::ThreadPulse(
         std::string multiplechar;
         hashesPerSec = Util::NumFactor(hashesPerSec, multiplechar);
 
-        // Print the status
+        std::string Progress = std::format("#:{}{}", diff.get_str(), DiffFactor);
+        if (m_MaxSpecified)
+        {
+            std::string TotalFactor;
+            const auto Upper = m_Generator.WordLengthIndex(m_Max + 1);
+            mpz_class Total = Upper - lower;
+            const mpf_class Percent = (mpf_class(Last - lower) * 100) / Total;
+            Total = Util::NumFactor(Total, TotalFactor);
+            Progress = std::format(
+                "#:{}{}/{}{} ({:.1f}%)",
+                diff.get_str(),
+                DiffFactor,
+                Total.get_str(),
+                TotalFactor,
+                Percent.get_d()
+            );
+        }
+
+        // Print the status. Without an explicit maximum the total keyspace is
+        // intentionally omitted because it is both enormous and uninformative.
         std::string status = std::format(
-            "H/s: {:.1f}{} C:{}/{} L:\"{}\" C:\"{}\" #:{}{}/{}{} ({:.1f}%)",
+            "H/s: {:.1f}{} C:{}/{} L:\"{}\" C:\"{}\" {}",
             hashesPerSec,
             multiplechar,
             m_Found,
             m_TargetsCount,
             m_LastWord,
             m_Generator.Generate(Last),
-            diff.get_str(),
-            diffch,
-            outof.get_str(),
-            ooch,
-            percent.get_d()
+            Progress
         );
 
         std::cerr << "\r" << status << std::flush;

@@ -86,12 +86,12 @@ int main(
 			ARGCHECK();
 			simdcrack.SetOutFile(args[++i]);
 		}
-		else if (arg == "--min")
+		else if (arg == "--min" || arg == "-m")
 		{
 			ARGCHECK();
 			simdcrack.SetMin(Util::ParseNumber<size_t>(args[++i]));
 		}
-		else if (arg == "--max")
+		else if (arg == "--max" || arg == "-M")
 		{
 			ARGCHECK();
 			simdcrack.SetMax(Util::ParseNumber<size_t>(args[++i]));
