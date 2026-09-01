@@ -35,6 +35,8 @@ HashListLookup(
     const bool NoCount = false,
     const bool PasswordOnly = false,
     const bool FilterEmails = false,
+    const bool FilterHashes = false,
+    const bool PrintableOnly = false,
     const std::string_view FilteredFile = ""
 )
 {    
@@ -205,7 +207,11 @@ HashListLookup(
                         size_t sepPos = vec[mid].find(':');
                         match = (sepPos != std::string_view::npos) ? vec[mid].substr(sepPos + 1) : vec[mid];
                     }
-                    if (FilterEmails && Util::IsLikelyValidEmail(match)) {
+                    if (
+                        (FilterEmails && Util::IsLikelyValidEmail(match)) ||
+                        (FilterHashes && Util::IsLikelyValidHash(match)) ||
+                        (PrintableOnly && !Util::IsPrintableUTF8Hexlified(line))
+                    ) {
                         filtered++;
                         if (filtered_outfile.is_open()) {
                             filtered_outfile << match << std::endl;
@@ -281,6 +287,8 @@ int main(
     bool nocount = false;
     bool password_only = false;
     bool filter_emails = false;
+    bool filter_hashes = false;
+    bool printable_only = false;
 
     for (int i = 1; i < argc; i++)
     {
@@ -302,6 +310,14 @@ int main(
         else if (arg == "--filter-emails" || arg == "-e")
         {
             filter_emails = true;
+        }
+        else if (arg == "--filter-hashes" || arg == "-H")
+        {
+            filter_hashes = true;
+        }
+        else if (arg == "--printable" || arg == "-p")
+        {
+            printable_only = true;
         }
         else if (arg == "--filtered" || arg == "-f")
         {
@@ -329,6 +345,8 @@ int main(
             std::cout << "  --nocount, -n        Do not count lines in input files" << std::endl;
             std::cout << "  --password-only, -P  Output only the password part of cracked entries" << std::endl;
             std::cout << "  --filter-emails, -e  Filter out email addresses from output" << std::endl;
+            std::cout << "  --filter-hashes, -H  Filter out likely valid hashes from output" << std::endl;
+            std::cout << "  --printable, -p      Filter out non-printable UTF-8 entries from output" << std::endl;
             std::cout << "  --filtered, -f <file> Specify the output file for filtered entries" << std::endl;
             std::cout << "  --help, -h           Show this help message" << std::endl;
             return 0;
@@ -340,5 +358,15 @@ int main(
         }
     }
 
-    HashListLookup(input_hashes, input_cracked, output_file, uncracked_file, nocount, password_only, filter_emails, filtered_file);
+    HashListLookup(
+        input_hashes,
+        input_cracked,
+        output_file,
+        uncracked_file,
+        nocount,
+        password_only,
+        filter_emails,
+        filter_hashes,
+        printable_only,
+        filtered_file);
 }
