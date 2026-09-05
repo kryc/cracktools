@@ -321,6 +321,21 @@ target_include_directories(wordlistinfo
                         )
 target_link_libraries(wordlistinfo gmp gmpxx)
 
+# RuleAnalyze
+set(RULEANALYZE_SOURCES
+    src/RuleAnalysis.cpp
+    src/RuleAnalyzeMain.cpp
+    src/Rules.cpp
+    src/Util.cpp
+    src/WordGenerator.cpp
+)
+add_executable(ruleanalyze ${RULEANALYZE_SOURCES})
+target_include_directories(ruleanalyze
+                            PUBLIC
+                                ./src/
+                        )
+target_link_libraries(ruleanalyze gmp gmpxx)
+
 # Create a set of all targets
 set(ALL_TARGETS
     cracklist
@@ -342,6 +357,7 @@ set(ALL_TARGETS
     credparse
     randstring
     wordlistinfo
+    ruleanalyze
 )
 
 # Create install targets

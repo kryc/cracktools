@@ -575,9 +575,17 @@ Hexlify(
 {
     if (NeedsHexlify(Value))
     {
-		return "$HEX[" + Util::ToHex(Value, Case::Lower) + "]";
+		return ForceHexlify(Value);
 	}
 	return std::string(Value);
+}
+
+const std::string
+ForceHexlify(
+    const std::string_view Value
+)
+{
+	return "$HEX[" + Util::ToHex(Value, Case::Lower) + "]";
 }
 
 const std::string

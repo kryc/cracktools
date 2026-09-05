@@ -217,6 +217,11 @@ Hexlify(
 );
 
 const std::string
+ForceHexlify(
+    const std::string_view Value
+);
+
+const std::string
 UnHexlify(
     const std::string_view Value
 );

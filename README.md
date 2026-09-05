@@ -40,6 +40,26 @@ The `--bitmask (-m)` flag can be used to configure the size of the hash lookup m
 
 For advanced usage and options see `cracklist --help`
 
+### ruleanalyze
+
+`ruleanalyze` measures how often each Hashcat-compatible rule transforms one word into a different word that also appears in the supplied word list. The word list is loaded into memory and sorted before analysis.
+
+```bash
+ruleanalyze [--ascending|--descending] [--sort matches|rule] rules.rule words.txt
+```
+
+The default report is sorted by descending match count. Use `--threads` to control parallel rule analysis and `--output` to write the tab-separated report to a file.
+
+Use `--generate <length>` to analyze generated inputs through a separate maximum length while retaining `words.txt` as the lookup set. The `--min` and `--max` options only filter the lookup word list.
+
+```bash
+ruleanalyze --generate 4 --charset lower --max 16 rules.rule words.txt
+```
+
+Use `--input-sample` (or `--sample`) to reduce rule evaluations, and `--wordlist-sample` to independently reduce the lookup set before sorting and indexing.
+
+Reports distinguish evaluated, applied, changed, matched, unique matched, rejected, and invalid applications, with match-rate, coverage, and timing columns. Use `--seed` for reproducible samples and report filters such as `--only-zero`, `--min-matches`, `--min-rate`, `--errors-only`, and `--changed-only`. `--valuable-rules <file>` writes rules that produced at least one known word as a reusable rule file.
+
 ### crackdb++
 
 `CrackDB++` is an unsalted password hash lookup application and an example of a time-memory tradeoff tool. It works by storing the hash of every word in the input wordlist in a set of files on disk, then uses efficient lookup algorithms to recover provided hashes later. It is extremely disk- and memory-efficient storing only a small portion of each word's hash and typically recovers many thousands of hashes per second.

@@ -139,6 +139,14 @@ TEST(Util, Hexlify)
     EXPECT_EQ(Util::Hexlify("NonPrintable\x01"), "$HEX[4e6f6e5072696e7461626c6501]");
 }
 
+TEST(Util, ForceHexlify)
+{
+    EXPECT_EQ(Util::ForceHexlify("Hello, World!"), "$HEX[48656c6c6f2c20576f726c6421]");
+    EXPECT_EQ(Util::ForceHexlify(""), "$HEX[]");
+    EXPECT_EQ(Util::ForceHexlify(std::string("a\0b", 3)), "$HEX[610062]");
+    EXPECT_EQ(Util::ForceHexlify("$HEX[61]"), "$HEX[244845585b36315d]");
+}
+
 TEST(Util, IsHexlified)
 {
     EXPECT_TRUE(Util::IsHexlified("$HEX[48656C6C6F2C20576F726C6421]"));

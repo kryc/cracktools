@@ -59,9 +59,12 @@ add_test(NAME unittest COMMAND unittest)
 
 # Hashcat rule engine unittest
 add_executable(rules_unittest EXCLUDE_FROM_ALL
+    RuleAnalysisUnittest.cpp
     RulesUnittest.cpp
+    ../src/RuleAnalysis.cpp
     ../src/Rules.cpp
-    ../src/Util.cpp)
+    ../src/Util.cpp
+    ../src/WordGenerator.cpp)
 target_include_directories(rules_unittest
     PUBLIC
         ../src/
