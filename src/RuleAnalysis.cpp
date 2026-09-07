@@ -161,6 +161,7 @@ AnalyzeInternal(
     const std::span<RuleStatistic> Statistics,
     const size_t Threads,
     std::atomic<size_t>* Completed,
+    const std::optional<size_t> MatchLimit,
     const InputProvider& GetInput
 )
 {
@@ -185,12 +186,14 @@ AnalyzeInternal(
             size_t Changed = 0;
             size_t Rejected = 0;
             size_t SyntaxErrors = 0;
+            size_t Evaluated = 0;
             std::unordered_set<std::string> UniqueMatches;
             std::string InputStorage;
             const auto Start = std::chrono::steady_clock::now();
 
             for (size_t InputIndex = 0; InputIndex < InputCount; InputIndex++)
             {
+                Evaluated++;
                 const std::string_view Input = GetInput(InputIndex, InputStorage);
                 const Rules::Result Result = Rules::Apply(Input, Statistic.compiledRule);
                 if (Result.status == Rules::Status::Rejected)
@@ -212,10 +215,11 @@ AnalyzeInternal(
                 {
                     Matches++;
                     UniqueMatches.insert(Result.word);
+                    if (MatchLimit && Matches >= *MatchLimit) break;
                 }
             }
 
-            Statistic.evaluated = InputCount;
+            Statistic.evaluated = Evaluated;
             Statistic.applied = Applied;
             Statistic.changed = Changed;
             Statistic.matches = Matches;
@@ -251,7 +255,8 @@ Analyze(
     const WordLookup& Words,
     const std::span<RuleStatistic> Statistics,
     const size_t Threads,
-    std::atomic<size_t>* Completed
+    std::atomic<size_t>* Completed,
+    const std::optional<size_t> MatchLimit
 )
 {
     AnalyzeInternal(
@@ -260,6 +265,7 @@ Analyze(
         Statistics,
         Threads,
         Completed,
+        MatchLimit,
         [Inputs](const size_t Index, std::string&) -> std::string_view
         {
             return Inputs[Index];
@@ -275,7 +281,8 @@ AnalyzeGenerated(
     const WordLookup& Words,
     const std::span<RuleStatistic> Statistics,
     const size_t Threads,
-    std::atomic<size_t>* Completed
+    std::atomic<size_t>* Completed,
+    const std::optional<size_t> MatchLimit
 )
 {
     const size_t AnalysisCount = SampleIndices.empty() ? InputCount : SampleIndices.size();
@@ -285,6 +292,7 @@ AnalyzeGenerated(
         Statistics,
         Threads,
         Completed,
+        MatchLimit,
         [InputCount, SampleIndices, Charset](const size_t Index, std::string& Storage) -> std::string_view
         {
             const size_t GeneratorIndex = SampleIndices.empty() ? Index : SampleIndices[Index];

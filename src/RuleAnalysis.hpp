@@ -9,6 +9,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -123,13 +124,15 @@ RandomSampleIndices(
 );
 
 // SortedWords must be sorted lexicographically before calling Analyze.
+// MatchLimit stops each rule after that many matches; it must be greater than zero.
 void
 Analyze(
     const std::span<const std::string> Inputs,
     const WordLookup& Words,
     const std::span<RuleStatistic> Statistics,
     const size_t Threads,
-    std::atomic<size_t>* Completed = nullptr
+    std::atomic<size_t>* Completed = nullptr,
+    const std::optional<size_t> MatchLimit = std::nullopt
 );
 
 void
@@ -140,7 +143,8 @@ AnalyzeGenerated(
     const WordLookup& Words,
     const std::span<RuleStatistic> Statistics,
     const size_t Threads,
-    std::atomic<size_t>* Completed = nullptr
+    std::atomic<size_t>* Completed = nullptr,
+    const std::optional<size_t> MatchLimit = std::nullopt
 );
 
 void

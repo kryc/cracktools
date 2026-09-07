@@ -37,14 +37,15 @@ namespace
 {
 
 const std::string HELP_STRING = R"(
-Usage: ruleanalyze [options] <rules_file> <words_file>
+Usage: ruleanalyze [options] <rules_file> <lookup_words_file>
 
-Loads and sorts the complete word list, then applies every rule to every input
-word. A match is counted when the transformed word differs from the input and
-also exists in the supplied word list.
+Loads and sorts the lookup word list, then applies every rule to every input
+word. By default, the lookup words are also the inputs. A match is counted when
+the transformed word differs from the input and exists in the lookup word list.
 
 Options:
   --output, -o <file>       Write the report to a file instead of stdout.
+    --input-wordlist, -i <file> Use a separate word list as analysis inputs.
     --min, -m <length>        Ignore lookup words shorter than this length.
     --max, -M <length>        Ignore lookup words longer than this length.
     --generate, -g <length>   Generate analysis inputs through this maximum length.
@@ -66,11 +67,34 @@ Options:
     --exclude-errors          Exclude rules that produced syntax errors.
     --changed-only            Report only rules that changed at least one input.
     --valuable-rules <file>   Write rules with at least one match as a rule file.
+    --match-limit <count>     Stop evaluating each rule after this many matches.
     --threads, -t <count>     Number of analysis threads (default: available CPUs).
     --help, -h                Display this help message.
 
-Report format: tab-separated per-rule statistics.
+Report format: Markdown table with per-rule statistics.
 )";
+
+std::string
+MarkdownTableCell(
+    const std::string_view Value
+)
+{
+    std::string Encoded;
+    Encoded.reserve(Value.size());
+    for (const char Character : Value)
+    {
+        switch (Character)
+        {
+            case '&': Encoded += "&amp;"; break;
+            case '<': Encoded += "&lt;"; break;
+            case '>': Encoded += "&gt;"; break;
+            case '|': Encoded += "&#124;"; break;
+            case '\t': Encoded += "&#9;"; break;
+            default: Encoded.push_back(Character); break;
+        }
+    }
+    return Encoded;
+}
 
 std::optional<std::vector<std::string>>
 LoadWords(
@@ -78,14 +102,15 @@ LoadWords(
     const size_t EstimatedLines,
     const size_t MinLength,
     const size_t MaxLength,
-    const bool PrintableOnly
+    const bool PrintableOnly,
+    const std::string_view Description
 )
 {
     const std::string PathString = Path.string();
     LineReader<> Input(PathString);
     if (!Input.Open())
     {
-        std::cerr << "Unable to open words file: " << Path << std::endl;
+        std::cerr << "Unable to open " << Description << " file: " << Path << std::endl;
         return std::nullopt;
     }
 
@@ -133,7 +158,8 @@ LoadWords(
                 static_cast<double>(LinesRead) * 100.0 / static_cast<double>(EstimatedLines)
             );
             std::cerr << '\r' << std::format(
-                "Loading words... #:{:.1f}{} ({:.1f}%) Kept:{} Rate:{:.1f}{}/s",
+                "Loading {}... #:{:.1f}{} ({:.1f}%) Kept:{} Rate:{:.1f}{}/s",
+                Description,
                 DisplayWords,
                 WordFactor,
                 Percent,
@@ -145,7 +171,8 @@ LoadWords(
         else
         {
             std::cerr << '\r' << std::format(
-                "Loading words... #:{:.1f}{} Kept:{} Rate:{:.1f}{}/s",
+                "Loading {}... #:{:.1f}{} Kept:{} Rate:{:.1f}{}/s",
+                Description,
                 DisplayWords,
                 WordFactor,
                 Words.size(),
@@ -210,6 +237,7 @@ int main(
     const auto Args = cracktools::ParseArgv(argv, argc);
     std::filesystem::path RulesFile;
     std::filesystem::path WordsFile;
+    std::filesystem::path InputWordsFile;
     std::filesystem::path OutputFile;
     RuleAnalysis::SortKey SortKey = RuleAnalysis::SortKey::Matches;
     RuleAnalysis::SortOrder SortOrder = RuleAnalysis::SortOrder::Descending;
@@ -229,6 +257,7 @@ int main(
     bool ExcludeErrors = false;
     bool ChangedOnly = false;
     std::filesystem::path ValuableRulesFile;
+    std::optional<size_t> MatchLimit;
     size_t Threads = std::thread::hardware_concurrency();
     if (Threads == 0) Threads = 1;
 
@@ -239,6 +268,11 @@ int main(
         {
             ARGCHECK();
             OutputFile = Args[++i];
+        }
+        else if (Arg == "--input-wordlist" || Arg == "--input" || Arg == "-i")
+        {
+            ARGCHECK();
+            InputWordsFile = Args[++i];
         }
         else if (Arg == "--min" || Arg == "-m")
         {
@@ -335,6 +369,16 @@ int main(
         {
             ARGCHECK();
             ValuableRulesFile = Args[++i];
+        }
+        else if (Arg == "--match-limit" || Arg == "--stop-after-matches")
+        {
+            ARGCHECK();
+            MatchLimit = Util::ParseNumber<size_t>(Args[++i]);
+            if (*MatchLimit == 0)
+            {
+                std::cerr << "Match limit must be greater than zero" << std::endl;
+                return 1;
+            }
         }
         else if (Arg == "--sort" || Arg == "-s")
         {
@@ -449,6 +493,12 @@ int main(
         return 1;
     }
 
+    if (GenerateMaxLength && !InputWordsFile.empty())
+    {
+        std::cerr << "--generate and --input-wordlist cannot be combined" << std::endl;
+        return 1;
+    }
+
     const std::string WordsPath = WordsFile.string();
     std::cerr << "Counting words..." << std::flush;
     LineCounter<> WordCounter(WordsPath);
@@ -461,14 +511,39 @@ int main(
         EstimatedWords,
         MinLength,
         MaxLength,
-        PrintableOnly
+        PrintableOnly,
+        "words"
     );
     if (!LoadedWords) return 1;
     std::vector<std::string> Words = std::move(*LoadedWords);
 
     std::cerr << '\r' << Words.size() << " words loaded                              " << std::endl;
 
+    std::vector<std::string> InputWords;
     std::span<const std::string> Inputs = Words;
+    if (!InputWordsFile.empty())
+    {
+        const std::string InputWordsPath = InputWordsFile.string();
+        std::cerr << "Counting input words..." << std::flush;
+        LineCounter<> InputWordCounter(InputWordsPath);
+        const size_t EstimatedInputWords = InputWordCounter.CountLines();
+        std::cerr << " " << EstimatedInputWords << " lines" << std::endl;
+
+        std::cerr << "Loading input words..." << std::flush;
+        auto LoadedInputWords = LoadWords(
+            InputWordsFile,
+            EstimatedInputWords,
+            0,
+            std::numeric_limits<size_t>::max(),
+            false,
+            "input words"
+        );
+        if (!LoadedInputWords) return 1;
+        InputWords = std::move(*LoadedInputWords);
+        Inputs = InputWords;
+        std::cerr << '\r' << InputWords.size()
+                  << " input words loaded                              " << std::endl;
+    }
     size_t GeneratedInputCount = 0;
     std::vector<size_t> GeneratedSampleIndices;
     std::vector<std::string> SampledInputs;
@@ -621,12 +696,20 @@ int main(
             WordLookup,
             Statistics,
             Threads,
-            &Completed
+            &Completed,
+            MatchLimit
         );
     }
     else
     {
-        RuleAnalysis::Analyze(Inputs, WordLookup, Statistics, Threads, &Completed);
+        RuleAnalysis::Analyze(
+            Inputs,
+            WordLookup,
+            Statistics,
+            Threads,
+            &Completed,
+            MatchLimit
+        );
     }
     StatusThread.request_stop();
     StatusChanged.notify_all();
@@ -668,8 +751,10 @@ int main(
         Output = &OutputStream;
     }
 
-    *Output << "Rule\tEvaluated\tApplied\tChanged\tMatches\tUniqueMatches"
-            << "\tMatchRate\tCoverage\tRejected\tErrors\tTimeMs" << std::endl;
+    *Output << "| Rule | Evaluated | Applied | Changed | Matches | Unique Matches"
+        << " | Match Rate (%) | Coverage (%) | Rejected | Errors | Time (ms) |\n"
+        << "|:-----|----------:|--------:|--------:|--------:|---------------:"
+        << "|---------------:|-------------:|---------:|-------:|----------:|\n";
     size_t Reported = 0;
     for (const RuleAnalysis::RuleStatistic& Statistic : Statistics)
     {
@@ -681,8 +766,8 @@ int main(
         if (ChangedOnly && Statistic.changed == 0) continue;
 
         *Output << std::format(
-            "{}\t{}\t{}\t{}\t{}\t{}\t{:.4f}\t{:.4f}\t{}\t{}\t{:.3f}\n",
-            Statistic.rule,
+            "| {} | {} | {} | {} | {} | {} | {:.4f} | {:.4f} | {} | {} | {:.3f} |\n",
+            MarkdownTableCell(Statistic.rule),
             Statistic.evaluated,
             Statistic.applied,
             Statistic.changed,

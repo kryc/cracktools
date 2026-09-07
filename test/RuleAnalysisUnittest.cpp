@@ -175,6 +175,27 @@ TEST(RuleAnalysis, UsesSeparateInputsAndLookupWords)
     EXPECT_EQ(Statistics[0].matches, 1);
 }
 
+TEST(RuleAnalysis, StopsEachRuleAfterConfiguredMatchLimit)
+{
+    const std::vector<std::string> Inputs = {"cat", "dog", "bird"};
+    std::vector<std::string> Words = {"cats", "dogs", "birds"};
+    std::sort(Words.begin(), Words.end());
+    RuleAnalysis::WordLookup Lookup;
+    Lookup.Initialize(Words);
+    std::vector<RuleAnalysis::RuleStatistic> Statistics = {
+        Statistic("$s", 0),
+        Statistic("u", 1)
+    };
+
+    RuleAnalysis::Analyze(Inputs, Lookup, Statistics, 2, nullptr, 2);
+
+    EXPECT_EQ(Statistics[0].evaluated, 2);
+    EXPECT_EQ(Statistics[0].matches, 2);
+    EXPECT_EQ(Statistics[0].uniqueMatches, 2);
+    EXPECT_EQ(Statistics[1].evaluated, 3);
+    EXPECT_EQ(Statistics[1].matches, 0);
+}
+
 TEST(RuleAnalysis, GeneratesInputsOnDemand)
 {
     const std::vector<std::string> Words = {"a1"};
@@ -186,6 +207,22 @@ TEST(RuleAnalysis, GeneratesInputsOnDemand)
 
     RuleAnalysis::AnalyzeGenerated(2, {}, "ab", Lookup, Statistics, 1);
 
+    EXPECT_EQ(Statistics[0].matches, 1);
+}
+
+TEST(RuleAnalysis, StopsGeneratedInputsAtConfiguredMatchLimit)
+{
+    std::vector<std::string> Words = {"a1", "b1"};
+    std::sort(Words.begin(), Words.end());
+    RuleAnalysis::WordLookup Lookup;
+    Lookup.Initialize(Words);
+    std::vector<RuleAnalysis::RuleStatistic> Statistics = {
+        Statistic("$1", 0)
+    };
+
+    RuleAnalysis::AnalyzeGenerated(2, {}, "ab", Lookup, Statistics, 1, nullptr, 1);
+
+    EXPECT_EQ(Statistics[0].evaluated, 1);
     EXPECT_EQ(Statistics[0].matches, 1);
 }
 

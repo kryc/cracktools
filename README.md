@@ -48,13 +48,22 @@ For advanced usage and options see `cracklist --help`
 ruleanalyze [--ascending|--descending] [--sort matches|rule] rules.rule words.txt
 ```
 
-The default report is sorted by descending match count. Use `--threads` to control parallel rule analysis and `--output` to write the tab-separated report to a file.
+The default Markdown table report is sorted by descending match count. Use `--threads` to control parallel rule analysis and `--output` to write the report to a file.
 
 Use `--generate <length>` to analyze generated inputs through a separate maximum length while retaining `words.txt` as the lookup set. The `--min` and `--max` options only filter the lookup word list.
 
 ```bash
 ruleanalyze --generate 4 --charset lower --max 16 rules.rule words.txt
 ```
+
+Use `--input-wordlist <file>` (or `-i`) to apply rules to a separate input word list while retaining `words.txt` as the lookup set. `--input-wordlist` and `--generate` cannot be combined.
+
+```bash
+ruleanalyze --input-wordlist base.txt rules.rule known-passwords.txt
+```
+
+Use `--match-limit <count>` to stop evaluating an individual rule once it reaches the requested number of matches. This can substantially reduce analysis time when the goal is to retain rules that meet a minimum usefulness threshold.
+Statistics for a stopped rule reflect only the inputs evaluated before it reached the limit.
 
 Use `--input-sample` (or `--sample`) to reduce rule evaluations, and `--wordlist-sample` to independently reduce the lookup set before sorting and indexing.
 
