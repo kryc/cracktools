@@ -125,6 +125,7 @@ RandomSampleIndices(
 
 // SortedWords must be sorted lexicographically before calling Analyze.
 // MatchLimit stops each rule after that many matches; it must be greater than zero.
+// Kept and Dropped count completed rules grouped by whether they matched.
 void
 Analyze(
     const std::span<const std::string> Inputs,
@@ -132,7 +133,9 @@ Analyze(
     const std::span<RuleStatistic> Statistics,
     const size_t Threads,
     std::atomic<size_t>* Completed = nullptr,
-    const std::optional<size_t> MatchLimit = std::nullopt
+    const std::optional<size_t> MatchLimit = std::nullopt,
+    std::atomic<size_t>* Kept = nullptr,
+    std::atomic<size_t>* Dropped = nullptr
 );
 
 void
@@ -144,7 +147,9 @@ AnalyzeGenerated(
     const std::span<RuleStatistic> Statistics,
     const size_t Threads,
     std::atomic<size_t>* Completed = nullptr,
-    const std::optional<size_t> MatchLimit = std::nullopt
+    const std::optional<size_t> MatchLimit = std::nullopt,
+    std::atomic<size_t>* Kept = nullptr,
+    std::atomic<size_t>* Dropped = nullptr
 );
 
 void

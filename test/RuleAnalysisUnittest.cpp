@@ -186,9 +186,15 @@ TEST(RuleAnalysis, StopsEachRuleAfterConfiguredMatchLimit)
         Statistic("$s", 0),
         Statistic("u", 1)
     };
+    std::atomic<size_t> Completed = 0;
+    std::atomic<size_t> Kept = 0;
+    std::atomic<size_t> Dropped = 0;
 
-    RuleAnalysis::Analyze(Inputs, Lookup, Statistics, 2, nullptr, 2);
+    RuleAnalysis::Analyze(Inputs, Lookup, Statistics, 2, &Completed, 2, &Kept, &Dropped);
 
+    EXPECT_EQ(Completed.load(), 2);
+    EXPECT_EQ(Kept.load(), 1);
+    EXPECT_EQ(Dropped.load(), 1);
     EXPECT_EQ(Statistics[0].evaluated, 2);
     EXPECT_EQ(Statistics[0].matches, 2);
     EXPECT_EQ(Statistics[0].uniqueMatches, 2);

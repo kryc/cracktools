@@ -321,6 +321,19 @@ target_include_directories(wordlistinfo
                         )
 target_link_libraries(wordlistinfo gmp gmpxx)
 
+# WordlistSort
+set(WORDLISTSORT_SOURCES
+    src/WordlistSort.cpp
+    src/WordlistSortMain.cpp
+    src/Util.cpp
+)
+add_executable(wordlistsort ${WORDLISTSORT_SOURCES})
+target_include_directories(wordlistsort
+                            PUBLIC
+                                ./src/
+                        )
+target_link_libraries(wordlistsort gmp gmpxx)
+
 # RuleAnalyze
 set(RULEANALYZE_SOURCES
     src/CsvWriter.cpp
@@ -358,6 +371,7 @@ set(ALL_TARGETS
     credparse
     randstring
     wordlistinfo
+    wordlistsort
     ruleanalyze
 )
 

@@ -162,6 +162,8 @@ AnalyzeInternal(
     const size_t Threads,
     std::atomic<size_t>* Completed,
     const std::optional<size_t> MatchLimit,
+    std::atomic<size_t>* Kept,
+    std::atomic<size_t>* Dropped,
     const InputProvider& GetInput
 )
 {
@@ -229,9 +231,17 @@ AnalyzeInternal(
             Statistic.elapsedNanoseconds = std::chrono::duration_cast<std::chrono::nanoseconds>(
                 std::chrono::steady_clock::now() - Start
             ).count();
+            if (Kept != nullptr && Matches != 0)
+            {
+                Kept->fetch_add(1, std::memory_order_relaxed);
+            }
+            else if (Dropped != nullptr && Matches == 0)
+            {
+                Dropped->fetch_add(1, std::memory_order_relaxed);
+            }
             if (Completed != nullptr)
             {
-                Completed->fetch_add(1, std::memory_order_relaxed);
+                Completed->fetch_add(1, std::memory_order_release);
             }
         }
     };
@@ -256,7 +266,9 @@ Analyze(
     const std::span<RuleStatistic> Statistics,
     const size_t Threads,
     std::atomic<size_t>* Completed,
-    const std::optional<size_t> MatchLimit
+    const std::optional<size_t> MatchLimit,
+    std::atomic<size_t>* Kept,
+    std::atomic<size_t>* Dropped
 )
 {
     AnalyzeInternal(
@@ -266,6 +278,8 @@ Analyze(
         Threads,
         Completed,
         MatchLimit,
+        Kept,
+        Dropped,
         [Inputs](const size_t Index, std::string&) -> std::string_view
         {
             return Inputs[Index];
@@ -282,7 +296,9 @@ AnalyzeGenerated(
     const std::span<RuleStatistic> Statistics,
     const size_t Threads,
     std::atomic<size_t>* Completed,
-    const std::optional<size_t> MatchLimit
+    const std::optional<size_t> MatchLimit,
+    std::atomic<size_t>* Kept,
+    std::atomic<size_t>* Dropped
 )
 {
     const size_t AnalysisCount = SampleIndices.empty() ? InputCount : SampleIndices.size();
@@ -293,6 +309,8 @@ AnalyzeGenerated(
         Threads,
         Completed,
         MatchLimit,
+        Kept,
+        Dropped,
         [InputCount, SampleIndices, Charset](const size_t Index, std::string& Storage) -> std::string_view
         {
             const size_t GeneratorIndex = SampleIndices.empty() ? Index : SampleIndices[Index];

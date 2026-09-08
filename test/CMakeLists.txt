@@ -74,6 +74,18 @@ target_include_directories(rules_unittest
 target_link_libraries(rules_unittest gtest_main gmp gmpxx)
 add_test(NAME rules_unittest COMMAND rules_unittest)
 
+# Word-list sort unittest
+add_executable(wordlistsort_unittest EXCLUDE_FROM_ALL
+    WordlistSortUnittest.cpp
+    ../src/Util.cpp
+    ../src/WordlistSort.cpp)
+target_include_directories(wordlistsort_unittest
+    PUBLIC
+        ../src/
+)
+target_link_libraries(wordlistsort_unittest gtest_main gmp gmpxx)
+add_test(NAME wordlistsort_unittest COMMAND wordlistsort_unittest)
+
 # RainbowTable unittest (needs simdhash, dispatchqueue, crypto)
 add_executable(rainbow_unittest EXCLUDE_FROM_ALL
     RainbowTableUnittest.cpp

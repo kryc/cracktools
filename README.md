@@ -69,6 +69,20 @@ Use `--input-sample` (or `--sample`) to reduce rule evaluations, and `--wordlist
 
 Reports distinguish evaluated, applied, changed, matched, unique matched, rejected, and invalid applications, with match-rate, coverage, and timing columns. Use `--seed` for reproducible samples and report filters such as `--only-zero`, `--min-matches`, `--min-rate`, `--errors-only`, and `--changed-only`. `--valuable-rules <file>` writes rules that produced at least one known word as a reusable rule file.
 
+### wordlistsort
+
+`wordlistsort` normalizes and sorts a word list. It decodes valid `$HEX[]` input before sorting by decoded byte value, then applies standard `$HEX[]` encoding to output words where required.
+
+```bash
+wordlistsort words.txt > sorted.txt
+```
+
+For `hash:word` input, a likely hexadecimal or crypt hash prefix is detected automatically and discarded before decoding and sorting. Other colon-containing words are preserved.
+
+```bash
+wordlistsort cracked.txt > sorted.txt
+```
+
 ### crackdb++
 
 `CrackDB++` is an unsalted password hash lookup application and an example of a time-memory tradeoff tool. It works by storing the hash of every word in the input wordlist in a set of files on disk, then uses efficient lookup algorithms to recover provided hashes later. It is extremely disk- and memory-efficient storing only a small portion of each word's hash and typically recovers many thousands of hashes per second.

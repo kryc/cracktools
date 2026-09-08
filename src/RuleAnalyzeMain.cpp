@@ -83,7 +83,8 @@ LoadWords(
     const size_t MinLength,
     const size_t MaxLength,
     const bool PrintableOnly,
-    const std::string_view Description
+    const std::string_view Description,
+    bool* IsSorted
 )
 {
     const std::string PathString = Path.string();
@@ -96,6 +97,7 @@ LoadWords(
 
     std::vector<std::string> Words;
     Words.reserve(EstimatedLines + 1);
+    bool Sorted = true;
     std::string_view Word;
     size_t LinesRead = 0;
     const auto Start = std::chrono::steady_clock::now();
@@ -108,6 +110,7 @@ LoadWords(
             && ParsedWord.size() <= MaxLength
             && (!PrintableOnly || Util::IsPrintableUTF8(ParsedWord)))
         {
+            if (!Words.empty() && ParsedWord < Words.back()) Sorted = false;
             Words.push_back(std::move(ParsedWord));
         }
 
@@ -162,6 +165,7 @@ LoadWords(
         }
     }
 
+    if (IsSorted != nullptr) *IsSorted = Sorted;
     return Words;
 }
 
@@ -486,13 +490,15 @@ int main(
     std::cerr << " " << EstimatedWords << " lines" << std::endl;
 
     std::cerr << "Loading words..." << std::flush;
+    bool WordListSorted = true;
     auto LoadedWords = LoadWords(
         WordsFile,
         EstimatedWords,
         MinLength,
         MaxLength,
         PrintableOnly,
-        "words"
+        "words",
+        &WordListSorted
     );
     if (!LoadedWords) return 1;
     std::vector<std::string> Words = std::move(*LoadedWords);
@@ -516,7 +522,8 @@ int main(
             0,
             std::numeric_limits<size_t>::max(),
             false,
-            "input words"
+            "input words",
+            nullptr
         );
         if (!LoadedInputWords) return 1;
         InputWords = std::move(*LoadedInputWords);
@@ -591,16 +598,23 @@ int main(
         std::cerr << " done" << std::endl;
     }
 
-    std::cerr << "Sorting " << LookupWords.size() << " lookup words..." << std::flush;
-    if (SampledWordlist.empty())
+    if (SampledWordlist.empty() && WordListSorted)
     {
-        std::sort(Words.begin(), Words.end());
+        std::cerr << "Lookup words already sorted; skipping sort" << std::endl;
     }
     else
     {
-        std::sort(SampledWordlist.begin(), SampledWordlist.end());
+        std::cerr << "Sorting " << LookupWords.size() << " lookup words..." << std::flush;
+        if (SampledWordlist.empty())
+        {
+            std::sort(Words.begin(), Words.end());
+        }
+        else
+        {
+            std::sort(SampledWordlist.begin(), SampledWordlist.end());
+        }
+        std::cerr << " done" << std::endl;
     }
-    std::cerr << " done" << std::endl;
 
     std::cerr << "Building word lookup table..." << std::flush;
     RuleAnalysis::WordLookup WordLookup;
@@ -619,11 +633,14 @@ int main(
     std::cerr << " " << Statistics.size() << " loaded" << std::endl;
     std::cerr << "Analyzing with " << Threads << " threads" << std::endl;
 
-    std::atomic<size_t> Completed = 0;
+    std::atomic<size_t> Kept = 0;
+    std::atomic<size_t> Dropped = 0;
     const auto AnalysisStart = std::chrono::steady_clock::now();
     auto PrintStatus = [&]()
     {
-        const size_t Complete = Completed.load(std::memory_order_relaxed);
+        const size_t Keep = Kept.load(std::memory_order_relaxed);
+        const size_t Drop = Dropped.load(std::memory_order_relaxed);
+        const size_t Complete = Keep + Drop;
         const double Percent = Statistics.empty()
             ? 100.0
             : static_cast<double>(Complete) * 100.0 / static_cast<double>(Statistics.size());
@@ -640,14 +657,16 @@ int main(
         );
 
         std::cerr << '\r' << std::format(
-            "R:{}/{} ({:.1f}%) E:{:.1f}{} Rate:{:.1f}{}/s",
+            "R:{}/{} ({:.1f}%) E:{:.1f}{} Rate:{:.1f}{}/s +{} -{}",
             Complete,
             Statistics.size(),
             Percent,
             DisplayEvaluations,
             EvaluationFactor,
             DisplayRate,
-            RateFactor
+            RateFactor,
+            Keep,
+            Drop
         ) << std::flush;
     };
 
@@ -676,8 +695,10 @@ int main(
             WordLookup,
             Statistics,
             Threads,
-            &Completed,
-            MatchLimit
+            nullptr,
+            MatchLimit,
+            &Kept,
+            &Dropped
         );
     }
     else
@@ -687,8 +708,10 @@ int main(
             WordLookup,
             Statistics,
             Threads,
-            &Completed,
-            MatchLimit
+            nullptr,
+            MatchLimit,
+            &Kept,
+            &Dropped
         );
     }
     StatusThread.request_stop();
