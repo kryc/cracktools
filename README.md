@@ -48,7 +48,7 @@ For advanced usage and options see `cracklist --help`
 ruleanalyze [--ascending|--descending] [--sort matches|rule] rules.rule words.txt
 ```
 
-The default Markdown table report is sorted by descending match count. Use `--threads` to control parallel rule analysis and `--output` to write the report to a file.
+The default CSV report is sorted by descending match count. Use `--threads` to control parallel rule analysis and `--output` to write the report to a file.
 
 Use `--generate <length>` to analyze generated inputs through a separate maximum length while retaining `words.txt` as the lookup set. The `--min` and `--max` options only filter the lookup word list.
 

@@ -59,8 +59,10 @@ add_test(NAME unittest COMMAND unittest)
 
 # Hashcat rule engine unittest
 add_executable(rules_unittest EXCLUDE_FROM_ALL
+    CsvWriterUnittest.cpp
     RuleAnalysisUnittest.cpp
     RulesUnittest.cpp
+    ../src/CsvWriter.cpp
     ../src/RuleAnalysis.cpp
     ../src/Rules.cpp
     ../src/Util.cpp

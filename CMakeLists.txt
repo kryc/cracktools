@@ -323,6 +323,7 @@ target_link_libraries(wordlistinfo gmp gmpxx)
 
 # RuleAnalyze
 set(RULEANALYZE_SOURCES
+    src/CsvWriter.cpp
     src/RuleAnalysis.cpp
     src/RuleAnalyzeMain.cpp
     src/Rules.cpp

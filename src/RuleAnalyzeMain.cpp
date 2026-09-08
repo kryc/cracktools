@@ -3,6 +3,7 @@
 //
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -19,6 +20,7 @@
 #include <thread>
 #include <vector>
 
+#include "CsvWriter.hpp"
 #include "LineReader.hpp"
 #include "RuleAnalysis.hpp"
 #include "Rules.hpp"
@@ -71,30 +73,8 @@ Options:
     --threads, -t <count>     Number of analysis threads (default: available CPUs).
     --help, -h                Display this help message.
 
-Report format: Markdown table with per-rule statistics.
+Report format: CSV with per-rule statistics.
 )";
-
-std::string
-MarkdownTableCell(
-    const std::string_view Value
-)
-{
-    std::string Encoded;
-    Encoded.reserve(Value.size());
-    for (const char Character : Value)
-    {
-        switch (Character)
-        {
-            case '&': Encoded += "&amp;"; break;
-            case '<': Encoded += "&lt;"; break;
-            case '>': Encoded += "&gt;"; break;
-            case '|': Encoded += "&#124;"; break;
-            case '\t': Encoded += "&#9;"; break;
-            default: Encoded.push_back(Character); break;
-        }
-    }
-    return Encoded;
-}
 
 std::optional<std::vector<std::string>>
 LoadWords(
@@ -751,10 +731,21 @@ int main(
         Output = &OutputStream;
     }
 
-    *Output << "| Rule | Evaluated | Applied | Changed | Matches | Unique Matches"
-        << " | Match Rate (%) | Coverage (%) | Rejected | Errors | Time (ms) |\n"
-        << "|:-----|----------:|--------:|--------:|--------:|---------------:"
-        << "|---------------:|-------------:|---------:|-------:|----------:|\n";
+    CsvWriter Report(*Output);
+    const std::array<std::string, 11> Header = {
+        "Rule",
+        "Evaluated",
+        "Applied",
+        "Changed",
+        "Matches",
+        "UniqueMatches",
+        "MatchRate",
+        "Coverage",
+        "Rejected",
+        "Errors",
+        "TimeMs"
+    };
+    Report.WriteRow(Header);
     size_t Reported = 0;
     for (const RuleAnalysis::RuleStatistic& Statistic : Statistics)
     {
@@ -765,20 +756,23 @@ int main(
         if (ExcludeErrors && Statistic.syntaxErrors != 0) continue;
         if (ChangedOnly && Statistic.changed == 0) continue;
 
-        *Output << std::format(
-            "| {} | {} | {} | {} | {} | {} | {:.4f} | {:.4f} | {} | {} | {:.3f} |\n",
-            MarkdownTableCell(Statistic.rule),
-            Statistic.evaluated,
-            Statistic.applied,
-            Statistic.changed,
-            Statistic.matches,
-            Statistic.uniqueMatches,
-            Statistic.MatchRate() * 100.0,
-            Statistic.Coverage() * 100.0,
-            Statistic.rejected,
-            Statistic.syntaxErrors,
-            static_cast<double>(Statistic.elapsedNanoseconds) / 1000000.0
-        );
+        const std::array<std::string, 11> Row = {
+            Statistic.rule,
+            std::to_string(Statistic.evaluated),
+            std::to_string(Statistic.applied),
+            std::to_string(Statistic.changed),
+            std::to_string(Statistic.matches),
+            std::to_string(Statistic.uniqueMatches),
+            std::format("{:.4f}", Statistic.MatchRate() * 100.0),
+            std::format("{:.4f}", Statistic.Coverage() * 100.0),
+            std::to_string(Statistic.rejected),
+            std::to_string(Statistic.syntaxErrors),
+            std::format(
+                "{:.3f}",
+                static_cast<double>(Statistic.elapsedNanoseconds) / 1000000.0
+            )
+        };
+        Report.WriteRow(Row);
         Reported++;
     }
 
