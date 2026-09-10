@@ -67,7 +67,7 @@ Statistics for a stopped rule reflect only the inputs evaluated before it reache
 
 Use `--input-sample` (or `--sample`) to reduce rule evaluations, and `--wordlist-sample` to independently reduce the lookup set before sorting and indexing.
 
-Reports distinguish evaluated, applied, changed, matched, unique matched, rejected, and invalid applications, with match-rate, coverage, and timing columns. Use `--seed` for reproducible samples and report filters such as `--only-zero`, `--min-matches`, `--min-rate`, `--errors-only`, and `--changed-only`. `--valuable-rules <file>` writes rules that produced at least one known word as a reusable rule file.
+Reports distinguish evaluated, applied, changed, matched, unique matched, rejected, and invalid applications, with match-rate, coverage, and timing columns. Use `--seed` for reproducible samples and report filters such as `--only-zero`, `--min-matches`, `--min-rate`, `--errors-only`, and `--changed-only`. `--valuable-rules <file>` writes rules that produced at least one known word and pass the configured filters as a reusable rule file.
 
 ### wordlistsort
 
@@ -75,6 +75,12 @@ Reports distinguish evaluated, applied, changed, matched, unique matched, reject
 
 ```bash
 wordlistsort words.txt > sorted.txt
+```
+
+Use `--output <file>` (or `-o`) to write directly to an output file instead of stdout.
+
+```bash
+wordlistsort -o sorted.txt words.txt
 ```
 
 For `hash:word` input, a likely hexadecimal or crypt hash prefix is detected automatically and discarded before decoding and sorting. Other colon-containing words are preserved.

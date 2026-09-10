@@ -9,6 +9,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <optional>
 #include <span>
 #include <string>
@@ -80,6 +81,31 @@ struct RuleStatistic
     }
 };
 
+struct RuleFilter
+{
+    size_t minimumMatches = 0;
+    size_t maximumMatches = std::numeric_limits<size_t>::max();
+    double minimumRate = 0.0;
+    bool errorsOnly = false;
+    bool excludeErrors = false;
+    bool changedOnly = false;
+
+    [[nodiscard]] bool Passes(const RuleStatistic& Statistic) const
+    {
+        if (Statistic.matches < minimumMatches || Statistic.matches > maximumMatches) return false;
+        if (Statistic.MatchRate() < minimumRate) return false;
+        if (errorsOnly && Statistic.syntaxErrors == 0) return false;
+        if (excludeErrors && Statistic.syntaxErrors != 0) return false;
+        if (changedOnly && Statistic.changed == 0) return false;
+        return true;
+    }
+
+    [[nodiscard]] bool IsValuable(const RuleStatistic& Statistic) const
+    {
+        return Statistic.matches != 0 && Passes(Statistic);
+    }
+};
+
 struct WordRange
 {
     size_t offset = 0;
@@ -125,7 +151,8 @@ RandomSampleIndices(
 
 // SortedWords must be sorted lexicographically before calling Analyze.
 // MatchLimit stops each rule after that many matches; it must be greater than zero.
-// Kept and Dropped count completed rules grouped by whether they matched.
+// Kept and Dropped count completed rules according to Filter. Without a filter,
+// rules with at least one match are kept.
 void
 Analyze(
     const std::span<const std::string> Inputs,
@@ -135,7 +162,8 @@ Analyze(
     std::atomic<size_t>* Completed = nullptr,
     const std::optional<size_t> MatchLimit = std::nullopt,
     std::atomic<size_t>* Kept = nullptr,
-    std::atomic<size_t>* Dropped = nullptr
+    std::atomic<size_t>* Dropped = nullptr,
+    const RuleFilter* Filter = nullptr
 );
 
 void
@@ -149,7 +177,8 @@ AnalyzeGenerated(
     std::atomic<size_t>* Completed = nullptr,
     const std::optional<size_t> MatchLimit = std::nullopt,
     std::atomic<size_t>* Kept = nullptr,
-    std::atomic<size_t>* Dropped = nullptr
+    std::atomic<size_t>* Dropped = nullptr,
+    const RuleFilter* Filter = nullptr
 );
 
 void

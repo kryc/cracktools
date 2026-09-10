@@ -202,6 +202,23 @@ TEST(RuleAnalysis, StopsEachRuleAfterConfiguredMatchLimit)
     EXPECT_EQ(Statistics[1].matches, 0);
 }
 
+TEST(RuleAnalysis, FiltersValuableRulesByMinimumMatches)
+{
+    RuleAnalysis::RuleStatistic Statistic = ::Statistic("$s", 0);
+    RuleAnalysis::RuleFilter Filter;
+    Filter.minimumMatches = 2;
+
+    Statistic.matches = 1;
+    Statistic.changed = 1;
+    EXPECT_FALSE(Filter.Passes(Statistic));
+    EXPECT_FALSE(Filter.IsValuable(Statistic));
+
+    Statistic.matches = 2;
+    Statistic.changed = 2;
+    EXPECT_TRUE(Filter.Passes(Statistic));
+    EXPECT_TRUE(Filter.IsValuable(Statistic));
+}
+
 TEST(RuleAnalysis, GeneratesInputsOnDemand)
 {
     const std::vector<std::string> Words = {"a1"};

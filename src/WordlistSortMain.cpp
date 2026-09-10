@@ -3,6 +3,7 @@
 //
 
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <string>
 #include <string_view>
@@ -23,7 +24,8 @@ words to stdout using standard $HEX[] encoding where required.
 Likely hexadecimal or crypt prefixes in hash:word lines are discarded automatically.
 
 Options:
-    --help, -h  Display this help message.
+    --output, -o <file>  Write sorted words to a file instead of stdout.
+    --help, -h           Display this help message.
 )";
 
 }
@@ -36,11 +38,21 @@ main(
 {
     const auto Args = cracktools::ParseArgv(argv, argc);
     std::filesystem::path InputFile;
+    std::filesystem::path OutputFile;
 
     for (int i = 1; i < argc; i++)
     {
         const std::string_view Arg = Args[i];
-        if (Arg == "--help" || Arg == "-h")
+        if (Arg == "--output" || Arg == "-o")
+        {
+            if (i + 1 >= argc)
+            {
+                std::cerr << "No value specified for " << Arg << std::endl;
+                return 1;
+            }
+            OutputFile = Args[++i];
+        }
+        else if (Arg == "--help" || Arg == "-h")
         {
             std::cout << HELP_STRING << std::endl;
             return 0;
@@ -85,6 +97,20 @@ main(
     }
 
     WordlistSort::Sort(Words);
-    WordlistSort::Write(Words, std::cout);
-    return std::cout.good() ? 0 : 1;
+
+    std::ostream* Output = &std::cout;
+    std::ofstream OutputStream;
+    if (!OutputFile.empty())
+    {
+        OutputStream.open(OutputFile, std::ios::out | std::ios::binary);
+        if (!OutputStream.is_open())
+        {
+            std::cerr << "Unable to open output file: " << OutputFile << std::endl;
+            return 1;
+        }
+        Output = &OutputStream;
+    }
+
+    WordlistSort::Write(Words, *Output);
+    return Output->good() ? 0 : 1;
 }

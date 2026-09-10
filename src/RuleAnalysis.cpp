@@ -164,6 +164,7 @@ AnalyzeInternal(
     const std::optional<size_t> MatchLimit,
     std::atomic<size_t>* Kept,
     std::atomic<size_t>* Dropped,
+    const RuleFilter* Filter,
     const InputProvider& GetInput
 )
 {
@@ -231,11 +232,14 @@ AnalyzeInternal(
             Statistic.elapsedNanoseconds = std::chrono::duration_cast<std::chrono::nanoseconds>(
                 std::chrono::steady_clock::now() - Start
             ).count();
-            if (Kept != nullptr && Matches != 0)
+            const bool Keep = Filter == nullptr
+                ? Matches != 0
+                : Filter->IsValuable(Statistic);
+            if (Kept != nullptr && Keep)
             {
                 Kept->fetch_add(1, std::memory_order_relaxed);
             }
-            else if (Dropped != nullptr && Matches == 0)
+            else if (Dropped != nullptr && !Keep)
             {
                 Dropped->fetch_add(1, std::memory_order_relaxed);
             }
@@ -268,7 +272,8 @@ Analyze(
     std::atomic<size_t>* Completed,
     const std::optional<size_t> MatchLimit,
     std::atomic<size_t>* Kept,
-    std::atomic<size_t>* Dropped
+    std::atomic<size_t>* Dropped,
+    const RuleFilter* Filter
 )
 {
     AnalyzeInternal(
@@ -280,6 +285,7 @@ Analyze(
         MatchLimit,
         Kept,
         Dropped,
+        Filter,
         [Inputs](const size_t Index, std::string&) -> std::string_view
         {
             return Inputs[Index];
@@ -298,7 +304,8 @@ AnalyzeGenerated(
     std::atomic<size_t>* Completed,
     const std::optional<size_t> MatchLimit,
     std::atomic<size_t>* Kept,
-    std::atomic<size_t>* Dropped
+    std::atomic<size_t>* Dropped,
+    const RuleFilter* Filter
 )
 {
     const size_t AnalysisCount = SampleIndices.empty() ? InputCount : SampleIndices.size();
@@ -311,6 +318,7 @@ AnalyzeGenerated(
         MatchLimit,
         Kept,
         Dropped,
+        Filter,
         [InputCount, SampleIndices, Charset](const size_t Index, std::string& Storage) -> std::string_view
         {
             const size_t GeneratorIndex = SampleIndices.empty() ? Index : SampleIndices[Index];

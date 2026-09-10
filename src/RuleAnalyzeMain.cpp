@@ -68,7 +68,7 @@ Options:
     --errors-only             Report only rules that produced syntax errors.
     --exclude-errors          Exclude rules that produced syntax errors.
     --changed-only            Report only rules that changed at least one input.
-    --valuable-rules <file>   Write rules with at least one match as a rule file.
+    --valuable-rules <file>   Write matched rules that pass the filters as a rule file.
     --match-limit <count>     Stop evaluating each rule after this many matches.
     --threads, -t <count>     Number of analysis threads (default: available CPUs).
     --help, -h                Display this help message.
@@ -471,6 +471,12 @@ int main(
         return 1;
     }
 
+    if (MatchLimit && MinimumMatches > *MatchLimit)
+    {
+        std::cerr << "Minimum matches cannot exceed match limit" << std::endl;
+        return 1;
+    }
+
     if (ErrorsOnly && ExcludeErrors)
     {
         std::cerr << "--errors-only and --exclude-errors cannot be combined" << std::endl;
@@ -633,6 +639,13 @@ int main(
     std::cerr << " " << Statistics.size() << " loaded" << std::endl;
     std::cerr << "Analyzing with " << Threads << " threads" << std::endl;
 
+    RuleAnalysis::RuleFilter Filter;
+    Filter.minimumMatches = MinimumMatches;
+    Filter.maximumMatches = MaximumMatches;
+    Filter.minimumRate = MinimumRate;
+    Filter.errorsOnly = ErrorsOnly;
+    Filter.excludeErrors = ExcludeErrors;
+    Filter.changedOnly = ChangedOnly;
     std::atomic<size_t> Kept = 0;
     std::atomic<size_t> Dropped = 0;
     const auto AnalysisStart = std::chrono::steady_clock::now();
@@ -698,7 +711,8 @@ int main(
             nullptr,
             MatchLimit,
             &Kept,
-            &Dropped
+            &Dropped,
+            &Filter
         );
     }
     else
@@ -711,7 +725,8 @@ int main(
             nullptr,
             MatchLimit,
             &Kept,
-            &Dropped
+            &Dropped,
+            &Filter
         );
     }
     StatusThread.request_stop();
@@ -732,7 +747,7 @@ int main(
         size_t ValuableCount = 0;
         for (const RuleAnalysis::RuleStatistic& Statistic : Statistics)
         {
-            if (Statistic.matches == 0) continue;
+            if (!Filter.IsValuable(Statistic)) continue;
             ValuableRules << Statistic.rule << '\n';
             ValuableCount++;
         }
@@ -773,11 +788,7 @@ int main(
     for (const RuleAnalysis::RuleStatistic& Statistic : Statistics)
     {
         if (OnlyZero && Statistic.matches != 0) continue;
-        if (Statistic.matches < MinimumMatches || Statistic.matches > MaximumMatches) continue;
-        if (Statistic.MatchRate() < MinimumRate) continue;
-        if (ErrorsOnly && Statistic.syntaxErrors == 0) continue;
-        if (ExcludeErrors && Statistic.syntaxErrors != 0) continue;
-        if (ChangedOnly && Statistic.changed == 0) continue;
+        if (!Filter.Passes(Statistic)) continue;
 
         const std::array<std::string, 11> Row = {
             Statistic.rule,
