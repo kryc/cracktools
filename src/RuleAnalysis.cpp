@@ -184,12 +184,21 @@ TargetLookup::Find(
 ) const
 {
     if (Word.size() >= BUCKET_COUNT) return std::nullopt;
-    const std::vector<Hash128>& Bucket = m_Buckets[Word.size()];
-    const Hash128 Hash = Fingerprint(Word);
+    return FindFingerprint(Word.size(), Fingerprint(Word));
+}
+
+std::optional<uint32_t>
+TargetLookup::FindFingerprint(
+    const size_t Length,
+    const Hash128 Hash
+) const
+{
+    if (Length >= BUCKET_COUNT) return std::nullopt;
+    const std::vector<Hash128>& Bucket = m_Buckets[Length];
     const auto Found = std::lower_bound(Bucket.begin(), Bucket.end(), Hash);
     if (Found == Bucket.end() || *Found != Hash) return std::nullopt;
 
-    const size_t TargetId = m_Offsets[Word.size()]
+    const size_t TargetId = m_Offsets[Length]
         + static_cast<size_t>(std::distance(Bucket.begin(), Found));
     if (TargetId > std::numeric_limits<uint32_t>::max()) return std::nullopt;
     return static_cast<uint32_t>(TargetId);

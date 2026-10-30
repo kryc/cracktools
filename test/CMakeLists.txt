@@ -72,7 +72,14 @@ target_include_directories(rules_unittest
         ../src/
 )
 target_link_libraries(rules_unittest gtest_main gmp gmpxx)
+if(CRACKTOOLS_ENABLE_CUDA)
+    target_sources(rules_unittest PRIVATE RuleAnalysisCudaUnittest.cpp)
+    target_link_libraries(rules_unittest ruleanalysis_cuda)
+endif()
 add_test(NAME rules_unittest COMMAND rules_unittest)
+if(CRACKTOOLS_ENABLE_CUDA)
+    set_tests_properties(rules_unittest PROPERTIES ENVIRONMENT "ASAN_OPTIONS=protect_shadow_gap=0")
+endif()
 
 # Word-list sort unittest
 add_executable(wordlistsort_unittest EXCLUDE_FROM_ALL

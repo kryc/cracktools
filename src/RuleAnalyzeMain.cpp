@@ -25,6 +25,9 @@
 #include "CsvWriter.hpp"
 #include "LineReader.hpp"
 #include "RuleAnalysis.hpp"
+#ifdef CRACKTOOLS_ENABLE_CUDA
+#include "RuleAnalysisCuda.hpp"
+#endif
 #include "Rules.hpp"
 #include "UnsafeBuffer.hpp"
 #include "Util.hpp"
@@ -70,6 +73,7 @@ Input options:
   --printable, -p             Ignore targets containing non-printable UTF-8.
 
 Output options:
+    --backend <cpu|cuda|auto>   Execution backend (default: cpu).
   --output, -o <file>         Write the CSV ranking to a file instead of stdout.
   --valuable-rules <file>     Write selected rules in optimal ranking order.
   --threads, -t <count>       Analysis threads (default: available CPUs).
@@ -319,13 +323,24 @@ main(
     bool TopConfigured = false;
     bool BarConfigured = false;
     bool CoverageConfigured = false;
+    std::string Backend = "cpu";
     size_t Threads = std::thread::hardware_concurrency();
     if (Threads == 0) Threads = 1;
 
     for (int i = 1; i < argc; i++)
     {
         const std::string_view Arg = Args[i];
-        if (Arg == "--output" || Arg == "-o")
+        if (Arg == "--backend")
+        {
+            ARGCHECK();
+            Backend = Args[++i];
+            if (Backend != "cpu" && Backend != "cuda" && Backend != "auto")
+            {
+                std::cerr << "Backend must be cpu, cuda, or auto" << std::endl;
+                return 1;
+            }
+        }
+        else if (Arg == "--output" || Arg == "-o")
         {
             ARGCHECK();
             OutputFile = Args[++i];
@@ -568,9 +583,17 @@ main(
               << " logical evaluations using " << Threads << " workers" << std::endl;
     if (!InputSampleSize && PlannedEvaluations >= 1.0e11L)
     {
-        std::cerr << "WARNING: exhaustive analysis is extremely large. "
-                  << "Use --input-sample with --seed for a practical ranking run."
-                  << std::endl;
+        if (QualificationBar)
+        {
+            std::cerr << "WARNING: worst-case qualification workload is extremely large; "
+                      << "rules that do not qualify scan all inputs." << std::endl;
+        }
+        else
+        {
+            std::cerr << "WARNING: exhaustive analysis is extremely large. "
+                      << "Use --input-sample with --seed for a practical ranking run."
+                      << std::endl;
+        }
     }
 
     RuleAnalysis::AnalysisProgress Progress;
@@ -650,17 +673,41 @@ main(
         }
     });
 
-    RuleAnalysis::Analyze(
-        Inputs,
-        TargetLookup,
-        Statistics,
-        Threads,
-        &Progress,
-        QualificationBar
-    );
+    bool AnalysisSucceeded = true;
+    std::string BackendError;
+    bool UseCuda = false;
+#ifdef CRACKTOOLS_ENABLE_CUDA
+    if (Backend != "cpu")
+    {
+        UseCuda = RuleAnalysis::CudaAvailable(BackendError);
+        if (!UseCuda && Backend == "cuda") AnalysisSucceeded = false;
+        else if (!UseCuda) std::cerr << "CUDA unavailable; using CPU: " << BackendError << std::endl;
+    }
+    if (UseCuda)
+    {
+        AnalysisSucceeded = RuleAnalysis::AnalyzeCuda(
+            Inputs, TargetLookup, Statistics, Threads, &Progress, QualificationBar, BackendError
+        );
+    }
+#else
+    if (Backend == "cuda")
+    {
+        AnalysisSucceeded = false;
+        BackendError = "CUDA backend not built; enable CRACKTOOLS_ENABLE_CUDA in CMake";
+    }
+#endif
+    if (!UseCuda && AnalysisSucceeded)
+    {
+        RuleAnalysis::Analyze(Inputs, TargetLookup, Statistics, Threads, &Progress, QualificationBar);
+    }
     StatusThread.request_stop();
     StatusChanged.notify_all();
     StatusThread.join();
+    if (!AnalysisSucceeded)
+    {
+        std::cerr << "\nAnalysis failed: " << BackendError << std::endl;
+        return 1;
+    }
     PrintStatus();
     std::cerr << std::endl;
 

@@ -119,8 +119,16 @@ public:
     void Finalize(const size_t Threads = 1);
     [[nodiscard]] size_t RemoveDirect(const std::span<const std::string> Inputs);
     [[nodiscard]] std::optional<uint32_t> Find(const std::string_view Word) const;
+    [[nodiscard]] std::optional<uint32_t> FindFingerprint(
+        const size_t Length,
+        const Hash128 Hash
+    ) const;
     [[nodiscard]] bool Contains(const std::string_view Word) const;
     [[nodiscard]] size_t Size(void) const;
+    [[nodiscard]] const std::vector<Hash128>& Bucket(const size_t Length) const
+    {
+        return m_Buckets.at(Length);
+    }
 
 private:
     void BuildOffsets(void);

@@ -9,6 +9,41 @@ project(cracktools VERSION 0.1)
 
 enable_testing()
 
+if(NOT DEFINED CRACKTOOLS_ENABLE_CUDA OR CRACKTOOLS_ENABLE_CUDA)
+    if(NOT DEFINED CMAKE_CUDA_HOST_COMPILER)
+        find_program(CUDA_HOST_GXX NAMES g++-13)
+        if(CUDA_HOST_GXX)
+            set(CMAKE_CUDA_HOST_COMPILER "${CUDA_HOST_GXX}" CACHE FILEPATH "CUDA host compiler")
+        endif()
+    endif()
+    if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
+        set(CMAKE_CUDA_ARCHITECTURES "89-real;90-virtual" CACHE STRING "CUDA GPU architectures")
+    endif()
+endif()
+
+if(NOT DEFINED CRACKTOOLS_ENABLE_CUDA)
+    include(CheckLanguage)
+    check_language(CUDA)
+    if(CMAKE_CUDA_COMPILER)
+        set(CUDA_BACKEND_DEFAULT ON)
+    else()
+        set(CUDA_BACKEND_DEFAULT OFF)
+    endif()
+else()
+    set(CUDA_BACKEND_DEFAULT OFF)
+endif()
+option(CRACKTOOLS_ENABLE_CUDA "Build the optional ruleanalyze CUDA backend (auto-detected on first configure)" ${CUDA_BACKEND_DEFAULT})
+
+if(CRACKTOOLS_ENABLE_CUDA)
+    enable_language(CUDA)
+    message(STATUS "ruleanalyze CUDA backend enabled: ${CMAKE_CUDA_COMPILER}")
+    add_library(ruleanalysis_cuda STATIC src/RuleAnalysisCuda.cu)
+    set_target_properties(ruleanalysis_cuda PROPERTIES CUDA_STANDARD 20 CUDA_STANDARD_REQUIRED YES)
+    target_include_directories(ruleanalysis_cuda PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+else()
+    message(STATUS "ruleanalyze CUDA backend disabled (not detected or explicitly disabled)")
+endif()
+
 # Set build type default Release
 if (NOT CMAKE_BUILD_TYPE OR CMAKE_BUILD_TYPE STREQUAL "")
     set(CMAKE_BUILD_TYPE "Release" CACHE STRING "" FORCE)
@@ -348,6 +383,10 @@ target_include_directories(ruleanalyze
                                 ./src/
                         )
 target_link_libraries(ruleanalyze gmp gmpxx)
+if(CRACKTOOLS_ENABLE_CUDA)
+    target_link_libraries(ruleanalyze ruleanalysis_cuda)
+    target_compile_definitions(ruleanalyze PRIVATE CRACKTOOLS_ENABLE_CUDA)
+endif()
 
 # Create a set of all targets
 set(ALL_TARGETS

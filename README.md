@@ -42,6 +42,81 @@ For advanced usage and options see `cracklist --help`
 
 ### ruleanalyze
 
+#### Optional CUDA backend
+
+On the first configuration, CMake automatically detects a usable NVIDIA CUDA
+compiler and enables the GPU backend when available. Without CUDA, the project
+builds CPU-only. Override detection with `-DCRACKTOOLS_ENABLE_CUDA=ON` to require
+CUDA or `-DCRACKTOOLS_ENABLE_CUDA=OFF` to disable it. The choice is cached; an
+existing CPU-only build must explicitly enable the option to switch to CUDA.
+CUDA 12.4 builds use C++20 with a compatible host compiler (GCC 13 is selected
+when available). Default architectures include SM 89 and compute 90 PTX;
+the driver can JIT that PTX on newer GPUs such as the RTX 5080. Override
+`CMAKE_CUDA_ARCHITECTURES` and `CMAKE_CUDA_HOST_COMPILER` when needed.
+
+Use `--backend cuda` to require GPU execution, `--backend auto` to use CUDA
+when available, or `--backend cpu` (the default) for the reference evaluator.
+Inputs, a compact Bloom filter, and GPU-supported rule instructions stay
+resident on the device. The sorted length-bucketed 128-bit target index stays
+in system RAM, not VRAM. The filter uses 12 bits per target and 8 probes (about
+0.3% expected false positives for well-distributed hashes). Word length and
+both fingerprint halves participate in filter lookup.
+
+Definite misses are rejected on the GPU. Every potential hit is verified by
+exact fingerprint and length lookup on the CPU before incrementing match
+counts, recording target IDs, or qualifying a rule. Bloom false positives
+therefore do not affect results. Exactness here is relative to the existing
+128-bit fingerprint representation, not a plaintext collision check.
+
+For 2.034 billion targets the filter occupies about 2.84 GiB, rather than
+30.31 GiB for the fingerprints. Filter construction streams bounded chunks of
+target fingerprints through a temporary upload buffer; it does not allocate
+another full target copy on the host or GPU. Insufficient VRAM for the filter,
+inputs, instructions, and execution buffers is still an error. Managed-memory
+oversubscription is not used.
+
+The initial GPU interpreter supports common literal transformations and reject
+operations. Memory operations, character classes, saved-position arguments,
+and malformed/unsupported rules run through the CPU evaluator; the backend
+prints the GPU/fallback rule counts. CPU fallback uses `--threads`.
+
+Both exhaustive ranking and `--qualify` are supported. Qualification preserves
+the exact logical input prefix and unique-target threshold. Both modes run up
+to 32 rules per batch over chunks of up to 32,768 inputs. Qualified rules are
+retired independently, while unqualified rules continue through the remaining
+inputs. Qualification starts with 4,096-input chunks and grows toward 32,768
+to reduce speculative work for quickly qualifying rules.
+Only Bloom-positive candidate fingerprints and small aggregate
+counters are transferred; misses do not produce per-input transfer records.
+
+Two independent CUDA streams and pinned host buffers allow the next chunk's
+GPU execution to overlap transfers and CPU sorting/verification of the current
+chunk. Qualification can speculatively evaluate the rest of the final chunk
+plus one lookahead chunk, but these extra results do not affect logical
+statistics. Compact hits are sorted by rule and input position; the GPU
+recounts the final qualifying prefix to preserve exact applied, changed,
+rejected, and error totals. Buffers can hold one hit per evaluated pair, with
+explicit overflow checks rather than silently dropping hits.
+
+Match deduplication and greedy selection remain on the CPU. Verification
+summaries include downloaded result bytes so transfer reductions can be
+observed. GPU per-rule timing is amortized batch wall time, not an isolated
+kernel benchmark. CUDA differential tests are included in `rules_unittest`
+when enabled and skip explicitly on machines without a usable GPU.
+
+Use a Release build for performance runs. In AddressSanitizer-enabled Debug
+builds, CUDA initialization may report out-of-memory despite free VRAM because
+of conflicting virtual-address reservations; `ASAN_OPTIONS=protect_shadow_gap=0`
+allows CUDA initialization on the tested system. CUDA-enabled CTest runs set
+that option automatically.
+
+```bash
+ruleanalyze --backend cuda -i base.txt --qualify 10 \
+	--valuable-rules qualified.rule rules.rule targets.txt
+```
+
+#### Ranking and qualification
+
 In normal ranking mode, `ruleanalyze` exhaustively applies every Hashcat-compatible rule to the analysis inputs, records the distinct target words reached by each rule, and greedily ranks rules by marginal target coverage. A rule is selected only when it adds targets not already covered by higher-ranked rules.
 
 ```bash

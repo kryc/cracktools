@@ -71,6 +71,18 @@ TEST(RuleAnalysis, FindsStableTargetIdentifiers)
     EXPECT_EQ(Lookup.Find("missing"), std::nullopt);
     EXPECT_TRUE(Lookup.Contains("aa"));
     EXPECT_FALSE(Lookup.Contains("z"));
+    EXPECT_EQ(
+        Lookup.FindFingerprint(2, RuleAnalysis::TargetLookup::Fingerprint("aa")),
+        Lookup.Find("aa")
+    );
+    EXPECT_EQ(
+        Lookup.FindFingerprint(1, RuleAnalysis::TargetLookup::Fingerprint("aa")),
+        std::nullopt
+    );
+    EXPECT_EQ(
+        Lookup.FindFingerprint(RuleAnalysis::TargetLookup::BUCKET_COUNT, {}),
+        std::nullopt
+    );
     EXPECT_NE(
         RuleAnalysis::TargetLookup::Fingerprint("aa"),
         RuleAnalysis::TargetLookup::Fingerprint("ab")
