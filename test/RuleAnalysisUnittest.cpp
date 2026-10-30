@@ -1,9 +1,8 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
-#include <span>
 #include <string>
-#include <string_view>
+#include <unordered_set>
 #include <vector>
 
 #include "RuleAnalysis.hpp"
@@ -18,23 +17,7 @@ Statistic(
     const size_t SourceOrder
 )
 {
-    return {
-        Rule,
-        Rules::Compile(Rule),
-        SourceOrder
-    };
-}
-
-void
-Analyze(
-    const std::span<const std::string> Words,
-    const std::span<RuleAnalysis::RuleStatistic> Statistics,
-    const size_t Threads
-)
-{
-    RuleAnalysis::WordLookup Lookup;
-    Lookup.Initialize(Words);
-    RuleAnalysis::Analyze(Words, Lookup, Statistics, Threads);
+    return {Rule, Rules::Compile(Rule), SourceOrder};
 }
 
 }
@@ -42,308 +25,213 @@ Analyze(
 TEST(RuleAnalysis, ParsesWordlistFormats)
 {
     EXPECT_EQ(RuleAnalysis::ParseWordlistLine("password"), "password");
-    EXPECT_EQ(RuleAnalysis::ParseWordlistLine("deadbeef:password"), "password");
-    EXPECT_EQ(RuleAnalysis::ParseWordlistLine("deadbeef:password\r"), "password");
-    EXPECT_EQ(RuleAnalysis::ParseWordlistLine("$HEX[70617373]"), "pass");
-    EXPECT_EQ(RuleAnalysis::ParseWordlistLine("deadbeef:$HEX[70617373]"), "pass");
-    EXPECT_EQ(RuleAnalysis::ParseWordlistLine("user:password"), "user:password");
     EXPECT_EQ(
-        RuleAnalysis::ParseWordlistLine("deadbeef:$HEX[610062]"),
+        RuleAnalysis::ParseWordlistLine("5f4dcc3b5aa765d61d8327deb882cf99:password"),
+        "password"
+    );
+    EXPECT_EQ(RuleAnalysis::ParseWordlistLine("user:password"), "user:password");
+    EXPECT_EQ(RuleAnalysis::ParseWordlistLine("$HEX[70617373]"), "pass");
+    EXPECT_EQ(
+        RuleAnalysis::ParseWordlistLine("$HEX[610062]"),
         std::string("a\0b", 3)
     );
 }
 
-TEST(RuleAnalysis, SelectsRandomSampleWithoutReplacement)
+TEST(RuleAnalysis, SelectsRandomSamplesWithoutReplacement)
 {
     const std::vector<std::string> Words = {"a", "b", "c", "d", "e", "f"};
-
-    std::vector<std::string> First = RuleAnalysis::RandomSample(Words, 3, 12345);
-    std::vector<std::string> Second = RuleAnalysis::RandomSample(Words, 3, 12345);
+    const std::vector<std::string> First = RuleAnalysis::RandomSample(Words, 3, 12345);
+    const std::vector<std::string> Second = RuleAnalysis::RandomSample(Words, 3, 12345);
 
     EXPECT_EQ(First, Second);
     EXPECT_EQ(First.size(), 3);
-
-    std::vector<std::string> Sample = First;
-    std::sort(Sample.begin(), Sample.end());
-    EXPECT_EQ(std::unique(Sample.begin(), Sample.end()), Sample.end());
-}
-
-TEST(RuleAnalysis, SelectsGeneratedIndicesWithoutReplacement)
-{
-    const std::vector<size_t> First = RuleAnalysis::RandomSampleIndices(1000000, 1000, 12345);
-    const std::vector<size_t> Second = RuleAnalysis::RandomSampleIndices(1000000, 1000, 12345);
-
-    EXPECT_EQ(First, Second);
-    EXPECT_EQ(First.size(), 1000);
-    EXPECT_TRUE(std::all_of(First.begin(), First.end(), [](const size_t Index)
-    {
-        return Index < 1000000;
-    }));
-
-    std::vector<size_t> Sorted = First;
+    std::vector<std::string> Sorted = First;
     std::sort(Sorted.begin(), Sorted.end());
     EXPECT_EQ(std::unique(Sorted.begin(), Sorted.end()), Sorted.end());
 }
 
-TEST(RuleAnalysis, BuildsTwoByteLookupRanges)
+TEST(RuleAnalysis, FindsStableTargetIdentifiers)
 {
-    std::vector<std::string> Words = {
-        "",
-        "a",
-        "aa",
-        "aa",
-        "aaa",
-        "aab",
-        "ab",
-        "b"
-    };
-    RuleAnalysis::WordLookup Lookup;
-    Lookup.Initialize(Words);
+    const std::vector<std::string> Targets = {"", "a", "aa", "ab", "b"};
+    RuleAnalysis::TargetLookup Lookup;
+    for (const std::string& Target : Targets) EXPECT_TRUE(Lookup.Add(Target));
+    EXPECT_TRUE(Lookup.Add("aa"));
+    Lookup.Finalize(4);
 
-    EXPECT_TRUE(Lookup.Contains(""));
-    EXPECT_TRUE(Lookup.Contains("a"));
+    std::unordered_set<uint32_t> Identifiers;
+    for (const std::string& Target : Targets)
+    {
+        const std::optional<uint32_t> Identifier = Lookup.Find(Target);
+        ASSERT_TRUE(Identifier.has_value());
+        Identifiers.insert(*Identifier);
+        EXPECT_EQ(Lookup.Find(Target), Identifier);
+    }
+    EXPECT_EQ(Lookup.Size(), Targets.size());
+    EXPECT_EQ(Identifiers.size(), Targets.size());
+    EXPECT_EQ(Lookup.Find("missing"), std::nullopt);
     EXPECT_TRUE(Lookup.Contains("aa"));
-    EXPECT_TRUE(Lookup.Contains("aaa"));
-    EXPECT_TRUE(Lookup.Contains("aab"));
-    EXPECT_FALSE(Lookup.Contains("aac"));
     EXPECT_FALSE(Lookup.Contains("z"));
+    EXPECT_NE(
+        RuleAnalysis::TargetLookup::Fingerprint("aa"),
+        RuleAnalysis::TargetLookup::Fingerprint("ab")
+    );
 
-    const RuleAnalysis::WordRange& AaRange = Lookup.GetRange(0x6161);
-    EXPECT_EQ(AaRange.offset, 2);
-    EXPECT_EQ(AaRange.length, 4);
-    EXPECT_EQ(Lookup.GetRange(0x6100).length, 1);
-    EXPECT_EQ(Lookup.GetRange(0xffff).length, 0);
+    const RuleAnalysis::Hash128 Empty = RuleAnalysis::TargetLookup::Fingerprint("");
+    EXPECT_EQ(Empty.high, 0x6c62272e07bb0142ULL);
+    EXPECT_EQ(Empty.low, 0x62b821756295c58dULL);
+    EXPECT_FALSE(Lookup.Add(std::string(Rules::MAX_PASSWORD_SIZE + 1, 'x')));
 }
 
-TEST(RuleAnalysis, IndexesBinaryPrefixes)
+TEST(RuleAnalysis, RemovesTargetsAlreadyPresentInBaseInputs)
 {
-    std::vector<std::string> Words = {
-        std::string("\x01\x02", 2),
-        std::string("\xff\xfe", 2),
-        std::string("\xff\xff", 2)
-    };
-    std::sort(Words.begin(), Words.end());
-    RuleAnalysis::WordLookup Lookup;
-    Lookup.Initialize(Words);
+    const std::vector<std::string> Targets = {"cat", "cats", "dog", "dogs"};
+    const std::vector<std::string> Inputs = {"cat", "dog", "dog"};
+    RuleAnalysis::TargetLookup Lookup;
+    for (const std::string& Target : Targets) EXPECT_TRUE(Lookup.Add(Target));
+    Lookup.Finalize();
 
-    EXPECT_TRUE(Lookup.Contains(std::string("\xff\xff", 2)));
-    EXPECT_FALSE(Lookup.Contains(std::string("\xff\xfd", 2)));
-    EXPECT_EQ(Lookup.GetRange(0xffff).length, 1);
+    const size_t Removed = Lookup.RemoveDirect(Inputs);
+
+    EXPECT_EQ(Removed, 2);
+    EXPECT_EQ(Lookup.Size(), 2);
+    EXPECT_FALSE(Lookup.Contains("cat"));
+    EXPECT_FALSE(Lookup.Contains("dog"));
+    EXPECT_TRUE(Lookup.Contains("cats"));
+    EXPECT_TRUE(Lookup.Contains("dogs"));
 }
 
-TEST(RuleAnalysis, CountsChangedOutputsFoundInWordList)
+TEST(RuleAnalysis, CollectsUniqueTargetsAndOccurrenceStatistics)
 {
-    std::vector<std::string> Words = {"dog", "cats", "Cat", "dogs", "cat"};
-    std::sort(Words.begin(), Words.end());
-
+    const std::vector<std::string> Inputs = {"cat", "dog", "cat"};
+    const std::vector<std::string> Targets = {"cats", "dogs"};
+    RuleAnalysis::TargetLookup Lookup;
+    for (const std::string& Target : Targets) EXPECT_TRUE(Lookup.Add(Target));
+    Lookup.Finalize();
     std::vector<RuleAnalysis::RuleStatistic> Statistics = {
         Statistic("$s", 0),
-        Statistic("l", 1),
-        Statistic("u", 2),
-        Statistic(":", 3),
-        Statistic("!a", 4)
+        Statistic("u", 1),
+        Statistic("!a", 2)
     };
+    RuleAnalysis::AnalysisProgress Progress;
 
-    Analyze(Words, Statistics, 3);
+    RuleAnalysis::Analyze(Inputs, Lookup, Statistics, 2, &Progress);
 
-    EXPECT_EQ(Statistics[0].matches, 2);
-    EXPECT_EQ(Statistics[0].evaluated, 5);
-    EXPECT_EQ(Statistics[0].applied, 5);
-    EXPECT_EQ(Statistics[0].changed, 5);
-    EXPECT_EQ(Statistics[0].uniqueMatches, 2);
-    EXPECT_EQ(Statistics[1].matches, 1);
-    EXPECT_EQ(Statistics[1].changed, 1);
-    EXPECT_EQ(Statistics[2].matches, 0);
-    EXPECT_EQ(Statistics[3].matches, 0);
-    EXPECT_EQ(Statistics[4].matches, 0);
-    EXPECT_EQ(Statistics[4].rejected, 3);
-    EXPECT_EQ(Statistics[4].applied, 2);
+    EXPECT_EQ(Progress.completedRules.load(), 3);
+    EXPECT_EQ(Progress.completedEvaluations.load(), 9);
+    EXPECT_EQ(Statistics[0].evaluated, 3);
+    EXPECT_EQ(Statistics[0].changed, 3);
+    EXPECT_EQ(Statistics[0].matches, 3);
+    EXPECT_EQ(Statistics[0].UniqueTargets(), 2);
+    ASSERT_TRUE(Lookup.Find("cats").has_value());
+    ASSERT_TRUE(Lookup.Find("dogs").has_value());
+    EXPECT_NE(
+        std::find(
+            Statistics[0].matchedTargets.begin(),
+            Statistics[0].matchedTargets.end(),
+            *Lookup.Find("cats")
+        ),
+        Statistics[0].matchedTargets.end()
+    );
+    EXPECT_NE(
+        std::find(
+            Statistics[0].matchedTargets.begin(),
+            Statistics[0].matchedTargets.end(),
+            *Lookup.Find("dogs")
+        ),
+        Statistics[0].matchedTargets.end()
+    );
+    EXPECT_EQ(Statistics[1].matches, 0);
+    EXPECT_EQ(Statistics[2].rejected, 2);
+    EXPECT_EQ(Statistics[2].applied, 1);
 }
 
-TEST(RuleAnalysis, UsesSeparateInputsAndLookupWords)
+TEST(RuleAnalysis, QualifiesEarlyUsingUniqueTargets)
 {
-    const std::vector<std::string> Inputs = {"cat"};
-    const std::vector<std::string> Words = {"cats"};
-    RuleAnalysis::WordLookup Lookup;
-    Lookup.Initialize(Words);
-    std::vector<RuleAnalysis::RuleStatistic> Statistics = {
-        Statistic("$s", 0)
-    };
-
-    RuleAnalysis::Analyze(Inputs, Lookup, Statistics, 1);
-
-    EXPECT_EQ(Statistics[0].matches, 1);
-}
-
-TEST(RuleAnalysis, StopsEachRuleAfterConfiguredMatchLimit)
-{
-    const std::vector<std::string> Inputs = {"cat", "dog", "bird"};
-    std::vector<std::string> Words = {"cats", "dogs", "birds"};
-    std::sort(Words.begin(), Words.end());
-    RuleAnalysis::WordLookup Lookup;
-    Lookup.Initialize(Words);
+    const std::vector<std::string> Inputs = {"cat", "cat", "dog", "bird"};
+    const std::vector<std::string> Targets = {"cats", "dogs", "birds"};
+    RuleAnalysis::TargetLookup Lookup;
+    for (const std::string& Target : Targets) EXPECT_TRUE(Lookup.Add(Target));
+    Lookup.Finalize();
     std::vector<RuleAnalysis::RuleStatistic> Statistics = {
         Statistic("$s", 0),
         Statistic("u", 1)
     };
-    std::atomic<size_t> Completed = 0;
-    std::atomic<size_t> Kept = 0;
-    std::atomic<size_t> Dropped = 0;
+    RuleAnalysis::AnalysisProgress Progress;
 
-    RuleAnalysis::Analyze(Inputs, Lookup, Statistics, 2, &Completed, 2, &Kept, &Dropped);
+    RuleAnalysis::Analyze(Inputs, Lookup, Statistics, 2, &Progress, 2);
 
-    EXPECT_EQ(Completed.load(), 2);
-    EXPECT_EQ(Kept.load(), 1);
-    EXPECT_EQ(Dropped.load(), 1);
-    EXPECT_EQ(Statistics[0].evaluated, 2);
-    EXPECT_EQ(Statistics[0].matches, 2);
-    EXPECT_EQ(Statistics[0].uniqueMatches, 2);
-    EXPECT_EQ(Statistics[1].evaluated, 3);
-    EXPECT_EQ(Statistics[1].matches, 0);
+    EXPECT_TRUE(Statistics[0].qualified);
+    EXPECT_EQ(Statistics[0].UniqueTargets(), 2);
+    EXPECT_EQ(Statistics[0].matches, 3);
+    EXPECT_EQ(Statistics[0].evaluated, 3);
+    EXPECT_FALSE(Statistics[1].qualified);
+    EXPECT_EQ(Statistics[1].evaluated, 4);
+    EXPECT_EQ(Progress.completedRules.load(), 2);
+    EXPECT_EQ(Progress.completedEvaluations.load(), 7);
+    EXPECT_EQ(Progress.qualifiedRules.load(), 1);
+    EXPECT_EQ(Progress.unqualifiedRules.load(), 1);
 }
 
-TEST(RuleAnalysis, FiltersValuableRulesByMinimumMatches)
-{
-    RuleAnalysis::RuleStatistic Statistic = ::Statistic("$s", 0);
-    RuleAnalysis::RuleFilter Filter;
-    Filter.minimumMatches = 2;
-
-    Statistic.matches = 1;
-    Statistic.changed = 1;
-    EXPECT_FALSE(Filter.Passes(Statistic));
-    EXPECT_FALSE(Filter.IsValuable(Statistic));
-
-    Statistic.matches = 2;
-    Statistic.changed = 2;
-    EXPECT_TRUE(Filter.Passes(Statistic));
-    EXPECT_TRUE(Filter.IsValuable(Statistic));
-}
-
-TEST(RuleAnalysis, GeneratesInputsOnDemand)
-{
-    const std::vector<std::string> Words = {"a1"};
-    RuleAnalysis::WordLookup Lookup;
-    Lookup.Initialize(Words);
-    std::vector<RuleAnalysis::RuleStatistic> Statistics = {
-        Statistic("$1", 0)
-    };
-
-    RuleAnalysis::AnalyzeGenerated(2, {}, "ab", Lookup, Statistics, 1);
-
-    EXPECT_EQ(Statistics[0].matches, 1);
-}
-
-TEST(RuleAnalysis, StopsGeneratedInputsAtConfiguredMatchLimit)
-{
-    std::vector<std::string> Words = {"a1", "b1"};
-    std::sort(Words.begin(), Words.end());
-    RuleAnalysis::WordLookup Lookup;
-    Lookup.Initialize(Words);
-    std::vector<RuleAnalysis::RuleStatistic> Statistics = {
-        Statistic("$1", 0)
-    };
-
-    RuleAnalysis::AnalyzeGenerated(2, {}, "ab", Lookup, Statistics, 1, nullptr, 1);
-
-    EXPECT_EQ(Statistics[0].evaluated, 1);
-    EXPECT_EQ(Statistics[0].matches, 1);
-}
-
-TEST(RuleAnalysis, CountsDuplicateInputWords)
-{
-    std::vector<std::string> Words = {"cat", "cat", "cats"};
-    std::vector<RuleAnalysis::RuleStatistic> Statistics = {
-        Statistic("$s", 0)
-    };
-
-    Analyze(Words, Statistics, 2);
-
-    EXPECT_EQ(Statistics[0].matches, 2);
-    EXPECT_EQ(Statistics[0].uniqueMatches, 1);
-}
-
-TEST(RuleAnalysis, FindsPlainAndHexlifiedWords)
-{
-    std::vector<std::string> HexlifiedTarget = {
-        "a",
-        RuleAnalysis::ParseWordlistLine("$HEX[6101]")
-    };
-    std::sort(HexlifiedTarget.begin(), HexlifiedTarget.end());
-    std::vector<RuleAnalysis::RuleStatistic> TargetStatistics = {
-        Statistic("$\\x01", 0)
-    };
-    Analyze(HexlifiedTarget, TargetStatistics, 1);
-    EXPECT_EQ(TargetStatistics[0].matches, 1);
-
-    std::vector<std::string> HexlifiedInput = {
-        RuleAnalysis::ParseWordlistLine("$HEX[636174]"),
-        "cats"
-    };
-    std::sort(HexlifiedInput.begin(), HexlifiedInput.end());
-    std::vector<RuleAnalysis::RuleStatistic> InputStatistics = {
-        Statistic("$s", 0)
-    };
-    Analyze(HexlifiedInput, InputStatistics, 1);
-    EXPECT_EQ(InputStatistics[0].matches, 1);
-}
-
-TEST(RuleAnalysis, SortsByMatches)
+TEST(RuleAnalysis, SelectsRulesByMarginalTargetGain)
 {
     std::vector<RuleAnalysis::RuleStatistic> Statistics = {
-        Statistic("zero-a", 0),
-        Statistic("two", 1),
-        Statistic("one", 2),
-        Statistic("zero-b", 3)
+        Statistic("first", 0),
+        Statistic("overlap", 1),
+        Statistic("last", 2),
+        Statistic("duplicate", 3)
     };
-    Statistics[0].matches = 0;
-    Statistics[1].matches = 2;
-    Statistics[2].matches = 1;
-    Statistics[3].matches = 0;
+    Statistics[0].matchedTargets = {0, 1, 2};
+    Statistics[1].matchedTargets = {1, 2, 3};
+    Statistics[2].matchedTargets = {4};
+    Statistics[3].matchedTargets = {0, 1, 2};
 
-    RuleAnalysis::Sort(
+    RuleAnalysis::SelectionOptions Options;
+    const RuleAnalysis::SelectionResult Result = RuleAnalysis::SelectTopRules(
         Statistics,
-        RuleAnalysis::SortKey::Matches,
-        RuleAnalysis::SortOrder::Descending
+        5,
+        Options
     );
-    EXPECT_EQ(Statistics[0].rule, "two");
-    EXPECT_EQ(Statistics[1].rule, "one");
-    EXPECT_EQ(Statistics[2].rule, "zero-a");
-    EXPECT_EQ(Statistics[3].rule, "zero-b");
 
-    RuleAnalysis::Sort(
-        Statistics,
-        RuleAnalysis::SortKey::Matches,
-        RuleAnalysis::SortOrder::Ascending
-    );
-    EXPECT_EQ(Statistics[0].rule, "zero-a");
-    EXPECT_EQ(Statistics[1].rule, "zero-b");
-    EXPECT_EQ(Statistics[2].rule, "one");
-    EXPECT_EQ(Statistics[3].rule, "two");
+    ASSERT_EQ(Result.ruleIndices.size(), 3);
+    EXPECT_EQ(Result.ruleIndices[0], 0);
+    EXPECT_EQ(Result.ruleIndices[1], 1);
+    EXPECT_EQ(Result.ruleIndices[2], 2);
+    EXPECT_EQ(Result.coveredTargets, 5);
+    EXPECT_EQ(Statistics[0].marginalGain, 3);
+    EXPECT_EQ(Statistics[0].cumulativeTargets, 3);
+    EXPECT_EQ(Statistics[1].marginalGain, 1);
+    EXPECT_EQ(Statistics[1].cumulativeTargets, 4);
+    EXPECT_EQ(Statistics[2].marginalGain, 1);
+    EXPECT_EQ(Statistics[2].cumulativeTargets, 5);
+    EXPECT_EQ(Statistics[3].rank, 0);
 }
 
-TEST(RuleAnalysis, SortsByRule)
+TEST(RuleAnalysis, HonorsTopRuleGainAndCoverageBars)
 {
     std::vector<RuleAnalysis::RuleStatistic> Statistics = {
-        Statistic("u", 0),
-        Statistic("$1", 1),
-        Statistic("l", 2)
+        Statistic("first", 0),
+        Statistic("overlap", 1),
+        Statistic("last", 2)
     };
+    Statistics[0].matchedTargets = {0, 1, 2};
+    Statistics[1].matchedTargets = {1, 2, 3};
+    Statistics[2].matchedTargets = {4};
 
-    RuleAnalysis::Sort(
-        Statistics,
-        RuleAnalysis::SortKey::Rule,
-        RuleAnalysis::SortOrder::Ascending
-    );
-    EXPECT_EQ(Statistics[0].rule, "$1");
-    EXPECT_EQ(Statistics[1].rule, "l");
-    EXPECT_EQ(Statistics[2].rule, "u");
+    RuleAnalysis::SelectionOptions Options;
+    Options.minimumGain = 2;
+    RuleAnalysis::SelectionResult Result = RuleAnalysis::SelectTopRules(Statistics, 5, Options);
+    ASSERT_EQ(Result.ruleIndices.size(), 1);
+    EXPECT_EQ(Result.ruleIndices[0], 0);
 
-    RuleAnalysis::Sort(
-        Statistics,
-        RuleAnalysis::SortKey::Rule,
-        RuleAnalysis::SortOrder::Descending
-    );
-    EXPECT_EQ(Statistics[0].rule, "u");
-    EXPECT_EQ(Statistics[1].rule, "l");
-    EXPECT_EQ(Statistics[2].rule, "$1");
+    Options.minimumGain = 1;
+    Options.maximumRules = 2;
+    Result = RuleAnalysis::SelectTopRules(Statistics, 5, Options);
+    EXPECT_EQ(Result.ruleIndices.size(), 2);
+    EXPECT_EQ(Result.coveredTargets, 4);
+
+    Options.maximumRules = 10;
+    Options.targetCoverage = 0.6;
+    Result = RuleAnalysis::SelectTopRules(Statistics, 5, Options);
+    EXPECT_EQ(Result.ruleIndices.size(), 1);
+    EXPECT_EQ(Result.coveredTargets, 3);
 }

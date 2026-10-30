@@ -1,83 +1,212 @@
 //
-// Hashcat rule effectiveness analysis.
+// Hashcat rule effectiveness analysis and marginal-coverage ranking.
 //
 
 #include "RuleAnalysis.hpp"
 
 #include <algorithm>
-#include <atomic>
 #include <chrono>
+#include <queue>
 #include <random>
-#include <string>
 #include <thread>
 #include <unordered_set>
 #include <vector>
 
 #include "Util.hpp"
-#include "WordGenerator.hpp"
 
 namespace RuleAnalysis
 {
+namespace
+{
 
-const uint16_t
-WordLookup::Prefix(
+constexpr __uint128_t FNV128_OFFSET_BASIS =
+    (static_cast<__uint128_t>(0x6c62272e07bb0142ULL) << 64)
+    | static_cast<__uint128_t>(0x62b821756295c58dULL);
+constexpr __uint128_t FNV128_PRIME =
+    (static_cast<__uint128_t>(0x0000000001000000ULL) << 64)
+    | static_cast<__uint128_t>(0x000000000000013bULL);
+
+struct Candidate
+{
+    size_t gain;
+    size_t ruleIndex;
+    size_t sourceOrder;
+};
+
+struct CandidateLess
+{
+    bool operator()(const Candidate& Left, const Candidate& Right) const
+    {
+        if (Left.gain != Right.gain) return Left.gain < Right.gain;
+        return Left.sourceOrder > Right.sourceOrder;
+    }
+};
+
+size_t
+CountUncovered(
+    const RuleStatistic& Statistic,
+    const std::span<const uint8_t> Covered
+)
+{
+    return static_cast<size_t>(std::count_if(
+        Statistic.matchedTargets.begin(),
+        Statistic.matchedTargets.end(),
+        [Covered](const uint32_t Target)
+        {
+            return Target < Covered.size() && Covered[Target] == 0;
+        }
+    ));
+}
+
+}
+
+Hash128
+TargetLookup::Fingerprint(
     const std::string_view Word
 )
 {
-    uint16_t Value = 0;
-    if (!Word.empty())
+    __uint128_t Hash = FNV128_OFFSET_BASIS;
+    for (const char Character : Word)
     {
-        Value = static_cast<uint16_t>(static_cast<uint8_t>(Word[0])) << 8;
+        Hash ^= static_cast<uint8_t>(Character);
+        Hash *= FNV128_PRIME;
     }
-    if (Word.size() > 1)
-    {
-        Value |= static_cast<uint8_t>(Word[1]);
-    }
-    return Value;
+    return {
+        static_cast<uint64_t>(Hash >> 64),
+        static_cast<uint64_t>(Hash)
+    };
+}
+
+bool
+TargetLookup::Add(
+    const std::string_view Word
+)
+{
+    if (Word.size() >= BUCKET_COUNT) return false;
+    m_Buckets[Word.size()].push_back(Fingerprint(Word));
+    return true;
 }
 
 void
-WordLookup::Initialize(
-    const std::span<const std::string> SortedWords
-)
+TargetLookup::BuildOffsets(void)
 {
-    m_Words = SortedWords;
-    m_Ranges.fill({});
-
     size_t Offset = 0;
-    while (Offset < m_Words.size())
+    for (size_t Length = 0; Length < BUCKET_COUNT; Length++)
     {
-        const uint16_t Value = Prefix(m_Words[Offset]);
-        size_t End = Offset + 1;
-        while (End < m_Words.size() && Prefix(m_Words[End]) == Value)
-        {
-            End++;
-        }
-
-        m_Ranges[Value] = {Offset, End - Offset};
-        Offset = End;
+        m_Offsets[Length] = Offset;
+        Offset += m_Buckets[Length].size();
     }
+    m_Offsets[BUCKET_COUNT] = Offset;
+    m_Size = Offset;
 }
 
-const bool
-WordLookup::Contains(
+void
+TargetLookup::Finalize(
+    const size_t Threads
+)
+{
+    const size_t ThreadCount = std::max<size_t>(
+        1,
+        std::min(Threads, BUCKET_COUNT)
+    );
+    std::atomic<size_t> NextBucket = 0;
+    auto Worker = [&]()
+    {
+        while (true)
+        {
+            const size_t BucketIndex = NextBucket.fetch_add(1, std::memory_order_relaxed);
+            if (BucketIndex >= BUCKET_COUNT) return;
+
+            std::vector<Hash128>& Bucket = m_Buckets[BucketIndex];
+            std::sort(Bucket.begin(), Bucket.end());
+            Bucket.erase(std::unique(Bucket.begin(), Bucket.end()), Bucket.end());
+            Bucket.shrink_to_fit();
+        }
+    };
+
+    std::vector<std::thread> Workers;
+    Workers.reserve(ThreadCount);
+    for (size_t i = 0; i < ThreadCount; i++) Workers.emplace_back(Worker);
+    for (std::thread& WorkerThread : Workers) WorkerThread.join();
+    BuildOffsets();
+}
+
+size_t
+TargetLookup::RemoveDirect(
+    const std::span<const std::string> Inputs
+)
+{
+    std::array<std::vector<Hash128>, BUCKET_COUNT> InputBuckets;
+    for (const std::string& Input : Inputs)
+    {
+        if (Input.size() < BUCKET_COUNT)
+        {
+            InputBuckets[Input.size()].push_back(Fingerprint(Input));
+        }
+    }
+
+    const size_t OriginalSize = m_Size;
+    for (size_t Length = 0; Length < BUCKET_COUNT; Length++)
+    {
+        std::vector<Hash128>& InputsAtLength = InputBuckets[Length];
+        std::sort(InputsAtLength.begin(), InputsAtLength.end());
+        InputsAtLength.erase(
+            std::unique(InputsAtLength.begin(), InputsAtLength.end()),
+            InputsAtLength.end()
+        );
+
+        std::vector<Hash128>& TargetsAtLength = m_Buckets[Length];
+        size_t InputIndex = 0;
+        size_t WriteIndex = 0;
+        for (const Hash128& Target : TargetsAtLength)
+        {
+            while (InputIndex < InputsAtLength.size()
+                && InputsAtLength[InputIndex] < Target)
+            {
+                InputIndex++;
+            }
+            if (InputIndex < InputsAtLength.size()
+                && InputsAtLength[InputIndex] == Target)
+            {
+                continue;
+            }
+            TargetsAtLength[WriteIndex++] = Target;
+        }
+        TargetsAtLength.resize(WriteIndex);
+    }
+    BuildOffsets();
+    return OriginalSize - m_Size;
+}
+
+std::optional<uint32_t>
+TargetLookup::Find(
     const std::string_view Word
 ) const
 {
-    const WordRange& Range = m_Ranges[Prefix(Word)];
-    if (Range.length == 0) return false;
+    if (Word.size() >= BUCKET_COUNT) return std::nullopt;
+    const std::vector<Hash128>& Bucket = m_Buckets[Word.size()];
+    const Hash128 Hash = Fingerprint(Word);
+    const auto Found = std::lower_bound(Bucket.begin(), Bucket.end(), Hash);
+    if (Found == Bucket.end() || *Found != Hash) return std::nullopt;
 
-    const auto Begin = m_Words.begin() + static_cast<std::ptrdiff_t>(Range.offset);
-    const auto End = Begin + static_cast<std::ptrdiff_t>(Range.length);
-    return std::binary_search(Begin, End, Word);
+    const size_t TargetId = m_Offsets[Word.size()]
+        + static_cast<size_t>(std::distance(Bucket.begin(), Found));
+    if (TargetId > std::numeric_limits<uint32_t>::max()) return std::nullopt;
+    return static_cast<uint32_t>(TargetId);
 }
 
-const WordRange&
-WordLookup::GetRange(
-    const uint16_t Prefix
+bool
+TargetLookup::Contains(
+    const std::string_view Word
 ) const
 {
-    return m_Ranges[Prefix];
+    return Find(Word).has_value();
+}
+
+size_t
+TargetLookup::Size(void) const
+{
+    return m_Size;
 }
 
 std::string
@@ -90,17 +219,11 @@ ParseWordlistLine(
 
     const size_t Separator = Word.find(':');
     if (Separator != std::string_view::npos
-        && Util::IsHex(Word.substr(0, Separator)))
+        && Util::IsLikelyValidHash(Word.substr(0, Separator)))
     {
-        Word = Word.substr(Separator + 1);
+        Word.remove_prefix(Separator + 1);
     }
-
-    if (Util::IsHexlified(Word))
-    {
-        return Util::UnHexlify(Word);
-    }
-
-    return std::string(Word);
+    return Util::UnHexlify(Word);
 }
 
 std::vector<std::string>
@@ -122,60 +245,23 @@ RandomSample(
         const size_t Position = Distribution(Generator);
         if (Position < Count) Sample[Position] = Words[i];
     }
-
     return Sample;
 }
 
-std::vector<size_t>
-RandomSampleIndices(
-    const size_t PopulationSize,
-    const size_t SampleSize,
-    const uint64_t Seed
-)
-{
-    const size_t Count = std::min(SampleSize, PopulationSize);
-    std::vector<size_t> Sample;
-    Sample.reserve(Count);
-    std::unordered_set<size_t> Selected;
-    Selected.reserve(Count);
-    std::mt19937_64 Generator(Seed);
-
-    for (size_t i = 0; i < Count; i++)
-    {
-        const size_t End = PopulationSize - Count + i;
-        std::uniform_int_distribution<size_t> Distribution(0, End);
-        const size_t Candidate = Distribution(Generator);
-        const size_t Selection = Selected.contains(Candidate) ? End : Candidate;
-        Selected.insert(Selection);
-        Sample.push_back(Selection);
-    }
-
-    return Sample;
-}
-
-template <typename InputProvider>
 void
-AnalyzeInternal(
-    const size_t InputCount,
-    const WordLookup& Words,
+Analyze(
+    const std::span<const std::string> Inputs,
+    const TargetLookup& Targets,
     const std::span<RuleStatistic> Statistics,
     const size_t Threads,
-    std::atomic<size_t>* Completed,
-    const std::optional<size_t> MatchLimit,
-    std::atomic<size_t>* Kept,
-    std::atomic<size_t>* Dropped,
-    const RuleFilter* Filter,
-    const InputProvider& GetInput
+    AnalysisProgress* Progress,
+    const std::optional<size_t> QualificationBar
 )
 {
     if (Statistics.empty()) return;
 
-    const size_t ThreadCount = std::max<size_t>(
-        1,
-        std::min(Threads, Statistics.size())
-    );
+    const size_t ThreadCount = std::max<size_t>(1, std::min(Threads, Statistics.size()));
     std::atomic<size_t> NextRule = 0;
-
     auto Worker = [&]()
     {
         while (true)
@@ -184,211 +270,157 @@ AnalyzeInternal(
             if (RuleIndex >= Statistics.size()) return;
 
             RuleStatistic& Statistic = Statistics[RuleIndex];
-            size_t Matches = 0;
-            size_t Applied = 0;
-            size_t Changed = 0;
-            size_t Rejected = 0;
-            size_t SyntaxErrors = 0;
-            size_t Evaluated = 0;
-            std::unordered_set<std::string> UniqueMatches;
-            std::string InputStorage;
+            Statistic.matchedTargets.clear();
+            Statistic.evaluated = 0;
+            Statistic.applied = 0;
+            Statistic.changed = 0;
+            Statistic.matches = 0;
+            Statistic.rejected = 0;
+            Statistic.syntaxErrors = 0;
+            Statistic.elapsedNanoseconds = 0;
+            Statistic.rank = 0;
+            Statistic.marginalGain = 0;
+            Statistic.cumulativeTargets = 0;
+            Statistic.qualified = false;
+            std::vector<uint32_t> MatchedTargets;
+            std::unordered_set<uint32_t> QualificationTargets;
+            if (QualificationBar)
+            {
+                const size_t InitialCapacity = std::min<size_t>(*QualificationBar, 4096);
+                QualificationTargets.reserve(InitialCapacity);
+                MatchedTargets.reserve(InitialCapacity);
+            }
             const auto Start = std::chrono::steady_clock::now();
 
-            for (size_t InputIndex = 0; InputIndex < InputCount; InputIndex++)
+            for (const std::string& Input : Inputs)
             {
-                Evaluated++;
-                const std::string_view Input = GetInput(InputIndex, InputStorage);
+                Statistic.evaluated++;
                 const Rules::Result Result = Rules::Apply(Input, Statistic.compiledRule);
                 if (Result.status == Rules::Status::Rejected)
                 {
-                    Rejected++;
+                    Statistic.rejected++;
                     continue;
                 }
                 if (Result.status == Rules::Status::SyntaxError)
                 {
-                    SyntaxErrors++;
+                    Statistic.syntaxErrors++;
                     continue;
                 }
 
-                Applied++;
+                Statistic.applied++;
                 if (Result.word == Input) continue;
-                Changed++;
-
-                if (Words.Contains(Result.word))
+                Statistic.changed++;
+                const std::optional<uint32_t> Target = Targets.Find(Result.word);
+                if (!Target) continue;
+                Statistic.matches++;
+                if (QualificationBar)
                 {
-                    Matches++;
-                    UniqueMatches.insert(Result.word);
-                    if (MatchLimit && Matches >= *MatchLimit) break;
+                    if (QualificationTargets.insert(*Target).second)
+                    {
+                        MatchedTargets.push_back(*Target);
+                        if (MatchedTargets.size() >= *QualificationBar)
+                        {
+                            Statistic.qualified = true;
+                            break;
+                        }
+                    }
+                }
+                else
+                {
+                    MatchedTargets.push_back(*Target);
                 }
             }
 
-            Statistic.evaluated = Evaluated;
-            Statistic.applied = Applied;
-            Statistic.changed = Changed;
-            Statistic.matches = Matches;
-            Statistic.uniqueMatches = UniqueMatches.size();
-            Statistic.rejected = Rejected;
-            Statistic.syntaxErrors = SyntaxErrors;
+            std::sort(MatchedTargets.begin(), MatchedTargets.end());
+            MatchedTargets.erase(
+                std::unique(MatchedTargets.begin(), MatchedTargets.end()),
+                MatchedTargets.end()
+            );
+            Statistic.matchedTargets = std::move(MatchedTargets);
             Statistic.elapsedNanoseconds = std::chrono::duration_cast<std::chrono::nanoseconds>(
                 std::chrono::steady_clock::now() - Start
             ).count();
-            const bool Keep = Filter == nullptr
-                ? Matches != 0
-                : Filter->IsValuable(Statistic);
-            if (Kept != nullptr && Keep)
+
+            if (Progress != nullptr)
             {
-                Kept->fetch_add(1, std::memory_order_relaxed);
-            }
-            else if (Dropped != nullptr && !Keep)
-            {
-                Dropped->fetch_add(1, std::memory_order_relaxed);
-            }
-            if (Completed != nullptr)
-            {
-                Completed->fetch_add(1, std::memory_order_release);
+                if (QualificationBar)
+                {
+                    std::atomic<size_t>& ResultCount = Statistic.qualified
+                        ? Progress->qualifiedRules
+                        : Progress->unqualifiedRules;
+                    ResultCount.fetch_add(1, std::memory_order_relaxed);
+                }
+                Progress->completedEvaluations.fetch_add(
+                    Statistic.evaluated,
+                    std::memory_order_relaxed
+                );
+                Progress->completedRules.fetch_add(1, std::memory_order_release);
             }
         }
     };
 
     std::vector<std::thread> Workers;
     Workers.reserve(ThreadCount);
-    for (size_t i = 0; i < ThreadCount; i++)
+    for (size_t i = 0; i < ThreadCount; i++) Workers.emplace_back(Worker);
+    for (std::thread& Thread : Workers) Thread.join();
+}
+
+SelectionResult
+SelectTopRules(
+    const std::span<RuleStatistic> Statistics,
+    const size_t TargetCount,
+    const SelectionOptions& Options
+)
+{
+    SelectionResult Result;
+    if (Statistics.empty() || TargetCount == 0 || Options.maximumRules == 0) return Result;
+
+    for (RuleStatistic& Statistic : Statistics)
     {
-        Workers.emplace_back(Worker);
+        Statistic.rank = 0;
+        Statistic.marginalGain = 0;
+        Statistic.cumulativeTargets = 0;
     }
 
-    for (std::thread& Thread : Workers)
+    std::priority_queue<Candidate, std::vector<Candidate>, CandidateLess> Candidates;
+    for (size_t i = 0; i < Statistics.size(); i++)
     {
-        Thread.join();
+        const size_t Gain = Statistics[i].UniqueTargets();
+        if (Gain >= Options.minimumGain)
+        {
+            Candidates.push({Gain, i, Statistics[i].sourceOrder});
+        }
     }
-}
 
-void
-Analyze(
-    const std::span<const std::string> Inputs,
-    const WordLookup& Words,
-    const std::span<RuleStatistic> Statistics,
-    const size_t Threads,
-    std::atomic<size_t>* Completed,
-    const std::optional<size_t> MatchLimit,
-    std::atomic<size_t>* Kept,
-    std::atomic<size_t>* Dropped,
-    const RuleFilter* Filter
-)
-{
-    AnalyzeInternal(
-        Inputs.size(),
-        Words,
-        Statistics,
-        Threads,
-        Completed,
-        MatchLimit,
-        Kept,
-        Dropped,
-        Filter,
-        [Inputs](const size_t Index, std::string&) -> std::string_view
+    std::vector<uint8_t> Covered(TargetCount, 0);
+    while (!Candidates.empty() && Result.ruleIndices.size() < Options.maximumRules)
+    {
+        const Candidate Current = Candidates.top();
+        Candidates.pop();
+        RuleStatistic& Statistic = Statistics[Current.ruleIndex];
+        const size_t ActualGain = CountUncovered(Statistic, Covered);
+        if (ActualGain < Options.minimumGain) continue;
+        if (ActualGain != Current.gain)
         {
-            return Inputs[Index];
+            Candidates.push({ActualGain, Current.ruleIndex, Current.sourceOrder});
+            continue;
         }
-    );
-}
 
-void
-AnalyzeGenerated(
-    const size_t InputCount,
-    const std::span<const size_t> SampleIndices,
-    const std::string_view Charset,
-    const WordLookup& Words,
-    const std::span<RuleStatistic> Statistics,
-    const size_t Threads,
-    std::atomic<size_t>* Completed,
-    const std::optional<size_t> MatchLimit,
-    std::atomic<size_t>* Kept,
-    std::atomic<size_t>* Dropped,
-    const RuleFilter* Filter
-)
-{
-    const size_t AnalysisCount = SampleIndices.empty() ? InputCount : SampleIndices.size();
-    AnalyzeInternal(
-        AnalysisCount,
-        Words,
-        Statistics,
-        Threads,
-        Completed,
-        MatchLimit,
-        Kept,
-        Dropped,
-        Filter,
-        [InputCount, SampleIndices, Charset](const size_t Index, std::string& Storage) -> std::string_view
+        for (const uint32_t Target : Statistic.matchedTargets)
         {
-            const size_t GeneratorIndex = SampleIndices.empty() ? Index : SampleIndices[Index];
-            if (GeneratorIndex >= InputCount) return {};
-            Storage = WordGenerator::GenerateWord(static_cast<uint64_t>(GeneratorIndex), Charset);
-            return Storage;
+            if (Target < Covered.size()) Covered[Target] = 1;
         }
-    );
-}
+        Result.coveredTargets += ActualGain;
+        Statistic.rank = Result.ruleIndices.size() + 1;
+        Statistic.marginalGain = ActualGain;
+        Statistic.cumulativeTargets = Result.coveredTargets;
+        Result.ruleIndices.push_back(Current.ruleIndex);
 
-void
-Sort(
-    const std::span<RuleStatistic> Statistics,
-    const SortKey Key,
-    const SortOrder Order
-)
-{
-    std::sort(
-        Statistics.begin(),
-        Statistics.end(),
-        [Key, Order](const RuleStatistic& Left, const RuleStatistic& Right)
-        {
-            auto Compare = [Order](const auto& LeftValue, const auto& RightValue)
-            {
-                return Order == SortOrder::Ascending
-                    ? LeftValue < RightValue
-                    : LeftValue > RightValue;
-            };
-
-            if (Key == SortKey::Matches && Left.matches != Right.matches)
-            {
-                return Compare(Left.matches, Right.matches);
-            }
-            if (Key == SortKey::UniqueMatches && Left.uniqueMatches != Right.uniqueMatches)
-            {
-                return Compare(Left.uniqueMatches, Right.uniqueMatches);
-            }
-            if (Key == SortKey::MatchRate && Left.MatchRate() != Right.MatchRate())
-            {
-                return Compare(Left.MatchRate(), Right.MatchRate());
-            }
-            if (Key == SortKey::Coverage && Left.Coverage() != Right.Coverage())
-            {
-                return Compare(Left.Coverage(), Right.Coverage());
-            }
-            if (Key == SortKey::Changed && Left.changed != Right.changed)
-            {
-                return Compare(Left.changed, Right.changed);
-            }
-            if (Key == SortKey::Rejected && Left.rejected != Right.rejected)
-            {
-                return Compare(Left.rejected, Right.rejected);
-            }
-            if (Key == SortKey::Errors && Left.syntaxErrors != Right.syntaxErrors)
-            {
-                return Compare(Left.syntaxErrors, Right.syntaxErrors);
-            }
-            if (Key == SortKey::Time && Left.elapsedNanoseconds != Right.elapsedNanoseconds)
-            {
-                return Compare(Left.elapsedNanoseconds, Right.elapsedNanoseconds);
-            }
-
-            if (Key == SortKey::Rule && Left.rule != Right.rule)
-            {
-                return Compare(Left.rule, Right.rule);
-            }
-
-            return Left.sourceOrder < Right.sourceOrder;
-        }
-    );
+        const double Coverage = static_cast<double>(Result.coveredTargets)
+            / static_cast<double>(TargetCount);
+        if (Coverage >= Options.targetCoverage) break;
+    }
+    return Result;
 }
 
 }

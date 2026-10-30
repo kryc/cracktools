@@ -6,6 +6,7 @@
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <condition_variable>
 #include <filesystem>
 #include <format>
@@ -15,6 +16,7 @@
 #include <mutex>
 #include <optional>
 #include <random>
+#include <span>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -26,7 +28,6 @@
 #include "Rules.hpp"
 #include "UnsafeBuffer.hpp"
 #include "Util.hpp"
-#include "WordGenerator.hpp"
 
 #define ARGCHECK() \
     if (argc <= i + 1) \
@@ -39,134 +40,174 @@ namespace
 {
 
 const std::string HELP_STRING = R"(
-Usage: ruleanalyze [options] <rules_file> <lookup_words_file>
+Usage: ruleanalyze [options] <rules_file> <target_words_file>
 
-Loads and sorts the lookup word list, then applies every rule to every input
-word. By default, the lookup words are also the inputs. A match is counted when
-the transformed word differs from the input and exists in the lookup word list.
+Exhaustively applies every rule to every analysis input, records the distinct
+known targets reached by each rule, then greedily selects rules by marginal
+coverage. A selected rule must add at least --min-gain targets not already
+covered by higher-ranked rules.
 
-Options:
-  --output, -o <file>       Write the report to a file instead of stdout.
-    --input-wordlist, -i <file> Use a separate word list as analysis inputs.
-    --min, -m <length>        Ignore lookup words shorter than this length.
-    --max, -M <length>        Ignore lookup words longer than this length.
-    --generate, -g <length>   Generate analysis inputs through this maximum length.
-    --charset, -c <name>      Generated charset (default: alphanumeric).
-    --printable, -p           Ignore lookup words containing non-printable UTF-8.
-    --input-sample, -S <count> Randomly sample this many analysis inputs.
-    --sample <count>          Alias for --input-sample.
-    --wordlist-sample, -W <count> Randomly sample this many lookup words.
-    --seed <number>           Sampling seed for reproducible reports.
-    --sort, -s <key>          Sort by matches, unique, rate, coverage, changed,
-                                                     rejected, errors, time, or rule.
-    --ascending, --asc, -a    Sort the selected key in ascending order.
-    --descending, --desc, -d  Sort the selected key in descending order (default).
-    --only-zero               Report only rules with no matches.
-    --min-matches <count>     Report rules with at least this many matches.
-    --max-matches <count>     Report rules with at most this many matches.
-    --min-rate <percent>      Minimum matched/changed percentage to report.
-    --errors-only             Report only rules that produced syntax errors.
-    --exclude-errors          Exclude rules that produced syntax errors.
-    --changed-only            Report only rules that changed at least one input.
-    --valuable-rules <file>   Write matched rules that pass the filters as a rule file.
-    --match-limit <count>     Stop evaluating each rule after this many matches.
-    --threads, -t <count>     Number of analysis threads (default: available CPUs).
-    --help, -h                Display this help message.
+The plaintext base list is required because rules transform those words. Target
+plaintexts are streamed into length-bucketed FNV-1a 128 fingerprints.
 
-Report format: CSV with per-rule statistics.
+Selection options:
+  --top, -n <count>           Select at most this many rules.
+  --min-gain, --bar <count>   Minimum new targets added by each rule (default: 1).
+  --min-matches <count>       Alias for --min-gain.
+  --coverage <percent>        Stop after reaching this target coverage (default: 100).
+
+Quick first pass:
+    --qualify <count>           Keep rules reaching this many unique targets, then
+                                                            stop processing each qualifying rule early.
+
+Input options:
+  --input-wordlist, -i <file> Use a separate base word list as analysis inputs.
+  --input-sample, -S <count>  Randomly sample this many analysis inputs.
+  --sample <count>            Alias for --input-sample.
+  --seed <number>             Sampling seed for reproducible analysis.
+  --min, -m <length>          Ignore targets shorter than this length.
+  --max, -M <length>          Ignore targets longer than this length.
+  --printable, -p             Ignore targets containing non-printable UTF-8.
+
+Output options:
+  --output, -o <file>         Write the CSV ranking to a file instead of stdout.
+  --valuable-rules <file>     Write selected rules in optimal ranking order.
+  --threads, -t <count>       Analysis threads (default: available CPUs).
+  --help, -h                  Display this help message.
 )";
 
 std::optional<std::vector<std::string>>
-LoadWords(
+LoadInputs(
     const std::filesystem::path& Path,
-    const size_t EstimatedLines,
-    const size_t MinLength,
-    const size_t MaxLength,
-    const bool PrintableOnly,
-    const std::string_view Description,
-    bool* IsSorted
+    const size_t EstimatedLines
 )
 {
     const std::string PathString = Path.string();
     LineReader<> Input(PathString);
     if (!Input.Open())
     {
-        std::cerr << "Unable to open " << Description << " file: " << Path << std::endl;
+        std::cerr << "Unable to open word list: " << Path << std::endl;
         return std::nullopt;
     }
 
     std::vector<std::string> Words;
-    Words.reserve(EstimatedLines + 1);
-    bool Sorted = true;
-    std::string_view Word;
+    Words.reserve(EstimatedLines);
+    std::string_view Line;
     size_t LinesRead = 0;
     const auto Start = std::chrono::steady_clock::now();
     auto LastStatus = Start;
-    while (Input.ReadLine(Word))
+    while (Input.ReadLine(Line))
     {
         LinesRead++;
-        std::string ParsedWord = RuleAnalysis::ParseWordlistLine(Word);
-        if (ParsedWord.size() >= MinLength
-            && ParsedWord.size() <= MaxLength
-            && (!PrintableOnly || Util::IsPrintableUTF8(ParsedWord)))
+        Words.push_back(RuleAnalysis::ParseWordlistLine(Line));
+
+        if (LinesRead % 100000 != 0) continue;
+        const auto Now = std::chrono::steady_clock::now();
+        if (Now - LastStatus < std::chrono::milliseconds(500)) continue;
+        LastStatus = Now;
+
+        const double Seconds = std::chrono::duration<double>(Now - Start).count();
+        const double Rate = Seconds > 0.0
+            ? static_cast<double>(LinesRead) / Seconds
+            : 0.0;
+        std::string LineFactor;
+        std::string RateFactor;
+        const double DisplayLines = Util::NumFactor(
+            static_cast<double>(LinesRead),
+            LineFactor
+        );
+        const double DisplayRate = Util::NumFactor(Rate, RateFactor);
+        const double Percent = EstimatedLines == 0
+            ? 0.0
+            : std::min(
+                100.0,
+                static_cast<double>(LinesRead) * 100.0
+                    / static_cast<double>(EstimatedLines)
+            );
+        std::cerr << '\r' << std::format(
+            "Loading {}... #:{:.1f}{} ({:.1f}%) Kept:{} Rate:{:.1f}{}/s",
+            "inputs",
+            DisplayLines,
+            LineFactor,
+            Percent,
+            Words.size(),
+            DisplayRate,
+            RateFactor
+        ) << std::flush;
+    }
+
+    return Words;
+}
+
+std::optional<size_t>
+LoadTargets(
+    const std::filesystem::path& Path,
+    const size_t EstimatedLines,
+    const size_t MinLength,
+    const size_t MaxLength,
+    const bool PrintableOnly,
+    RuleAnalysis::TargetLookup& Targets
+)
+{
+    const std::string PathString = Path.string();
+    LineReader<> Input(PathString);
+    if (!Input.Open())
+    {
+        std::cerr << "Unable to open target word list: " << Path << std::endl;
+        return std::nullopt;
+    }
+
+    size_t LinesRead = 0;
+    size_t Retained = 0;
+    const auto Start = std::chrono::steady_clock::now();
+    auto LastStatus = Start;
+    std::string_view Line;
+    while (Input.ReadLine(Line))
+    {
+        LinesRead++;
+        const std::string Word = RuleAnalysis::ParseWordlistLine(Line);
+        if (Word.size() >= MinLength
+            && Word.size() <= MaxLength
+            && (!PrintableOnly || Util::IsPrintableUTF8(Word))
+            && Targets.Add(Word))
         {
-            if (!Words.empty() && ParsedWord < Words.back()) Sorted = false;
-            Words.push_back(std::move(ParsedWord));
+            Retained++;
         }
 
         if (LinesRead % 100000 != 0) continue;
-
         const auto Now = std::chrono::steady_clock::now();
         if (Now - LastStatus < std::chrono::milliseconds(500)) continue;
-
         LastStatus = Now;
-        const double Seconds = std::chrono::duration<double>(
-            Now - Start
-        ).count();
-        std::string WordFactor;
+
+        const double Seconds = std::chrono::duration<double>(Now - Start).count();
+        std::string LineFactor;
         std::string RateFactor;
-        const double DisplayWords = Util::NumFactor(
+        const double DisplayLines = Util::NumFactor(
             static_cast<double>(LinesRead),
-            WordFactor
+            LineFactor
         );
         const double DisplayRate = Util::NumFactor(
             Seconds > 0.0 ? static_cast<double>(LinesRead) / Seconds : 0.0,
             RateFactor
         );
-
-        if (EstimatedLines > 0)
-        {
-            const double Percent = std::min(
+        const double Percent = EstimatedLines == 0
+            ? 0.0
+            : std::min(
                 100.0,
-                static_cast<double>(LinesRead) * 100.0 / static_cast<double>(EstimatedLines)
+                static_cast<double>(LinesRead) * 100.0
+                    / static_cast<double>(EstimatedLines)
             );
-            std::cerr << '\r' << std::format(
-                "Loading {}... #:{:.1f}{} ({:.1f}%) Kept:{} Rate:{:.1f}{}/s",
-                Description,
-                DisplayWords,
-                WordFactor,
-                Percent,
-                Words.size(),
-                DisplayRate,
-                RateFactor
-            ) << std::flush;
-        }
-        else
-        {
-            std::cerr << '\r' << std::format(
-                "Loading {}... #:{:.1f}{} Kept:{} Rate:{:.1f}{}/s",
-                Description,
-                DisplayWords,
-                WordFactor,
-                Words.size(),
-                DisplayRate,
-                RateFactor
-            ) << std::flush;
-        }
+        std::cerr << '\r' << std::format(
+            "Loading targets... #:{:.1f}{} ({:.1f}%) Kept:{} Rate:{:.1f}{}/s",
+            DisplayLines,
+            LineFactor,
+            Percent,
+            Retained,
+            DisplayRate,
+            RateFactor
+        ) << std::flush;
     }
-
-    if (IsSorted != nullptr) *IsSorted = Sorted;
-    return Words;
+    return Retained;
 }
 
 std::optional<std::vector<RuleAnalysis::RuleStatistic>>
@@ -176,7 +217,6 @@ LoadRules(
 {
     const std::string PathString = Path.string();
     LineCounter<> Counter(PathString);
-    const size_t EstimatedLines = Counter.CountLines();
     LineReader<> Input(PathString);
     if (!Input.Open())
     {
@@ -185,21 +225,15 @@ LoadRules(
     }
 
     std::vector<RuleAnalysis::RuleStatistic> Statistics;
-    Statistics.reserve(EstimatedLines + 1);
+    Statistics.reserve(Counter.CountLines());
     std::string_view Rule;
     size_t SourceOrder = 0;
     while (Input.ReadLine(Rule))
     {
         if (!Rule.empty() && Rule.back() == '\r') Rule.remove_suffix(1);
-
         Rules::CompiledRule CompiledRule = Rules::Compile(Rule);
         if (CompiledRule.commands.empty()) continue;
-
-        Statistics.push_back({
-            std::string(Rule),
-            std::move(CompiledRule),
-            SourceOrder++
-        });
+        Statistics.emplace_back(std::string(Rule), std::move(CompiledRule), SourceOrder++);
     }
 
     if (Statistics.empty())
@@ -207,41 +241,84 @@ LoadRules(
         std::cerr << "No rules found in: " << Path << std::endl;
         return std::nullopt;
     }
-
     return Statistics;
 }
 
+size_t
+CountLines(
+    const std::filesystem::path& Path
+)
+{
+    const std::string PathString = Path.string();
+    LineCounter<> Counter(PathString);
+    return Counter.CountLines();
 }
 
-int main(
+std::string
+FormatCount(
+    const long double Value
+)
+{
+    static constexpr std::array<std::pair<long double, std::string_view>, 5> Units = {{
+        {1.0e15L, "P"},
+        {1.0e12L, "T"},
+        {1.0e9L, "G"},
+        {1.0e6L, "M"},
+        {1.0e3L, "K"}
+    }};
+    for (const auto& [Scale, Suffix] : Units)
+    {
+        if (Value >= Scale)
+        {
+            return std::format("{:.2f}{}", static_cast<double>(Value / Scale), Suffix);
+        }
+    }
+    return std::format("{:.0f}", static_cast<double>(Value));
+}
+
+std::string
+FormatDuration(
+    const double Seconds
+)
+{
+    if (!std::isfinite(Seconds) || Seconds < 0.0) return "unknown";
+    const uint64_t TotalSeconds = static_cast<uint64_t>(Seconds);
+    const uint64_t Days = TotalSeconds / 86400;
+    const uint64_t Hours = (TotalSeconds % 86400) / 3600;
+    const uint64_t Minutes = (TotalSeconds % 3600) / 60;
+    const uint64_t RemainingSeconds = TotalSeconds % 60;
+    if (Days != 0) return std::format("{}d{:02}h", Days, Hours);
+    if (Hours != 0) return std::format("{}h{:02}m", Hours, Minutes);
+    if (Minutes != 0) return std::format("{}m{:02}s", Minutes, RemainingSeconds);
+    return std::format("{}s", RemainingSeconds);
+}
+
+}
+
+int
+main(
     int argc,
     const char* argv[]
 )
 {
     const auto Args = cracktools::ParseArgv(argv, argc);
     std::filesystem::path RulesFile;
-    std::filesystem::path WordsFile;
+    std::filesystem::path TargetWordsFile;
     std::filesystem::path InputWordsFile;
     std::filesystem::path OutputFile;
-    RuleAnalysis::SortKey SortKey = RuleAnalysis::SortKey::Matches;
-    RuleAnalysis::SortOrder SortOrder = RuleAnalysis::SortOrder::Descending;
-    size_t MinLength = 0;
-    size_t MaxLength = std::numeric_limits<size_t>::max();
-    std::optional<size_t> GenerateMaxLength;
-    std::string Charset = ALPHANUMERIC;
-    bool PrintableOnly = false;
-    std::optional<size_t> InputSampleSize;
-    std::optional<size_t> WordlistSampleSize;
-    std::optional<uint64_t> ConfiguredSeed;
-    bool OnlyZero = false;
-    size_t MinimumMatches = 0;
-    size_t MaximumMatches = std::numeric_limits<size_t>::max();
-    double MinimumRate = 0.0;
-    bool ErrorsOnly = false;
-    bool ExcludeErrors = false;
-    bool ChangedOnly = false;
     std::filesystem::path ValuableRulesFile;
-    std::optional<size_t> MatchLimit;
+    size_t MinimumTargetLength = 0;
+    size_t MaximumTargetLength = std::numeric_limits<size_t>::max();
+    size_t MaximumRules = std::numeric_limits<size_t>::max();
+    size_t MinimumGain = 1;
+    double CoverageGoal = 1.0;
+    std::optional<size_t> QualificationBar;
+    std::optional<size_t> InputSampleSize;
+    std::optional<uint64_t> ConfiguredSeed;
+    bool PrintableOnly = false;
+    bool TopConfigured = false;
+    bool BarConfigured = false;
+    bool CoverageConfigured = false;
     size_t Threads = std::thread::hardware_concurrency();
     if (Threads == 0) Threads = 1;
 
@@ -253,40 +330,58 @@ int main(
             ARGCHECK();
             OutputFile = Args[++i];
         }
+        else if (Arg == "--valuable-rules")
+        {
+            ARGCHECK();
+            ValuableRulesFile = Args[++i];
+        }
         else if (Arg == "--input-wordlist" || Arg == "--input" || Arg == "-i")
         {
             ARGCHECK();
             InputWordsFile = Args[++i];
         }
-        else if (Arg == "--min" || Arg == "-m")
+        else if (Arg == "--top" || Arg == "--max-rules" || Arg == "-n")
         {
             ARGCHECK();
-            MinLength = Util::ParseNumber<size_t>(Args[++i]);
-        }
-        else if (Arg == "--max" || Arg == "-M")
-        {
-            ARGCHECK();
-            MaxLength = Util::ParseNumber<size_t>(Args[++i]);
-        }
-        else if (Arg == "--generate" || Arg == "-g")
-        {
-            ARGCHECK();
-            GenerateMaxLength = Util::ParseNumber<size_t>(Args[++i]);
-            if (*GenerateMaxLength == 0
-                || *GenerateMaxLength == std::numeric_limits<size_t>::max())
+            TopConfigured = true;
+            MaximumRules = Util::ParseNumber<size_t>(Args[++i]);
+            if (MaximumRules == 0)
             {
-                std::cerr << "Generated maximum length must be greater than zero" << std::endl;
+                std::cerr << "Top rule count must be greater than zero" << std::endl;
                 return 1;
             }
         }
-        else if (Arg == "--charset" || Arg == "-c")
+        else if (Arg == "--min-gain" || Arg == "--bar" || Arg == "--min-matches")
         {
             ARGCHECK();
-            Charset = ParseCharset(Args[++i]);
+            BarConfigured = true;
+            MinimumGain = Util::ParseNumber<size_t>(Args[++i]);
+            if (MinimumGain == 0)
+            {
+                std::cerr << "Minimum gain must be greater than zero" << std::endl;
+                return 1;
+            }
         }
-        else if (Arg == "--printable" || Arg == "-p")
+        else if (Arg == "--coverage")
         {
-            PrintableOnly = true;
+            ARGCHECK();
+            CoverageConfigured = true;
+            CoverageGoal = Util::ParseNumber<double>(Args[++i]) / 100.0;
+            if (CoverageGoal <= 0.0 || CoverageGoal > 1.0)
+            {
+                std::cerr << "Coverage must be greater than 0 and at most 100" << std::endl;
+                return 1;
+            }
+        }
+        else if (Arg == "--qualify")
+        {
+            ARGCHECK();
+            QualificationBar = Util::ParseNumber<size_t>(Args[++i]);
+            if (*QualificationBar == 0)
+            {
+                std::cerr << "Qualification count must be greater than zero" << std::endl;
+                return 1;
+            }
         }
         else if (Arg == "--input-sample" || Arg == "--sample" || Arg == "-S")
         {
@@ -298,125 +393,24 @@ int main(
                 return 1;
             }
         }
-        else if (Arg == "--wordlist-sample" || Arg == "-W")
-        {
-            ARGCHECK();
-            WordlistSampleSize = Util::ParseNumber<size_t>(Args[++i]);
-            if (*WordlistSampleSize == 0)
-            {
-                std::cerr << "Word-list sample size must be greater than zero" << std::endl;
-                return 1;
-            }
-        }
         else if (Arg == "--seed")
         {
             ARGCHECK();
             ConfiguredSeed = Util::ParseNumber<uint64_t>(Args[++i]);
         }
-        else if (Arg == "--only-zero")
-        {
-            OnlyZero = true;
-        }
-        else if (Arg == "--min-matches")
+        else if (Arg == "--min" || Arg == "-m")
         {
             ARGCHECK();
-            MinimumMatches = Util::ParseNumber<size_t>(Args[++i]);
+            MinimumTargetLength = Util::ParseNumber<size_t>(Args[++i]);
         }
-        else if (Arg == "--max-matches")
+        else if (Arg == "--max" || Arg == "-M")
         {
             ARGCHECK();
-            MaximumMatches = Util::ParseNumber<size_t>(Args[++i]);
+            MaximumTargetLength = Util::ParseNumber<size_t>(Args[++i]);
         }
-        else if (Arg == "--min-rate")
+        else if (Arg == "--printable" || Arg == "-p")
         {
-            ARGCHECK();
-            MinimumRate = Util::ParseNumber<double>(Args[++i]) / 100.0;
-            if (MinimumRate < 0.0 || MinimumRate > 1.0)
-            {
-                std::cerr << "Minimum rate must be between 0 and 100" << std::endl;
-                return 1;
-            }
-        }
-        else if (Arg == "--errors-only")
-        {
-            ErrorsOnly = true;
-        }
-        else if (Arg == "--exclude-errors")
-        {
-            ExcludeErrors = true;
-        }
-        else if (Arg == "--changed-only")
-        {
-            ChangedOnly = true;
-        }
-        else if (Arg == "--valuable-rules")
-        {
-            ARGCHECK();
-            ValuableRulesFile = Args[++i];
-        }
-        else if (Arg == "--match-limit" || Arg == "--stop-after-matches")
-        {
-            ARGCHECK();
-            MatchLimit = Util::ParseNumber<size_t>(Args[++i]);
-            if (*MatchLimit == 0)
-            {
-                std::cerr << "Match limit must be greater than zero" << std::endl;
-                return 1;
-            }
-        }
-        else if (Arg == "--sort" || Arg == "-s")
-        {
-            ARGCHECK();
-            const std::string_view Key = Args[++i];
-            if (Key == "matches" || Key == "match" || Key == "count")
-            {
-                SortKey = RuleAnalysis::SortKey::Matches;
-            }
-            else if (Key == "unique" || Key == "unique-matches")
-            {
-                SortKey = RuleAnalysis::SortKey::UniqueMatches;
-            }
-            else if (Key == "rate" || Key == "match-rate")
-            {
-                SortKey = RuleAnalysis::SortKey::MatchRate;
-            }
-            else if (Key == "coverage")
-            {
-                SortKey = RuleAnalysis::SortKey::Coverage;
-            }
-            else if (Key == "changed")
-            {
-                SortKey = RuleAnalysis::SortKey::Changed;
-            }
-            else if (Key == "rejected")
-            {
-                SortKey = RuleAnalysis::SortKey::Rejected;
-            }
-            else if (Key == "errors")
-            {
-                SortKey = RuleAnalysis::SortKey::Errors;
-            }
-            else if (Key == "time")
-            {
-                SortKey = RuleAnalysis::SortKey::Time;
-            }
-            else if (Key == "rule")
-            {
-                SortKey = RuleAnalysis::SortKey::Rule;
-            }
-            else
-            {
-                std::cerr << "Unknown sort key: " << Key << std::endl;
-                return 1;
-            }
-        }
-        else if (Arg == "--ascending" || Arg == "--asc" || Arg == "-a")
-        {
-            SortOrder = RuleAnalysis::SortOrder::Ascending;
-        }
-        else if (Arg == "--descending" || Arg == "--desc" || Arg == "-d")
-        {
-            SortOrder = RuleAnalysis::SortOrder::Descending;
+            PrintableOnly = true;
         }
         else if (Arg == "--threads" || Arg == "-t")
         {
@@ -442,9 +436,9 @@ int main(
         {
             RulesFile = Arg;
         }
-        else if (WordsFile.empty())
+        else if (TargetWordsFile.empty())
         {
-            WordsFile = Arg;
+            TargetWordsFile = Arg;
         }
         else
         {
@@ -453,234 +447,191 @@ int main(
         }
     }
 
-    if (RulesFile.empty() || WordsFile.empty())
+    if (RulesFile.empty() || TargetWordsFile.empty())
     {
         std::cerr << HELP_STRING << std::endl;
         return 1;
     }
-
-    if (MinLength > MaxLength)
+    if (MinimumTargetLength > MaximumTargetLength)
     {
-        std::cerr << "Minimum word length cannot exceed maximum word length" << std::endl;
+        std::cerr << "Minimum target length cannot exceed maximum target length" << std::endl;
         return 1;
     }
-
-    if (MinimumMatches > MaximumMatches)
+    if (InputWordsFile.empty())
     {
-        std::cerr << "Minimum matches cannot exceed maximum matches" << std::endl;
+        std::cerr << "--input-wordlist is required" << std::endl;
         return 1;
     }
-
-    if (MatchLimit && MinimumMatches > *MatchLimit)
+    if (QualificationBar && (TopConfigured || BarConfigured || CoverageConfigured))
     {
-        std::cerr << "Minimum matches cannot exceed match limit" << std::endl;
+        std::cerr << "--qualify cannot be combined with --top, --bar, --min-gain, "
+                  << "--min-matches, or --coverage" << std::endl;
         return 1;
     }
+    std::cerr << "Worker threads: " << Threads
+              << " (target loading is single-threaded; bucket sorting and analysis are parallel)"
+              << std::endl;
+    const size_t EstimatedInputs = CountLines(InputWordsFile);
+    std::cerr << "Loading " << EstimatedInputs << " input lines..." << std::flush;
+    auto LoadedInputs = LoadInputs(InputWordsFile, EstimatedInputs);
+    if (!LoadedInputs) return 1;
+    std::vector<std::string> InputWords = std::move(*LoadedInputs);
+    std::span<const std::string> Inputs = InputWords;
+    std::cerr << '\r' << Inputs.size()
+              << " input words retained                              " << std::endl;
 
-    if (ErrorsOnly && ExcludeErrors)
-    {
-        std::cerr << "--errors-only and --exclude-errors cannot be combined" << std::endl;
-        return 1;
-    }
-
-    if (GenerateMaxLength && !InputWordsFile.empty())
-    {
-        std::cerr << "--generate and --input-wordlist cannot be combined" << std::endl;
-        return 1;
-    }
-
-    const std::string WordsPath = WordsFile.string();
-    std::cerr << "Counting words..." << std::flush;
-    LineCounter<> WordCounter(WordsPath);
-    const size_t EstimatedWords = WordCounter.CountLines();
-    std::cerr << " " << EstimatedWords << " lines" << std::endl;
-
-    std::cerr << "Loading words..." << std::flush;
-    bool WordListSorted = true;
-    auto LoadedWords = LoadWords(
-        WordsFile,
-        EstimatedWords,
-        MinLength,
-        MaxLength,
+    const size_t EstimatedTargets = CountLines(TargetWordsFile);
+    std::cerr << "Loading " << EstimatedTargets
+              << " target lines into 128-bit length buckets..." << std::flush;
+    RuleAnalysis::TargetLookup TargetLookup;
+    const std::optional<size_t> RetainedTargets = LoadTargets(
+        TargetWordsFile,
+        EstimatedTargets,
+        MinimumTargetLength,
+        MaximumTargetLength,
         PrintableOnly,
-        "words",
-        &WordListSorted
+        TargetLookup
     );
-    if (!LoadedWords) return 1;
-    std::vector<std::string> Words = std::move(*LoadedWords);
+    if (!RetainedTargets) return 1;
 
-    std::cerr << '\r' << Words.size() << " words loaded                              " << std::endl;
-
-    std::vector<std::string> InputWords;
-    std::span<const std::string> Inputs = Words;
-    if (!InputWordsFile.empty())
+    std::cerr << "\rSorting and deduplicating target buckets with " << Threads
+              << " workers..." << std::flush;
+    const auto TargetFinalizeStart = std::chrono::steady_clock::now();
+    TargetLookup.Finalize(Threads);
+    const double TargetFinalizeSeconds = std::chrono::duration<double>(
+        std::chrono::steady_clock::now() - TargetFinalizeStart
+    ).count();
+    std::cerr << std::format(
+        " {} unique targets in {:.3f}s                              ",
+        TargetLookup.Size(),
+        TargetFinalizeSeconds
+    ) << std::endl;
+    if (TargetLookup.Size() == 0)
     {
-        const std::string InputWordsPath = InputWordsFile.string();
-        std::cerr << "Counting input words..." << std::flush;
-        LineCounter<> InputWordCounter(InputWordsPath);
-        const size_t EstimatedInputWords = InputWordCounter.CountLines();
-        std::cerr << " " << EstimatedInputWords << " lines" << std::endl;
-
-        std::cerr << "Loading input words..." << std::flush;
-        auto LoadedInputWords = LoadWords(
-            InputWordsFile,
-            EstimatedInputWords,
-            0,
-            std::numeric_limits<size_t>::max(),
-            false,
-            "input words",
-            nullptr
-        );
-        if (!LoadedInputWords) return 1;
-        InputWords = std::move(*LoadedInputWords);
-        Inputs = InputWords;
-        std::cerr << '\r' << InputWords.size()
-                  << " input words loaded                              " << std::endl;
+        std::cerr << "No target words remain after filtering" << std::endl;
+        return 1;
     }
-    size_t GeneratedInputCount = 0;
-    std::vector<size_t> GeneratedSampleIndices;
-    std::vector<std::string> SampledInputs;
-    std::vector<std::string> SampledWordlist;
+    if (TargetLookup.Size() > std::numeric_limits<uint32_t>::max())
+    {
+        std::cerr << "Target count exceeds the supported 32-bit target ID range" << std::endl;
+        return 1;
+    }
+
+    std::cerr << "Excluding direct base-list matches..." << std::flush;
+    const auto DirectTargetStart = std::chrono::steady_clock::now();
+    const size_t DirectTargets = TargetLookup.RemoveDirect(Inputs);
+    const double DirectTargetSeconds = std::chrono::duration<double>(
+        std::chrono::steady_clock::now() - DirectTargetStart
+    ).count();
+    std::cerr << std::format(
+        " removed {}, {} remain in {:.3f}s",
+        DirectTargets,
+        TargetLookup.Size(),
+        DirectTargetSeconds
+    ) << std::endl;
+    if (TargetLookup.Size() == 0)
+    {
+        std::cerr << "All targets are already covered by the base list" << std::endl;
+        return 1;
+    }
+    if (QualificationBar && *QualificationBar > TargetLookup.Size())
+    {
+        std::cerr << "Qualification count cannot exceed remaining target count" << std::endl;
+        return 1;
+    }
+
     std::random_device RandomDevice;
-    const uint64_t BaseSeed = ConfiguredSeed.value_or(
+    const uint64_t Seed = ConfiguredSeed.value_or(
         (static_cast<uint64_t>(RandomDevice()) << 32)
             ^ static_cast<uint64_t>(RandomDevice())
     );
-    const uint64_t InputSampleSeed = BaseSeed;
-    const uint64_t WordlistSampleSeed = BaseSeed ^ 0x9e3779b97f4a7c15ULL;
-
-    if (InputSampleSize || WordlistSampleSize)
+    std::vector<std::string> SampledInputs;
+    if (InputSampleSize && *InputSampleSize < Inputs.size())
     {
-        std::cerr << "Sampling seed: " << BaseSeed << std::endl;
-    }
-
-    if (GenerateMaxLength)
-    {
-        const mpz_class Count = WordGenerator::WordLengthIndex(
-            *GenerateMaxLength + 1,
-            Charset
-        );
-        if (!mpz_fits_ulong_p(Count.get_mpz_t()))
-        {
-            std::cerr << "Generated input count exceeds the supported index range" << std::endl;
-            return 1;
-        }
-
-        GeneratedInputCount = Count.get_ui();
-        std::cerr << "Using " << GeneratedInputCount << " generated analysis inputs" << std::endl;
-        if (InputSampleSize && *InputSampleSize < GeneratedInputCount)
-        {
-            std::cerr << "Sampling " << *InputSampleSize << " generated input indices..." << std::flush;
-            GeneratedSampleIndices = RuleAnalysis::RandomSampleIndices(
-                GeneratedInputCount,
-                *InputSampleSize,
-                InputSampleSeed
-            );
-            std::cerr << " done" << std::endl;
-        }
-    }
-    else if (InputSampleSize && *InputSampleSize < Inputs.size())
-    {
-        std::cerr << "Sampling " << *InputSampleSize << " of " << Inputs.size() << " analysis inputs..." << std::flush;
-        SampledInputs = RuleAnalysis::RandomSample(
-            Inputs,
-            *InputSampleSize,
-            InputSampleSeed
-        );
+        SampledInputs = RuleAnalysis::RandomSample(Inputs, *InputSampleSize, Seed);
         Inputs = SampledInputs;
-        std::cerr << " done" << std::endl;
     }
+    if (InputSampleSize) std::cerr << "Sampling seed: " << Seed << std::endl;
 
-    std::span<const std::string> LookupWords = Words;
-    if (WordlistSampleSize && *WordlistSampleSize < Words.size())
-    {
-        std::cerr << "Sampling " << *WordlistSampleSize << " of " << Words.size() << " lookup words..." << std::flush;
-        SampledWordlist = RuleAnalysis::RandomSample(
-            Words,
-            *WordlistSampleSize,
-            WordlistSampleSeed
-        );
-        LookupWords = SampledWordlist;
-        std::cerr << " done" << std::endl;
-    }
-
-    if (SampledWordlist.empty() && WordListSorted)
-    {
-        std::cerr << "Lookup words already sorted; skipping sort" << std::endl;
-    }
-    else
-    {
-        std::cerr << "Sorting " << LookupWords.size() << " lookup words..." << std::flush;
-        if (SampledWordlist.empty())
-        {
-            std::sort(Words.begin(), Words.end());
-        }
-        else
-        {
-            std::sort(SampledWordlist.begin(), SampledWordlist.end());
-        }
-        std::cerr << " done" << std::endl;
-    }
-
-    std::cerr << "Building word lookup table..." << std::flush;
-    RuleAnalysis::WordLookup WordLookup;
-    WordLookup.Initialize(LookupWords);
-    std::cerr << " done" << std::endl;
-
-    const size_t AnalysisInputCount = GenerateMaxLength
-        ? (GeneratedSampleIndices.empty() ? GeneratedInputCount : GeneratedSampleIndices.size())
-        : Inputs.size();
+    std::cerr << "Analysis inputs: " << Inputs.size() << std::endl;
 
     std::cerr << "Loading rules..." << std::flush;
     auto LoadedRules = LoadRules(RulesFile);
     if (!LoadedRules) return 1;
     std::vector<RuleAnalysis::RuleStatistic> Statistics = std::move(*LoadedRules);
-
     std::cerr << " " << Statistics.size() << " loaded" << std::endl;
-    std::cerr << "Analyzing with " << Threads << " threads" << std::endl;
 
-    RuleAnalysis::RuleFilter Filter;
-    Filter.minimumMatches = MinimumMatches;
-    Filter.maximumMatches = MaximumMatches;
-    Filter.minimumRate = MinimumRate;
-    Filter.errorsOnly = ErrorsOnly;
-    Filter.excludeErrors = ExcludeErrors;
-    Filter.changedOnly = ChangedOnly;
-    std::atomic<size_t> Kept = 0;
-    std::atomic<size_t> Dropped = 0;
+    const long double PlannedEvaluations = static_cast<long double>(Statistics.size())
+        * static_cast<long double>(Inputs.size());
+    std::cerr << (QualificationBar ? "Worst-case workload: " : "Planned workload: ")
+              << FormatCount(PlannedEvaluations)
+              << " logical evaluations using " << Threads << " workers" << std::endl;
+    if (!InputSampleSize && PlannedEvaluations >= 1.0e11L)
+    {
+        std::cerr << "WARNING: exhaustive analysis is extremely large. "
+                  << "Use --input-sample with --seed for a practical ranking run."
+                  << std::endl;
+    }
+
+    RuleAnalysis::AnalysisProgress Progress;
     const auto AnalysisStart = std::chrono::steady_clock::now();
     auto PrintStatus = [&]()
     {
-        const size_t Keep = Kept.load(std::memory_order_relaxed);
-        const size_t Drop = Dropped.load(std::memory_order_relaxed);
-        const size_t Complete = Keep + Drop;
-        const double Percent = Statistics.empty()
-            ? 100.0
-            : static_cast<double>(Complete) * 100.0 / static_cast<double>(Statistics.size());
+        const size_t Complete = Progress.completedRules.load(std::memory_order_acquire);
+        const size_t Evaluations = Progress.completedEvaluations.load(std::memory_order_relaxed);
+        const size_t Qualified = Progress.qualifiedRules.load(std::memory_order_relaxed);
+        const size_t Unqualified = Progress.unqualifiedRules.load(std::memory_order_relaxed);
+        const double Percent = static_cast<double>(Complete) * 100.0
+            / static_cast<double>(Statistics.size());
         const double Seconds = std::chrono::duration<double>(
             std::chrono::steady_clock::now() - AnalysisStart
         ).count();
-        const double Evaluations = static_cast<double>(Complete) * static_cast<double>(AnalysisInputCount);
         std::string EvaluationFactor;
         std::string RateFactor;
-        const double DisplayEvaluations = Util::NumFactor(Evaluations, EvaluationFactor);
+        const double DisplayEvaluations = Util::NumFactor(
+            static_cast<double>(Evaluations),
+            EvaluationFactor
+        );
         const double DisplayRate = Util::NumFactor(
-            Seconds > 0.0 ? Evaluations / Seconds : 0.0,
+            Seconds > 0.0 ? static_cast<double>(Evaluations) / Seconds : 0.0,
             RateFactor
         );
-
-        std::cerr << '\r' << std::format(
-            "R:{}/{} ({:.1f}%) E:{:.1f}{} Rate:{:.1f}{}/s +{} -{}",
-            Complete,
-            Statistics.size(),
-            Percent,
-            DisplayEvaluations,
-            EvaluationFactor,
-            DisplayRate,
-            RateFactor,
-            Keep,
-            Drop
-        ) << std::flush;
+        const std::string Eta = Complete == 0
+            ? "unknown"
+            : FormatDuration(
+                Seconds * static_cast<double>(Statistics.size() - Complete)
+                    / static_cast<double>(Complete)
+            );
+        if (QualificationBar)
+        {
+            std::cerr << '\r' << std::format(
+                "R:{}/{} ({:.1f}%) E:{:.1f}{} Rate:{:.1f}{}/s +{} -{} ETA:{}",
+                Complete,
+                Statistics.size(),
+                Percent,
+                DisplayEvaluations,
+                EvaluationFactor,
+                DisplayRate,
+                RateFactor,
+                Qualified,
+                Unqualified,
+                Eta
+            ) << std::flush;
+        }
+        else
+        {
+            std::cerr << '\r' << std::format(
+                "R:{}/{} ({:.1f}%) E:{:.1f}{} Rate:{:.1f}{}/s ETA:{}",
+                Complete,
+                Statistics.size(),
+                Percent,
+                DisplayEvaluations,
+                EvaluationFactor,
+                DisplayRate,
+                RateFactor,
+                Eta
+            ) << std::flush;
+        }
     };
 
     std::mutex StatusMutex;
@@ -699,62 +650,125 @@ int main(
         }
     });
 
-    if (GenerateMaxLength)
-    {
-        RuleAnalysis::AnalyzeGenerated(
-            GeneratedInputCount,
-            GeneratedSampleIndices,
-            Charset,
-            WordLookup,
-            Statistics,
-            Threads,
-            nullptr,
-            MatchLimit,
-            &Kept,
-            &Dropped,
-            &Filter
-        );
-    }
-    else
-    {
-        RuleAnalysis::Analyze(
-            Inputs,
-            WordLookup,
-            Statistics,
-            Threads,
-            nullptr,
-            MatchLimit,
-            &Kept,
-            &Dropped,
-            &Filter
-        );
-    }
+    RuleAnalysis::Analyze(
+        Inputs,
+        TargetLookup,
+        Statistics,
+        Threads,
+        &Progress,
+        QualificationBar
+    );
     StatusThread.request_stop();
     StatusChanged.notify_all();
     StatusThread.join();
     PrintStatus();
     std::cerr << std::endl;
 
+    if (QualificationBar)
+    {
+        const size_t Qualified = Progress.qualifiedRules.load(std::memory_order_relaxed);
+        std::cerr << "Qualified " << Qualified << " rules at "
+                  << *QualificationBar << " unique targets; "
+                  << Statistics.size() - Qualified << " did not qualify" << std::endl;
+
+        if (!ValuableRulesFile.empty())
+        {
+            std::ofstream ValuableRules(ValuableRulesFile, std::ios::out | std::ios::binary);
+            if (!ValuableRules.is_open())
+            {
+                std::cerr << "Unable to open qualified-rules file: "
+                          << ValuableRulesFile << std::endl;
+                return 1;
+            }
+            for (const RuleAnalysis::RuleStatistic& Statistic : Statistics)
+            {
+                if (Statistic.qualified) ValuableRules << Statistic.rule << '\n';
+            }
+        }
+
+        std::ostream* Output = &std::cout;
+        std::ofstream OutputStream;
+        if (!OutputFile.empty())
+        {
+            OutputStream.open(OutputFile, std::ios::out | std::ios::binary);
+            if (!OutputStream.is_open())
+            {
+                std::cerr << "Unable to open output file: " << OutputFile << std::endl;
+                return 1;
+            }
+            Output = &OutputStream;
+        }
+
+        CsvWriter Report(*Output);
+        const std::array<std::string, 10> Header = {
+            "Rule",
+            "UniqueTargets",
+            "Matches",
+            "Evaluated",
+            "Applied",
+            "Changed",
+            "Rejected",
+            "Errors",
+            "MatchRate",
+            "TimeMs"
+        };
+        Report.WriteRow(Header);
+        for (const RuleAnalysis::RuleStatistic& Statistic : Statistics)
+        {
+            if (!Statistic.qualified) continue;
+            const std::array<std::string, 10> Row = {
+                Statistic.rule,
+                std::to_string(Statistic.UniqueTargets()),
+                std::to_string(Statistic.matches),
+                std::to_string(Statistic.evaluated),
+                std::to_string(Statistic.applied),
+                std::to_string(Statistic.changed),
+                std::to_string(Statistic.rejected),
+                std::to_string(Statistic.syntaxErrors),
+                std::format("{:.6f}", Statistic.MatchRate() * 100.0),
+                std::format(
+                    "{:.3f}",
+                    static_cast<double>(Statistic.elapsedNanoseconds) / 1000000.0
+                )
+            };
+            Report.WriteRow(Row);
+        }
+        return Output->good() ? 0 : 1;
+    }
+
+    RuleAnalysis::SelectionOptions SelectionOptions;
+    SelectionOptions.maximumRules = MaximumRules;
+    SelectionOptions.minimumGain = MinimumGain;
+    SelectionOptions.targetCoverage = CoverageGoal;
+    RuleAnalysis::SelectionResult Selection = RuleAnalysis::SelectTopRules(
+        Statistics,
+        TargetLookup.Size(),
+        SelectionOptions
+    );
+    const double SelectedCoverage = static_cast<double>(Selection.coveredTargets) * 100.0
+        / static_cast<double>(TargetLookup.Size());
+    std::cerr << std::format(
+        "Selected {} rules, dropped {}, covered {}/{} targets ({:.4f}%)",
+        Selection.ruleIndices.size(),
+        Statistics.size() - Selection.ruleIndices.size(),
+        Selection.coveredTargets,
+        TargetLookup.Size(),
+        SelectedCoverage
+    ) << std::endl;
+
     if (!ValuableRulesFile.empty())
     {
         std::ofstream ValuableRules(ValuableRulesFile, std::ios::out | std::ios::binary);
         if (!ValuableRules.is_open())
         {
-            std::cerr << "Unable to open valuable-rules file: " << ValuableRulesFile << std::endl;
+            std::cerr << "Unable to open selected-rules file: " << ValuableRulesFile << std::endl;
             return 1;
         }
-
-        size_t ValuableCount = 0;
-        for (const RuleAnalysis::RuleStatistic& Statistic : Statistics)
+        for (const size_t RuleIndex : Selection.ruleIndices)
         {
-            if (!Filter.IsValuable(Statistic)) continue;
-            ValuableRules << Statistic.rule << '\n';
-            ValuableCount++;
+            ValuableRules << Statistics[RuleIndex].rule << '\n';
         }
-        std::cerr << "Wrote " << ValuableCount << " valuable rules to " << ValuableRulesFile << std::endl;
     }
-
-    RuleAnalysis::Sort(Statistics, SortKey, SortOrder);
 
     std::ostream* Output = &std::cout;
     std::ofstream OutputStream;
@@ -770,35 +784,43 @@ int main(
     }
 
     CsvWriter Report(*Output);
-    const std::array<std::string, 11> Header = {
+    const std::array<std::string, 15> Header = {
+        "Rank",
         "Rule",
+        "MarginalGain",
+        "CumulativeTargets",
+        "CumulativeCoverage",
+        "UniqueTargets",
+        "TargetCoverage",
+        "Matches",
+        "MatchRate",
         "Evaluated",
         "Applied",
         "Changed",
-        "Matches",
-        "UniqueMatches",
-        "MatchRate",
-        "Coverage",
         "Rejected",
         "Errors",
         "TimeMs"
     };
     Report.WriteRow(Header);
-    size_t Reported = 0;
-    for (const RuleAnalysis::RuleStatistic& Statistic : Statistics)
+    for (const size_t RuleIndex : Selection.ruleIndices)
     {
-        if (OnlyZero && Statistic.matches != 0) continue;
-        if (!Filter.Passes(Statistic)) continue;
-
-        const std::array<std::string, 11> Row = {
+        const RuleAnalysis::RuleStatistic& Statistic = Statistics[RuleIndex];
+        const std::array<std::string, 15> Row = {
+            std::to_string(Statistic.rank),
             Statistic.rule,
+            std::to_string(Statistic.marginalGain),
+            std::to_string(Statistic.cumulativeTargets),
+            std::format(
+                "{:.6f}",
+                Statistic.CumulativeCoverage(TargetLookup.Size()) * 100.0
+            ),
+            std::to_string(Statistic.UniqueTargets()),
+            std::format("{:.6f}", Statistic.TargetCoverage(TargetLookup.Size()) * 100.0),
+            std::to_string(Statistic.matches),
+            std::format("{:.6f}", Statistic.MatchRate() * 100.0),
             std::to_string(Statistic.evaluated),
             std::to_string(Statistic.applied),
             std::to_string(Statistic.changed),
-            std::to_string(Statistic.matches),
-            std::to_string(Statistic.uniqueMatches),
-            std::format("{:.4f}", Statistic.MatchRate() * 100.0),
-            std::format("{:.4f}", Statistic.Coverage() * 100.0),
             std::to_string(Statistic.rejected),
             std::to_string(Statistic.syntaxErrors),
             std::format(
@@ -807,10 +829,6 @@ int main(
             )
         };
         Report.WriteRow(Row);
-        Reported++;
     }
-
-    std::cerr << "Reported " << Reported << " of " << Statistics.size() << " rules" << std::endl;
-
-    return 0;
+    return Output->good() ? 0 : 1;
 }

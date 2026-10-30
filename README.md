@@ -42,32 +42,47 @@ For advanced usage and options see `cracklist --help`
 
 ### ruleanalyze
 
-`ruleanalyze` measures how often each Hashcat-compatible rule transforms one word into a different word that also appears in the supplied word list. The word list is loaded into memory and sorted before analysis.
-
-```bash
-ruleanalyze [--ascending|--descending] [--sort matches|rule] rules.rule words.txt
-```
-
-The default CSV report is sorted by descending match count. Use `--threads` to control parallel rule analysis and `--output` to write the report to a file.
-
-Use `--generate <length>` to analyze generated inputs through a separate maximum length while retaining `words.txt` as the lookup set. The `--min` and `--max` options only filter the lookup word list.
-
-```bash
-ruleanalyze --generate 4 --charset lower --max 16 rules.rule words.txt
-```
-
-Use `--input-wordlist <file>` (or `-i`) to apply rules to a separate input word list while retaining `words.txt` as the lookup set. `--input-wordlist` and `--generate` cannot be combined.
+In normal ranking mode, `ruleanalyze` exhaustively applies every Hashcat-compatible rule to the analysis inputs, records the distinct target words reached by each rule, and greedily ranks rules by marginal target coverage. A rule is selected only when it adds targets not already covered by higher-ranked rules.
 
 ```bash
 ruleanalyze --input-wordlist base.txt rules.rule known-passwords.txt
 ```
 
-Use `--match-limit <count>` to stop evaluating an individual rule once it reaches the requested number of matches. This can substantially reduce analysis time when the goal is to retain rules that meet a minimum usefulness threshold.
-Statistics for a stopped rule reflect only the inputs evaluated before it reached the limit.
+Use `--min-gain <count>` (or `--bar`) to require each selected rule to add at least that many previously uncovered targets. `--top <count>` limits the ruleset size, and `--coverage <percent>` stops selection after the requested target coverage is reached.
 
-Use `--input-sample` (or `--sample`) to reduce rule evaluations, and `--wordlist-sample` to independently reduce the lookup set before sorting and indexing.
+```bash
+ruleanalyze --input-wordlist base.txt --bar 10 --top 1000 \
+	--coverage 90 --valuable-rules best.rule --output ranking.csv \
+	rules.rule known-passwords.txt
+```
 
-Reports distinguish evaluated, applied, changed, matched, unique matched, rejected, and invalid applications, with match-rate, coverage, and timing columns. Use `--seed` for reproducible samples and report filters such as `--only-zero`, `--min-matches`, `--min-rate`, `--errors-only`, and `--changed-only`. `--valuable-rules <file>` writes rules that produced at least one known word and pass the configured filters as a reusable rule file.
+The CSV report contains each selected rule's individual unique targets, marginal gain, and cumulative coverage. `--valuable-rules` writes the selected rules in ranking order, suitable for direct reuse.
+
+For a fast first pass, `--qualify <count>` keeps any rule that reaches at least that many unique targets. Processing stops immediately for a rule when it qualifies; rules that never reach the threshold still scan the complete input list. Duplicate input hits for the same target count only once toward qualification.
+
+```bash
+ruleanalyze --input-wordlist base.txt --qualify 10 \
+	--valuable-rules qualified.rule --output qualified.csv \
+	gamut.rule known-passwords.txt
+```
+
+Qualification mode answers only whether each rule reaches the threshold. Its match counts, evaluated count, rate, and timing may be truncated, and it does not calculate marginal overlap, ranking, or cumulative coverage. `--qualify` cannot be combined with `--top`, `--bar`, `--min-gain`, `--min-matches`, or `--coverage`.
+
+A recommended two-stage workflow is to qualify the full candidate ruleset first, then run normal marginal ranking against the smaller result:
+
+```bash
+ruleanalyze --input-wordlist base.txt --qualify 10 \
+	--valuable-rules qualified.rule gamut.rule known-passwords.txt
+ruleanalyze --input-wordlist base.txt --bar 10 --top 1000 \
+	--valuable-rules best.rule --output ranking.csv \
+	qualified.rule known-passwords.txt
+```
+
+The base input list is required and remains plaintext because rules transform those words. Targets are streamed into sorted FNV-1a 128 fingerprint vectors bucketed by decoded byte length; complete target plaintexts are not retained in memory.
+
+Target fingerprints already present in the base list are excluded before scoring, so the ranking measures additional rule coverage. The 128-bit fingerprints make accidental collisions negligible at HIBP scale.
+
+Use `--input-sample` with `--seed` for a reproducible faster approximation in either mode. Target fingerprints remain complete and are sorted and deduplicated within each length bucket.
 
 ### wordlistsort
 

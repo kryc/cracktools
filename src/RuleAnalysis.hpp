@@ -1,5 +1,5 @@
 //
-// Hashcat rule effectiveness analysis.
+// Hashcat rule effectiveness analysis and marginal-coverage ranking.
 //
 
 #ifndef RuleAnalysis_hpp
@@ -7,6 +7,7 @@
 
 #include <array>
 #include <atomic>
+#include <compare>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -22,23 +23,12 @@
 namespace RuleAnalysis
 {
 
-enum class SortKey
+struct Hash128
 {
-    Matches,
-    UniqueMatches,
-    MatchRate,
-    Coverage,
-    Changed,
-    Rejected,
-    Errors,
-    Time,
-    Rule
-};
+    uint64_t high = 0;
+    uint64_t low = 0;
 
-enum class SortOrder
-{
-    Ascending,
-    Descending
+    auto operator<=>(const Hash128&) const = default;
 };
 
 struct RuleStatistic
@@ -56,15 +46,24 @@ struct RuleStatistic
 
     std::string rule;
     Rules::CompiledRule compiledRule;
+    std::vector<uint32_t> matchedTargets;
     size_t evaluated = 0;
     size_t applied = 0;
     size_t changed = 0;
     size_t matches = 0;
-    size_t uniqueMatches = 0;
     size_t rejected = 0;
     size_t syntaxErrors = 0;
     uint64_t elapsedNanoseconds = 0;
     size_t sourceOrder = 0;
+    size_t rank = 0;
+    size_t marginalGain = 0;
+    size_t cumulativeTargets = 0;
+    bool qualified = false;
+
+    [[nodiscard]] size_t UniqueTargets(void) const
+    {
+        return matchedTargets.size();
+    }
 
     [[nodiscard]] double MatchRate(void) const
     {
@@ -73,59 +72,62 @@ struct RuleStatistic
             : static_cast<double>(matches) / static_cast<double>(changed);
     }
 
-    [[nodiscard]] double Coverage(void) const
+    [[nodiscard]] double TargetCoverage(const size_t TargetCount) const
     {
-        return evaluated == 0
+        return TargetCount == 0
             ? 0.0
-            : static_cast<double>(matches) / static_cast<double>(evaluated);
+            : static_cast<double>(UniqueTargets()) / static_cast<double>(TargetCount);
     }
-};
 
-struct RuleFilter
-{
-    size_t minimumMatches = 0;
-    size_t maximumMatches = std::numeric_limits<size_t>::max();
-    double minimumRate = 0.0;
-    bool errorsOnly = false;
-    bool excludeErrors = false;
-    bool changedOnly = false;
-
-    [[nodiscard]] bool Passes(const RuleStatistic& Statistic) const
+    [[nodiscard]] double CumulativeCoverage(const size_t TargetCount) const
     {
-        if (Statistic.matches < minimumMatches || Statistic.matches > maximumMatches) return false;
-        if (Statistic.MatchRate() < minimumRate) return false;
-        if (errorsOnly && Statistic.syntaxErrors == 0) return false;
-        if (excludeErrors && Statistic.syntaxErrors != 0) return false;
-        if (changedOnly && Statistic.changed == 0) return false;
-        return true;
-    }
-
-    [[nodiscard]] bool IsValuable(const RuleStatistic& Statistic) const
-    {
-        return Statistic.matches != 0 && Passes(Statistic);
+        return TargetCount == 0
+            ? 0.0
+            : static_cast<double>(cumulativeTargets) / static_cast<double>(TargetCount);
     }
 };
 
-struct WordRange
+struct AnalysisProgress
 {
-    size_t offset = 0;
-    size_t length = 0;
+    std::atomic<size_t> completedRules = 0;
+    std::atomic<size_t> completedEvaluations = 0;
+    std::atomic<size_t> qualifiedRules = 0;
+    std::atomic<size_t> unqualifiedRules = 0;
 };
 
-class WordLookup
+struct SelectionOptions
+{
+    size_t maximumRules = std::numeric_limits<size_t>::max();
+    size_t minimumGain = 1;
+    double targetCoverage = 1.0;
+};
+
+struct SelectionResult
+{
+    std::vector<size_t> ruleIndices;
+    size_t coveredTargets = 0;
+};
+
+class TargetLookup
 {
 public:
-    static constexpr size_t TABLE_SIZE = 65536;
+    static constexpr size_t BUCKET_COUNT = Rules::MAX_PASSWORD_SIZE + 1;
 
-    void Initialize(const std::span<const std::string> SortedWords);
-    [[nodiscard]] const bool Contains(const std::string_view Word) const;
-    [[nodiscard]] const WordRange& GetRange(const uint16_t Prefix) const;
+    [[nodiscard]] static Hash128 Fingerprint(const std::string_view Word);
+
+    [[nodiscard]] bool Add(const std::string_view Word);
+    void Finalize(const size_t Threads = 1);
+    [[nodiscard]] size_t RemoveDirect(const std::span<const std::string> Inputs);
+    [[nodiscard]] std::optional<uint32_t> Find(const std::string_view Word) const;
+    [[nodiscard]] bool Contains(const std::string_view Word) const;
+    [[nodiscard]] size_t Size(void) const;
 
 private:
-    [[nodiscard]] static const uint16_t Prefix(const std::string_view Word);
+    void BuildOffsets(void);
 
-    std::span<const std::string> m_Words;
-    std::array<WordRange, TABLE_SIZE> m_Ranges{};
+    std::array<std::vector<Hash128>, BUCKET_COUNT> m_Buckets;
+    std::array<uint32_t, BUCKET_COUNT + 1> m_Offsets{};
+    size_t m_Size = 0;
 };
 
 std::string
@@ -141,51 +143,23 @@ RandomSample(
     const uint64_t Seed
 );
 
-[[nodiscard]]
-std::vector<size_t>
-RandomSampleIndices(
-    const size_t PopulationSize,
-    const size_t SampleSize,
-    const uint64_t Seed
-);
-
-// SortedWords must be sorted lexicographically before calling Analyze.
-// MatchLimit stops each rule after that many matches; it must be greater than zero.
-// Kept and Dropped count completed rules according to Filter. Without a filter,
-// rules with at least one match are kept.
 void
 Analyze(
     const std::span<const std::string> Inputs,
-    const WordLookup& Words,
+    const TargetLookup& Targets,
     const std::span<RuleStatistic> Statistics,
     const size_t Threads,
-    std::atomic<size_t>* Completed = nullptr,
-    const std::optional<size_t> MatchLimit = std::nullopt,
-    std::atomic<size_t>* Kept = nullptr,
-    std::atomic<size_t>* Dropped = nullptr,
-    const RuleFilter* Filter = nullptr
+    AnalysisProgress* Progress = nullptr,
+    // When set, it must be greater than zero.
+    const std::optional<size_t> QualificationBar = std::nullopt
 );
 
-void
-AnalyzeGenerated(
-    const size_t InputCount,
-    const std::span<const size_t> SampleIndices,
-    const std::string_view Charset,
-    const WordLookup& Words,
+[[nodiscard]]
+SelectionResult
+SelectTopRules(
     const std::span<RuleStatistic> Statistics,
-    const size_t Threads,
-    std::atomic<size_t>* Completed = nullptr,
-    const std::optional<size_t> MatchLimit = std::nullopt,
-    std::atomic<size_t>* Kept = nullptr,
-    std::atomic<size_t>* Dropped = nullptr,
-    const RuleFilter* Filter = nullptr
-);
-
-void
-Sort(
-    const std::span<RuleStatistic> Statistics,
-    const SortKey Key,
-    const SortOrder Order
+    const size_t TargetCount,
+    const SelectionOptions& Options
 );
 
 }

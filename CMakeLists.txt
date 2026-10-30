@@ -341,7 +341,6 @@ set(RULEANALYZE_SOURCES
     src/RuleAnalyzeMain.cpp
     src/Rules.cpp
     src/Util.cpp
-    src/WordGenerator.cpp
 )
 add_executable(ruleanalyze ${RULEANALYZE_SOURCES})
 target_include_directories(ruleanalyze
