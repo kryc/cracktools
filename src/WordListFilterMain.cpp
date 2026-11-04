@@ -147,7 +147,7 @@ WordlistFilter(
             continue;
         }
 
-        if (StripEmails && Util::IsLikelyValidEmail (
+        if (StripEmails && Util::IsLikelyValidEmail(
                 is_hexlified ?
                 Util::UnHexlify(line) :
                 line
@@ -157,9 +157,16 @@ WordlistFilter(
         }
 
         // Don't unhexlify here as neither hash format would be hexlified
-        if (StripHashes && Util::IsLikelyValidHash (line)) {
+        if (StripHashes && Util::IsLikelyValidHash(line)) {
             hash++;
             continue;
+        }
+
+        // Check if a hexlified line actually _needs_ to be hexlified
+        if (is_hexlified && !Util::NeedsHexlify(Util::UnHexlify(line))) {
+            temp = Util::UnHexlify(line);
+            line = std::string_view(temp);
+            is_hexlified = false;
         }
 
         // Check if we need to normalize the hexlified line
@@ -293,6 +300,7 @@ int main(
             std::cout << "  --ascii, -a          Only include lines with printable ASCII characters" << std::endl;
             std::cout << "  --emails, -e         Remove lines that are valid email addresses" << std::endl;
             std::cout << "  --hashes, -H         Remove lines that are valid hashes" << std::endl;
+            std::cout << "  --strip, -s          Strip leading and trailing whitespace from lines" << std::endl;
             std::cout << "  --unique, -u         Remove duplicate lines" << std::endl;
             std::cout << "  --no-hexlify, -x     Do not output hexlified words" << std::endl;
             std::cout << "  --help, -h           Show this help message" << std::endl;
