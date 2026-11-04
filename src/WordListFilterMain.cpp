@@ -112,18 +112,36 @@ WordlistFilter(
         if (Strip) {
             if (is_hexlified)
             {
-                temp = Util::UnHexlify(line);
-                line = std::string_view(temp);
-                is_hexlified = false;
+                std::string_view hexpart = line.substr(5, line.size() - 6);
+                const auto is_whitespace = [](const std::string_view byte) {
+                    return byte == "20" || byte == "09" || byte == "0a" ||
+                           byte == "0A" || byte == "0d" || byte == "0D";
+                };
+                while (!hexpart.empty() && is_whitespace(hexpart.substr(0, 2))) {
+                    hexpart.remove_prefix(2);
+                }
+                if (hexpart.empty()) {
+                    continue;
+                }
+                while (is_whitespace(hexpart.substr(hexpart.size() - 2))) {
+                    hexpart.remove_suffix(2);
+                }
+                if (hexpart.size() != line.size() - 6) {
+                    temp = "$HEX[" + std::string(hexpart) + "]";
+                    line = std::string_view(temp);
+                }
             }
-            // Check if the line is all whitespace
-            if (line.find_first_not_of(" \t\r\n") == std::string_view::npos) {
-                continue;
+            else
+            {
+                // Check if the line is all whitespace
+                if (line.find_first_not_of(" \t\r\n") == std::string_view::npos) {
+                    continue;
+                }
+                line = line.substr(
+                    line.find_first_not_of(" \t\r\n"),
+                    line.find_last_not_of(" \t\r\n") - line.find_first_not_of(" \t\r\n") + 1
+                );
             }
-            line = line.substr(
-                line.find_first_not_of(" \t\r\n"),
-                line.find_last_not_of(" \t\r\n") - line.find_first_not_of(" \t\r\n") + 1
-            );
         }
 
         const size_t line_size = is_hexlified? (line.size() - 6) / 2 : line.size();
