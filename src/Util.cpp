@@ -375,8 +375,60 @@ IsPrintableUTF8Hexlified(
 	{
 		return IsPrintableUTF8(Value);
 	}
-	auto vec = ParseHex(Value.substr(5, Value.size() - 6));
-	return IsPrintableUTF8(vec);
+	const std::string_view hexPart = Value.substr(5, Value.size() - 6);
+	// IsHexlified guarantees complete, valid pairs. Decode only the bytes being checked.
+	const auto readByte = [hexPart](const size_t i) {
+		const uint8_t upper = HEX_LOOKUP[static_cast<uint8_t>(hexPart[2 * i])];
+		const uint8_t lower = HEX_LOOKUP[static_cast<uint8_t>(hexPart[2 * i + 1])];
+		return static_cast<uint8_t>((upper << 4) | lower);
+	};
+	const size_t size = hexPart.size() / 2;
+	size_t i = 0;
+	while (i < size) {
+		const uint8_t byte = readByte(i);
+		uint32_t codepoint = 0;
+		uint32_t minimum = 0;
+		size_t length = 0;
+		if (byte <= 0x7F) {
+			codepoint = byte;
+			length = 1;
+		} else if ((byte & 0xE0) == 0xC0) {
+			codepoint = byte & 0x1F;
+			minimum = 0x80;
+			length = 2;
+		} else if ((byte & 0xF0) == 0xE0) {
+			codepoint = byte & 0x0F;
+			minimum = 0x800;
+			length = 3;
+		} else if ((byte & 0xF8) == 0xF0) {
+			codepoint = byte & 0x07;
+			minimum = 0x10000;
+			length = 4;
+		} else {
+			return false; // Invalid leading byte
+		}
+		if (length > size - i) return false; // Truncated sequence
+		for (size_t j = 1; j < length; j++) {
+			const uint8_t continuation = readByte(i + j);
+			if ((continuation & 0xC0) != 0x80) return false;
+			codepoint = (codepoint << 6) | (continuation & 0x3F);
+		}
+		if (codepoint < minimum || codepoint > 0x10FFFF) return false;
+
+		// Match the existing IsPrintableUTF8 printability rules.
+		if (codepoint <= 0x1F || // C0 controls
+			codepoint == 0x7F || // DEL
+			(codepoint >= 0x80 && codepoint <= 0x9F) || // C1 controls
+			(codepoint >= 0xD800 && codepoint <= 0xDFFF) || // Surrogates
+			(codepoint >= 0xE000 && codepoint <= 0xF8FF) || // BMP PUA
+			(codepoint >= 0xF0000 && codepoint <= 0xFFFFD) || // SPUA-A
+			(codepoint >= 0x100000 && codepoint <= 0x10FFFD) || // SPUA-B
+			codepoint == 0xFFFE || codepoint == 0xFFFF) {
+			return false;
+		}
+		i += length;
+	}
+	return true;
 }
 
 const bool
