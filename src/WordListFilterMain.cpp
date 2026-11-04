@@ -95,6 +95,7 @@ WordlistFilter(
     std::string_view line;
     std::string temp;
     std::string last_line;
+    size_t stripped = 0;
     size_t count = 0;
     size_t small = 0;
     size_t large = 0;
@@ -129,6 +130,7 @@ WordlistFilter(
                 if (hexpart.size() != line.size() - 6) {
                     temp = "$HEX[" + std::string(hexpart) + "]";
                     line = std::string_view(temp);
+                    stripped++;
                 }
             }
             else
@@ -214,11 +216,11 @@ WordlistFilter(
             if (totalLines > 0)
             {
                 std::cerr << "\r#: " << count << "/" << totalLines << "(" << (count * 100 / totalLines) << "%) "
-                          << "<: " << small << " >: " << large << " NP: " << nonprintable << " E: " << email << " H: " << hash << " L: " << lowered << " U: " << uniq << std::flush;
+                          << "<: " << small << " >: " << large << " S: " << stripped << " NP: " << nonprintable << " E: " << email << " H: " << hash << " L: " << lowered << " U: " << uniq << std::flush;
             }
             else
             {
-                std::cerr << "\r#: " << count << " <: " << small << " >: " << large << " NP: " << nonprintable << " E: " << email << " H: " << hash << " L: " << lowered << " U: " << uniq << std::flush;
+                std::cerr << "\r#: " << count << " <: " << small << " >: " << large << " S: " << stripped << " NP: " << nonprintable << " E: " << email << " H: " << hash << " L: " << lowered << " U: " << uniq << std::flush;
             }
         }
     }
@@ -227,11 +229,11 @@ WordlistFilter(
         if (totalLines > 0)
         {
             std::cerr << "\r#: " << count << "/" << totalLines << "(" << (count * 100 / totalLines) << "%) "
-                      << "<: " << small << " >: " << large << " NP: " << nonprintable << " E: " << email << " H: " << hash << " L: " << lowered << " U: " << uniq << std::endl;
+                      << "<: " << small << " >: " << large << " S: " << stripped << " NP: " << nonprintable << " E: " << email << " H: " << hash << " L: " << lowered << " U: " << uniq << std::endl;
         }
         else
         {
-            std::cerr << "\r#: " << count << " <: " << small << " >: " << large << " NP: " << nonprintable << " E: " << email << " H: " << hash << " L: " << lowered << " U: " << uniq << std::endl;
+            std::cerr << "\r#: " << count << " <: " << small << " >: " << large << " S: " << stripped << " NP: " << nonprintable << " E: " << email << " H: " << hash << " L: " << lowered << " U: " << uniq << std::endl;
         }
     }
 }
