@@ -122,6 +122,7 @@ WordlistFilter(
                     hexpart.remove_prefix(2);
                 }
                 if (hexpart.empty()) {
+                    stripped++;
                     continue;
                 }
                 while (is_whitespace(hexpart.substr(hexpart.size() - 2))) {
@@ -136,13 +137,18 @@ WordlistFilter(
             else
             {
                 // Check if the line is all whitespace
-                if (line.find_first_not_of(" \t\r\n") == std::string_view::npos) {
+                const size_t first = line.find_first_not_of(" \t\r\n");
+                if (first == std::string_view::npos) {
+                    if (!line.empty()) {
+                        stripped++;
+                    }
                     continue;
                 }
-                line = line.substr(
-                    line.find_first_not_of(" \t\r\n"),
-                    line.find_last_not_of(" \t\r\n") - line.find_first_not_of(" \t\r\n") + 1
-                );
+                const size_t length = line.find_last_not_of(" \t\r\n") - first + 1;
+                if (length != line.size()) {
+                    stripped++;
+                }
+                line = line.substr(first, length);
             }
         }
 
