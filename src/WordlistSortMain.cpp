@@ -25,6 +25,7 @@ Likely hexadecimal or crypt prefixes in hash:word lines are discarded automatica
 
 Options:
     --output, -o <file>  Write sorted words to a file instead of stdout.
+    --length, -l         Sort by decoded byte length, then by content.
     --help, -h           Display this help message.
 )";
 
@@ -39,6 +40,7 @@ main(
     const auto Args = cracktools::ParseArgv(argv, argc);
     std::filesystem::path InputFile;
     std::filesystem::path OutputFile;
+    bool LengthFirst = false;
 
     for (int i = 1; i < argc; i++)
     {
@@ -51,6 +53,10 @@ main(
                 return 1;
             }
             OutputFile = Args[++i];
+        }
+        else if (Arg == "--length" || Arg == "-l")
+        {
+            LengthFirst = true;
         }
         else if (Arg == "--help" || Arg == "-h")
         {
@@ -96,7 +102,7 @@ main(
         Words.push_back(WordlistSort::ParseLine(Line));
     }
 
-    WordlistSort::Sort(Words);
+    WordlistSort::Sort(Words, LengthFirst);
 
     std::ostream* Output = &std::cout;
     std::ofstream OutputStream;

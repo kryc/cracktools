@@ -60,3 +60,50 @@ TEST(WordlistSort, SortsDecodedBytesAndRehexlifiesOutput)
         "a\n$HEX[6100]\n$HEX[613a]\nz\n"
     );
 }
+
+TEST(WordlistSort, SortsByLengthThenContent)
+{
+    std::vector<std::string> Words = {
+        "bbb", "ab", "z", "aa", "", "a", "ab", "aaa"
+    };
+
+    WordlistSort::Sort(Words, true);
+
+    const std::vector<std::string> Expected = {
+        "", "a", "z", "aa", "ab", "ab", "aaa", "bbb"
+    };
+    EXPECT_EQ(Words, Expected);
+}
+
+TEST(WordlistSort, LengthSortUsesDecodedBytesAndRehexlifiesOutput)
+{
+    std::vector<std::string> Words = {
+        WordlistSort::ParseLine("$HEX[613a]"),
+        WordlistSort::ParseLine("$HEX[ff]"),
+        WordlistSort::ParseLine("$HEX[6100]"),
+        WordlistSort::ParseLine("z"),
+        WordlistSort::ParseLine("$HEX[00]"),
+        WordlistSort::ParseLine("aaa")
+    };
+    std::ostringstream Output;
+
+    WordlistSort::Sort(Words, true);
+    WordlistSort::Write(Words, Output);
+
+    EXPECT_EQ(
+        Output.str(),
+        "$HEX[00]\nz\n$HEX[ff]\n$HEX[6100]\n$HEX[613a]\naaa\n"
+    );
+}
+
+TEST(WordlistSort, LengthSortHandlesEmptyAndSingleWordLists)
+{
+    std::vector<std::string> Words;
+    WordlistSort::Sort(Words, true);
+    EXPECT_TRUE(Words.empty());
+
+    Words.push_back("word");
+    WordlistSort::Sort(Words, true);
+    ASSERT_EQ(Words.size(), 1u);
+    EXPECT_EQ(Words.front(), "word");
+}

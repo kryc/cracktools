@@ -31,10 +31,18 @@ ParseLine(
 
 void
 Sort(
-    const std::span<std::string> Words
+    const std::span<std::string> Words,
+    const bool LengthFirst
 )
 {
-    std::sort(Words.begin(), Words.end());
+    std::sort(Words.begin(), Words.end(), [LengthFirst](const std::string& Left, const std::string& Right)
+    {
+        if (LengthFirst && Left.size() != Right.size())
+        {
+            return Left.size() < Right.size();
+        }
+        return Left < Right;
+    });
 }
 
 void

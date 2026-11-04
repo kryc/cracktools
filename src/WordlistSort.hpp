@@ -21,7 +21,8 @@ ParseLine(
 
 void
 Sort(
-    const std::span<std::string> Words
+    const std::span<std::string> Words,
+    const bool LengthFirst = false
 );
 
 void

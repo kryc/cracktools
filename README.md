@@ -173,6 +173,8 @@ Use `--output <file>` (or `-o`) to write directly to an output file instead of s
 wordlistsort -o sorted.txt words.txt
 ```
 
+Use `--length` (or `-l`) to sort by decoded byte length first (shortest first), then by decoded byte content for words of equal length.
+
 For `hash:word` input, a likely hexadecimal or crypt hash prefix is detected automatically and discarded before decoding and sorting. Other colon-containing words are preserved.
 
 ```bash
