@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <array>
 #include <string>
 
 #include "UnsafeBuffer.hpp"
@@ -109,6 +110,71 @@ TEST(Util, IsPrintableUTF8Hexlified)
     EXPECT_TRUE(Util::IsPrintableUTF8Hexlified("NotAHexlifiedString")); // Fallthrough to IsPrintableUTF8 case
     EXPECT_FALSE(Util::IsPrintableUTF8Hexlified("$HEX[E38193E38293E381ABE381A1E381AF80]")); // "こんにちは" + invalid byte 0x80
     EXPECT_FALSE(Util::IsPrintableUTF8Hexlified("$HEX[48656C6C6F2C20576F726C6421FF]")); // "Hello, World!" + invalid byte 0xFF
+}
+
+TEST(Util, IsPrintableUTF8HexlifiedBoundaries)
+{
+    struct TestCase {
+        std::string_view hex;
+        bool printable;
+    };
+    const auto cases = std::to_array<TestCase>({
+        {"20", true}, {"7E", true}, {"00", false}, {"1F", false}, {"7F", false},
+        {"C280", false}, {"C29F", false}, {"C2A0", true}, {"DFBF", true},
+        {"E0A080", true}, {"ED9FBF", true},
+        {"EDA080", false}, {"EDBFBF", false}, // Surrogates
+        {"EE8080", false}, {"EFA3BF", false}, // BMP private use
+        {"EFA480", true}, {"EFBFBD", true},
+        {"EFBFBE", false}, {"EFBFBF", false}, // Noncharacters
+        {"F0908080", true}, {"F09F9880", true}, {"F3AFBFBF", true},
+        {"F3B08080", false}, {"F3BFBFBD", false}, // Supplementary private use A
+        {"F4808080", false}, {"F48FBFBD", false}, // Supplementary private use B
+        {"F48FBFBF", true}, // Preserve the existing U+10FFFF policy
+        {"C080", false}, {"C1BF", false}, // Overlong two-byte sequences
+        {"E08080", false}, {"E09FBF", false},
+        {"F0808080", false}, {"F08FBFBF", false},
+        {"F4908080", false}, {"F5808080", false}, // Above U+10FFFF
+        {"80", false}, {"BF", false}, {"FE", false}, {"FF", false},
+        {"C2", false}, {"E0", false}, {"E0A0", false},
+        {"F0", false}, {"F090", false}, {"F09080", false}, // Truncated sequences
+        {"C241", false}, {"E04180", false}, {"E0A041", false},
+        {"F0418080", false}, {"F0904180", false}, {"F0908041", false},
+        {"41C2A0E282ACF09F98807E", true}, // Mixed sequence lengths
+        {"41C2A000", false}, {"41F09F988080", false}
+    });
+    for (const auto& test : cases) {
+        const std::string upper = "$HEX[" + std::string(test.hex) + "]";
+        const std::string lower = "$HEX[" + Util::ToLower(test.hex) + "]";
+        EXPECT_EQ(Util::IsPrintableUTF8Hexlified(upper), test.printable) << upper;
+        EXPECT_EQ(Util::IsPrintableUTF8Hexlified(lower), test.printable) << lower;
+        EXPECT_EQ(Util::IsPrintableUTF8(Util::UnHexlify(upper)), test.printable) << upper;
+    }
+    EXPECT_TRUE(Util::IsPrintableUTF8Hexlified("$HEX[c2A0e282AcF09f9880]"));
+}
+
+TEST(Util, IsPrintableUTF8HexlifiedMatchesShortByteStrings)
+{
+    std::array<uint8_t, 2> bytes{};
+    for (unsigned first = 0; first < 256; first++) {
+        bytes[0] = static_cast<uint8_t>(first);
+        const auto single = std::span<const uint8_t>(bytes).first(1);
+        const std::string hex = "$HEX[" + Util::ToHex(single) + "]";
+        EXPECT_EQ(Util::IsPrintableUTF8Hexlified(hex), Util::IsPrintableUTF8(single)) << hex;
+        for (unsigned second = 0; second < 256; second++) {
+            bytes[1] = static_cast<uint8_t>(second);
+            const auto pair = std::span<const uint8_t>(bytes);
+            const std::string pairHex = "$HEX[" + Util::ToHex(pair) + "]";
+            EXPECT_EQ(Util::IsPrintableUTF8Hexlified(pairHex), Util::IsPrintableUTF8(pair)) << pairHex;
+        }
+    }
+}
+
+TEST(Util, IsPrintableUTF8HexlifiedPlainTextFallback)
+{
+    for (const std::string_view value : {"", "plain text", "こんにちは", "$HEX[]",
+                                        "$HEX[0]", "$HEX[GG]", "$HEX[C2A0", "$HEX[00]\n"}) {
+        EXPECT_EQ(Util::IsPrintableUTF8Hexlified(value), Util::IsPrintableUTF8(value)) << value;
+    }
 }
 
 TEST(Util, NeedsHexlify)
