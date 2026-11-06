@@ -167,13 +167,19 @@ Use `--input-sample` with `--seed` for a reproducible faster approximation in ei
 wordlistsort words.txt > sorted.txt
 ```
 
-Use `--output <file>` (or `-o`) to write directly to an output file instead of stdout.
+Use `--output <file>` (or `-o`) to write directly to an output file instead of stdout. This also displays an updating status line on stderr with counting, reading, sorting, and writing stages, including processed/written word counts. Status output is disabled when writing to stdout.
 
 ```bash
 wordlistsort -o sorted.txt words.txt
 ```
 
 Use `--length` (or `-l`) to sort by decoded byte length first (shortest first), then by decoded byte content for words of equal length.
+
+Use `--unique` (or `-u`) to suppress duplicate decoded words during the final output step. For example, `A` and `$HEX[41]` produce just one `A`. This works with either sort order and with memory-mapped input; duplicates are preserved by default.
+
+When estimated input storage (file size plus one `std::string` per newline) reaches 256 MiB, `wordlistsort` automatically uses memory-mapped input and sorts `std::string_view` entries instead of copying every word. Use `--mmap` to force this mode for smaller files. Plain words reference the mapped file; valid `$HEX[]` words are decoded into separate stable storage. Both sorting orders and output encoding remain unchanged.
+
+Mapped sorting still needs memory for the view index (typically 16 bytes per word on 64-bit systems), decoded words, and resident file pages; it is not an external sort or a hard memory limit. Do not modify or truncate the input while sorting. Output paths referring to the input file, including hard links and symlinks, are rejected.
 
 For `hash:word` input, a likely hexadecimal or crypt hash prefix is detected automatically and discarded before decoding and sorting. Other colon-containing words are preserved.
 
