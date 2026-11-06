@@ -369,6 +369,12 @@ target_include_directories(wordlistsort
                         )
 target_link_libraries(wordlistsort gmp gmpxx)
 
+# ASCII word-list set operations and transformations
+find_package(Threads REQUIRED)
+add_executable(wordlist src/Wordlist.cpp src/WordlistMain.cpp src/Util.cpp)
+target_include_directories(wordlist PUBLIC ./src/)
+target_link_libraries(wordlist dispatchqueue Threads::Threads gmp gmpxx)
+
 # RuleAnalyze
 set(RULEANALYZE_SOURCES
     src/CsvWriter.cpp
@@ -410,6 +416,7 @@ set(ALL_TARGETS
     randstring
     wordlistinfo
     wordlistsort
+    wordlist
     ruleanalyze
 )
 

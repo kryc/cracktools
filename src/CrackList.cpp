@@ -691,28 +691,28 @@ CrackList::Crack(
     {
         if (m_Threads == 0)
         {
-            m_Threads = std::thread::hardware_concurrency();
-        }
-
-        m_DispatchPool = dispatch::CreateDispatchPool("worker", m_Threads);
-        m_ActiveWorkers = m_Threads;
-
-        for (size_t i = 0; i < m_Threads; i++)
-        {
-            m_DispatchPool->PostTask(
-                dispatch::bind(
-                    &CrackList::CrackWorker,
-                    this,
-                    i
-                )
-            );
+            m_Threads = std::max(1u, std::thread::hardware_concurrency());
         }
 
         dispatch::CreateAndEnterDispatcher(
             "main",
-            std::bind(
-                dispatch::DoNothing
-            )
+            [this]()
+            {
+                // Register main before any worker can post status or completion.
+                m_DispatchPool = dispatch::CreateDispatchPool("worker", m_Threads);
+                m_ActiveWorkers = m_Threads;
+
+                for (size_t i = 0; i < m_Threads; i++)
+                {
+                    m_DispatchPool->PostTask(
+                        dispatch::bind(
+                            &CrackList::CrackWorker,
+                            this,
+                            i
+                        )
+                    );
+                }
+            }
         );
 
         result = true;

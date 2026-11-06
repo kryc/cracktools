@@ -18,7 +18,6 @@
 #include "SimdCrack.hpp"
 #include "Rules.hpp"
 #include "SimdHashBuffer.hpp"
-#include "SharedRefptr.hpp"
 #include "Util.hpp"
 #include "WordGenerator.hpp"
 
@@ -46,7 +45,7 @@ SimdCrack::InitAndRun(
 {
     if (m_Threads == 0)
     {
-        m_Threads = std::thread::hardware_concurrency();
+        m_Threads = std::max(1u, std::thread::hardware_concurrency());
     }
 
     m_Generator = WordGenerator(m_Charset, m_Prefix, m_Postfix);

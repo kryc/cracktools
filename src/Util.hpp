@@ -13,6 +13,7 @@
 #include <charconv>
 #include <cstdint>
 #include <gmpxx.h>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -114,6 +115,12 @@ IsUpper(
     const char Character
 );
 
+// ASCII letters only; independent of the current locale.
+const bool
+IsAlpha(
+    const char Character
+);
+
 const bool
 IsNumeric(
     const char Character
@@ -152,6 +159,37 @@ ToLower(
 std::string
 ToUpper(
     const std::string_view String
+);
+
+// Titlecase ASCII letter runs. Every non-letter starts a new run and is preserved.
+// TODO(ICU): Unicode-aware letter classification and titlecasing.
+std::string
+ToTitle(
+    const std::string_view String
+);
+
+// Preserve empty fields, including leading/trailing/repeated separators.
+// Empty input produces one empty field. Views reference String's backing storage,
+// which must remain alive and unmodified for as long as the fields are used.
+// Strings and literals convert to string_view; do not retain views of temporary strings.
+std::vector<std::string_view>
+Split(
+    const std::string_view String,
+    const char Separator
+);
+
+// Same field semantics as Split, but returns independent, owned string copies.
+std::vector<std::string>
+SplitToString(
+    const std::string_view String,
+    const char Separator
+);
+
+// Return an owned copy with every occurrence of Character removed.
+std::string
+RemoveCharacter(
+    const std::string_view String,
+    const char Character
 );
 
 const bool
@@ -254,6 +292,22 @@ SizeFactor(
     const double SizeBytes,
     std::string& HumanFactor
 );
+
+// Non-asserting numeric conversion using from_chars' decimal integer/general float
+// syntax. Requires full consumption; empty input, invalid text and overflow fail.
+// Leading whitespace and '+' are not accepted. Zero is a valid parsed value.
+template <typename T>
+std::optional<T>
+TryParseNumber(
+    const std::string_view String
+)
+{
+    if (String.empty()) return std::nullopt;
+    T result{};
+    const auto parsed = std::from_chars(String.begin(), String.end(), result);
+    if (parsed.ec != std::errc{} || parsed.ptr != String.end()) return std::nullopt;
+    return result;
+}
 
 template <typename T>
 const T

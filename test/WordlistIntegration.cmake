@@ -1,0 +1,42 @@
+file(MAKE_DIRECTORY "${TEST_DIR}")
+file(WRITE "${TEST_DIR}/a.txt" "HELLO\nhello\n#COMMENT\n")
+file(WRITE "${TEST_DIR}/b.txt" "WORLD\nhello\n")
+file(WRITE "${TEST_DIR}/-dash.txt" "dash\n")
+
+function(expect_success expected)
+    execute_process(COMMAND "${WORDLIST}" ${ARGN}
+        WORKING_DIRECTORY "${TEST_DIR}"
+        RESULT_VARIABLE result OUTPUT_VARIABLE output ERROR_VARIABLE error)
+    if(NOT result EQUAL 0 OR NOT output STREQUAL expected)
+        message(FATAL_ERROR "wordlist ${ARGN}: result=${result}; output=[${output}]; stderr=[${error}]")
+    endif()
+endfunction()
+
+function(expect_failure)
+    execute_process(COMMAND "${WORDLIST}" ${ARGN}
+        WORKING_DIRECTORY "${TEST_DIR}"
+        RESULT_VARIABLE result OUTPUT_VARIABLE output ERROR_VARIABLE error)
+    if(result EQUAL 0 OR error STREQUAL "")
+        message(FATAL_ERROR "Expected failure for wordlist ${ARGN}: result=${result}; stderr=[${error}]")
+    endif()
+endfunction()
+
+expect_success("hello\nworld\n" lower -t 4 a.txt b.txt)
+expect_success("#COMMENT\nHELLO\nWORLD\n" --include-comments --encoding ascii upper a.txt b.txt)
+expect_success("HELLO\n" difference a.txt b.txt)
+expect_success("hello\n" intersection a.txt b.txt)
+expect_success("HELLO\nWORLD\n" symmetric-difference a.txt b.txt)
+expect_success("dash\n" union -- -dash.txt)
+expect_success("hello\nworld\n" --verbose --encoding utf8 lower a.txt b.txt)
+expect_success("hello\nworld\n" --encoding utf-8 lower a.txt b.txt)
+expect_failure()
+expect_failure(unknown a.txt)
+expect_failure(union missing.txt)
+expect_failure(union a.txt -t)
+expect_failure(union a.txt -t 0)
+expect_failure(union a.txt -t -1)
+expect_failure(union a.txt -t 1x)
+expect_failure(union a.txt -t 99999999999999999999999999)
+expect_failure(union a.txt --encoding latin1)
+expect_failure(union a.txt --encoding)
+expect_failure(union a.txt --unknown)

@@ -306,7 +306,7 @@ CrackDatabase::Build(
     // Check number of threads
     if (m_Threads == 0)
     {
-        m_Threads = std::thread::hardware_concurrency();
+        m_Threads = std::max(1u, std::thread::hardware_concurrency());
     }
 
     std::filesystem::path wordDir = GetWordsPath();

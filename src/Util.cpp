@@ -11,9 +11,7 @@
 #include <cctype>
 #include <cstdint>
 #include <fstream>
-#include <iomanip>
 #include <span>
-#include <sstream>
 #include <string>
 #include <vector>
 
@@ -163,19 +161,18 @@ ToHex(
 	const Case OutputCase
 )
 {
-	std::ostringstream oss;
-	oss << std::hex << std::setfill('0');
-	if (OutputCase == Case::Upper)
+	// Case::Both historically produces lowercase, just like Case::Lower.
+	const std::string_view digits = OutputCase == Case::Upper
+		? "0123456789ABCDEF" : "0123456789abcdef";
+	std::string result;
+	CHECKA(Bytes.size() <= result.max_size() / 2, "Hex output is too large");
+	result.resize(Bytes.size() * 2);
+	for (size_t i = 0; i < Bytes.size(); ++i)
 	{
-		oss << std::uppercase;
+		result[2 * i] = digits[Bytes[i] >> 4];
+		result[2 * i + 1] = digits[Bytes[i] & 0x0f];
 	}
-
-	for (const auto& byte : Bytes)
-	{
-		oss << std::setw(2) << static_cast<int>(byte);
-	}
-
-	return oss.str();
+	return result;
 }
 
 std::string
@@ -270,6 +267,71 @@ ToUpper(
 		result.push_back(ToUpper(c));
 	}
 
+	return result;
+}
+
+std::string
+ToTitle(
+	const std::string_view String
+)
+{
+	std::string result;
+	result.reserve(String.size());
+	bool previousLetter = false;
+	for (const char c : String)
+	{
+		result.push_back(previousLetter ? ToLower(c) : ToUpper(c));
+		previousLetter = IsAlpha(c);
+	}
+	return result;
+}
+
+std::vector<std::string_view>
+Split(
+	const std::string_view String,
+	const char Separator
+)
+{
+	std::vector<std::string_view> result;
+	size_t start = 0;
+	for (;;)
+	{
+		const size_t end = String.find(Separator, start);
+		result.push_back(String.substr(start, end == std::string_view::npos ? end : end - start));
+		if (end == std::string_view::npos) break;
+		start = end + 1;
+	}
+	return result;
+}
+
+std::vector<std::string>
+SplitToString(
+	const std::string_view String,
+	const char Separator
+)
+{
+	const auto fields = Split(String, Separator);
+	std::vector<std::string> result;
+	result.reserve(fields.size());
+	for (const std::string_view field : fields)
+	{
+		result.emplace_back(field);
+	}
+	return result;
+}
+
+std::string
+RemoveCharacter(
+	const std::string_view String,
+	const char Character
+)
+{
+	std::string result;
+	result.reserve(String.size());
+	for (const char c : String)
+	{
+		if (c != Character) result.push_back(c);
+	}
 	return result;
 }
 
@@ -503,6 +565,14 @@ IsUpper(
 )
 {
 	return Character >= 'A' && Character <= 'Z';
+}
+
+const bool
+IsAlpha(
+	const char Character
+)
+{
+	return IsLower(Character) || IsUpper(Character);
 }
 
 const bool

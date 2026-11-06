@@ -26,7 +26,6 @@
 #include "Util.hpp"
 #include "WordGenerator.hpp"
 #include "DispatchQueue.hpp"
-#include "SharedRefptr.hpp"
 #include "simdhash.h"
 
 class SimdCrack

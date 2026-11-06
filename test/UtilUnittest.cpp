@@ -1,7 +1,12 @@
 #include <gtest/gtest.h>
 
 #include <array>
+#include <iomanip>
+#include <limits>
+#include <sstream>
 #include <string>
+#include <string_view>
+#include <vector>
 
 #include "UnsafeBuffer.hpp"
 #include "Util.hpp"
@@ -39,6 +44,70 @@ TEST(Util, IsHex)
     EXPECT_FALSE(Util::IsHex(""));
 }
 
+TEST(Util, ToHexAllBytesAndOverloads)
+{
+    std::array<uint8_t, 256> bytes{};
+    for (size_t i = 0; i < bytes.size(); ++i) bytes[i] = static_cast<uint8_t>(i);
+    const auto span = std::span<const uint8_t>(bytes);
+    const std::string binary = cracktools::AsString(span);
+    for (const auto outputCase : {Util::Case::Lower, Util::Case::Upper, Util::Case::Both})
+    {
+        // Independent reference for the previous stream-based behavior.
+        std::ostringstream reference;
+        reference << std::hex << std::setfill('0');
+        if (outputCase == Util::Case::Upper) reference << std::uppercase;
+        for (const uint8_t byte : bytes) reference << std::setw(2) << static_cast<unsigned>(byte);
+        const std::string expected = reference.str();
+        EXPECT_EQ(Util::ToHex(span, outputCase), expected);
+        EXPECT_EQ(Util::ToHex(bytes.data(), bytes.size(), outputCase), expected);
+        EXPECT_EQ(Util::ToHex(binary, outputCase), expected);
+        EXPECT_EQ(Util::ParseHex(expected), (std::vector<uint8_t>(bytes.begin(), bytes.end())));
+    }
+}
+
+TEST(Util, ToHexEmptyAndLargeInputs)
+{
+    EXPECT_EQ(Util::ToHex(std::string_view{}), "");
+    EXPECT_EQ(Util::ToHex(std::span<const uint8_t>{}), "");
+    EXPECT_EQ(Util::ToHex(nullptr, 0), "");
+    EXPECT_EQ(Util::ToHex(std::string("\0\x0f\xff", 3)), "000fff");
+    const std::string bytes(65536, static_cast<char>(0xff));
+    EXPECT_EQ(Util::ToHex(bytes), std::string(bytes.size() * 2, 'f'));
+    EXPECT_EQ(Util::ToHex(bytes, Util::Case::Upper), std::string(bytes.size() * 2, 'F'));
+}
+
+TEST(Util, IsAlphaAsciiBytes)
+{
+    for (unsigned value = 0; value < 256; ++value)
+    {
+        const bool expected = (value >= 'a' && value <= 'z') || (value >= 'A' && value <= 'Z');
+        EXPECT_EQ(Util::IsAlpha(static_cast<char>(value)), expected) << value;
+    }
+}
+
+TEST(Util, ToTitleAsciiLetterRuns)
+{
+    EXPECT_EQ(Util::ToTitle(""), "");
+    EXPECT_EQ(Util::ToTitle("hELLO wORLD"), "Hello World");
+    EXPECT_EQ(Util::ToTitle("hELLO-wORLD"), "Hello-World");
+    EXPECT_EQ(Util::ToTitle("o'NEILL"), "O'Neill");
+    EXPECT_EQ(Util::ToTitle("123aBC4dEF"), "123Abc4Def");
+    EXPECT_EQ(Util::ToTitle(" \tfoo__BAR\n"), " \tFoo__Bar\n");
+    EXPECT_EQ(Util::ToTitle("!123_"), "!123_");
+    const std::string input = "xxhELLOyy";
+    EXPECT_EQ(Util::ToTitle(std::string_view(input).substr(2, 5)), "Hello");
+    EXPECT_EQ(input, "xxhELLOyy");
+}
+
+TEST(Util, ToTitlePreservesBinaryAndNonAsciiBytes)
+{
+    EXPECT_EQ(Util::ToTitle(std::string("a\0bC", 4)), std::string("A\0Bc", 4));
+    const std::string input = std::string("\xc3\x89", 2) + "hELLO" + std::string("\xff", 1) + "wORLD";
+    const std::string expected = std::string("\xc3\x89", 2) + "Hello" + std::string("\xff", 1) + "World";
+    EXPECT_EQ(Util::ToTitle(input), expected);
+    EXPECT_EQ(Util::ToTitle(expected), expected);
+}
+
 TEST(Util, IsHexCase)
 {
     EXPECT_TRUE(Util::IsLowerHex('0'));
@@ -54,6 +123,87 @@ TEST(Util, IsHexCase)
     EXPECT_FALSE(Util::IsUpperHex('G'));
 }
 
+TEST(Util, SplitPreservesEmptyFieldsInBothModes)
+{
+    struct TestCase
+    {
+        std::string_view input;
+        std::vector<std::string_view> expected;
+    };
+    const std::vector<TestCase> cases = {
+        {"", {""}}, {"abc", {"abc"}}, {",", {"", ""}},
+        {",abc", {"", "abc"}}, {"abc,", {"abc", ""}},
+        {"a,,b,", {"a", "", "b", ""}}, {",,", {"", "", ""}}
+    };
+    for (const auto& test : cases)
+    {
+        const auto views = Util::Split(test.input, ',');
+        EXPECT_EQ(views, test.expected);
+        const auto owned = Util::SplitToString(test.input, ',');
+        ASSERT_EQ(owned.size(), test.expected.size());
+        for (size_t i = 0; i < owned.size(); ++i) EXPECT_EQ(owned[i], test.expected[i]);
+    }
+    const std::string_view defaultEmpty;
+    const auto fields = Util::Split(defaultEmpty, ',');
+    ASSERT_EQ(fields.size(), 1u);
+    EXPECT_TRUE(fields.front().empty());
+    EXPECT_EQ(Util::Split("a,b", ','), (std::vector<std::string_view>{"a", "b"}));
+    EXPECT_EQ(Util::SplitToString("a,b", ','), (std::vector<std::string>{"a", "b"}));
+}
+
+TEST(Util, SplitViewsReferenceOriginalStorage)
+{
+    constexpr std::string_view input = "xxred--blue-yy";
+    const auto source = input.substr(2, 10);
+    const auto fields = Util::Split(source, '-');
+    const std::vector<std::string_view> expected = {"red", "", "blue", ""};
+    ASSERT_EQ(fields, expected);
+    EXPECT_EQ(fields[0].data(), source.data());
+    EXPECT_EQ(fields[1].data(), source.substr(4).data());
+    EXPECT_EQ(fields[2].data(), source.substr(5).data());
+    EXPECT_EQ(fields[3].data(), source.substr(10).data());
+}
+
+TEST(Util, SplitAutomaticallyViewsStringInputs)
+{
+    const std::string source = "red-blue";
+    const auto fields = Util::Split(source, '-');
+    ASSERT_EQ(fields, (std::vector<std::string_view>{"red", "blue"}));
+    EXPECT_EQ(fields[0].data(), source.data());
+    EXPECT_EQ(fields[1].data(), std::string_view(source).substr(4).data());
+}
+
+TEST(Util, SplitOwnedFieldsOutliveInputAndIgnoreSubsequentChanges)
+{
+    std::vector<std::string> fields;
+    {
+        std::string source = "red-blue";
+        fields = Util::SplitToString(source, '-');
+        source.assign("changed");
+        EXPECT_EQ(fields, (std::vector<std::string>{"red", "blue"}));
+    }
+    EXPECT_EQ(fields, (std::vector<std::string>{"red", "blue"}));
+    EXPECT_EQ(Util::SplitToString(std::string("one-two"), '-'),
+        (std::vector<std::string>{"one", "two"}));
+}
+
+TEST(Util, SplitPreservesBinaryBytesAndSupportsNullSeparator)
+{
+    const std::string source = std::string("a\0b,c", 5) + std::string("\xff", 1);
+    const auto views = Util::Split(source, ',');
+    const auto owned = Util::SplitToString(source, ',');
+    ASSERT_EQ(views.size(), 2u);
+    ASSERT_EQ(owned.size(), 2u);
+    EXPECT_EQ(views[0], std::string("a\0b", 3));
+    EXPECT_EQ(views[1], std::string("c\xff", 2));
+    EXPECT_EQ(owned[0], views[0]);
+    EXPECT_EQ(owned[1], views[1]);
+    const auto nullSplit = Util::Split(std::string_view(source), '\0');
+    ASSERT_EQ(nullSplit.size(), 2u);
+    EXPECT_EQ(nullSplit[0], "a");
+    EXPECT_EQ(nullSplit[1], source.substr(2));
+}
+
 TEST(Util, IsBase64)
 {
     EXPECT_TRUE(Util::IsBase64("SGVsbG8sIFdvcmxkIQ=="));
@@ -61,6 +211,57 @@ TEST(Util, IsBase64)
     EXPECT_FALSE(Util::IsBase64("SGVsbG8sIFdvcmxkIQ==!"));
     EXPECT_FALSE(Util::IsBase64("NotBase64String[]"));
     EXPECT_FALSE(Util::IsBase64(""));
+}
+
+TEST(Util, RemoveCharacter)
+{
+    EXPECT_EQ(Util::RemoveCharacter("", '-'), "");
+    EXPECT_EQ(Util::RemoveCharacter("word", '-'), "word");
+    EXPECT_EQ(Util::RemoveCharacter("--red--blue-", '-'), "redblue");
+    EXPECT_EQ(Util::RemoveCharacter("---", '-'), "");
+    EXPECT_EQ(Util::RemoveCharacter("a b c", ' '), "abc");
+    const std::string source = "xxa-byy";
+    EXPECT_EQ(Util::RemoveCharacter(std::string_view(source).substr(2, 3), '-'), "ab");
+    EXPECT_EQ(source, "xxa-byy");
+}
+
+TEST(Util, RemoveCharacterPreservesBinaryBytes)
+{
+    const std::string source = std::string("a\0-b", 4) + std::string("\xff", 1);
+    EXPECT_EQ(Util::RemoveCharacter(source, '-'), std::string("a\0b", 3) + std::string("\xff", 1));
+    EXPECT_EQ(Util::RemoveCharacter(source, '\0'), std::string("a-b") + std::string("\xff", 1));
+    EXPECT_EQ(Util::RemoveCharacter(source, static_cast<char>(0xff)), std::string("a\0-b", 4));
+}
+
+TEST(Util, TryParseNumberValidValuesAndBounds)
+{
+    EXPECT_EQ(Util::TryParseNumber<int>("0"), 0);
+    EXPECT_EQ(Util::TryParseNumber<int>("-42"), -42);
+    EXPECT_EQ(Util::TryParseNumber<size_t>("42"), 42u);
+    EXPECT_EQ(Util::TryParseNumber<int>(std::to_string(std::numeric_limits<int>::min())),
+        std::numeric_limits<int>::min());
+    EXPECT_EQ(Util::TryParseNumber<int>(std::to_string(std::numeric_limits<int>::max())),
+        std::numeric_limits<int>::max());
+    EXPECT_EQ(Util::TryParseNumber<size_t>(std::to_string(std::numeric_limits<size_t>::max())),
+        std::numeric_limits<size_t>::max());
+    EXPECT_EQ(Util::TryParseNumber<double>("1.25"), 1.25);
+    EXPECT_EQ(Util::TryParseNumber<double>("1e3"), 1000.0);
+    const std::string source = "xx123yy";
+    EXPECT_EQ(Util::TryParseNumber<int>(std::string_view(source).substr(2, 3)), 123);
+}
+
+TEST(Util, TryParseNumberRejectsInvalidOrPartialInput)
+{
+    for (const std::string_view input : {"", " ", " 1", "1 ", "+1", "-", "word", "1x", "1.5", "0x10"})
+        EXPECT_FALSE(Util::TryParseNumber<int>(input)) << input;
+    EXPECT_FALSE(Util::TryParseNumber<int>(std::string_view{}));
+    EXPECT_FALSE(Util::TryParseNumber<size_t>("-1"));
+    EXPECT_FALSE(Util::TryParseNumber<int>(std::to_string(std::numeric_limits<int>::max()) + "0"));
+    EXPECT_FALSE(Util::TryParseNumber<int>(std::to_string(std::numeric_limits<int>::min()) + "0"));
+    EXPECT_FALSE(Util::TryParseNumber<size_t>(std::to_string(std::numeric_limits<size_t>::max()) + "0"));
+    EXPECT_FALSE(Util::TryParseNumber<int>(std::string("12\0", 3)));
+    EXPECT_FALSE(Util::TryParseNumber<double>("1.2x"));
+    EXPECT_FALSE(Util::TryParseNumber<double>("1e9999"));
 }
 
 TEST(Util, IsRadix64)

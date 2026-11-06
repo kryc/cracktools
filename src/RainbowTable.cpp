@@ -62,7 +62,7 @@ RainbowTable::InitAndRunBuild(
 {
     if (m_Threads == 0)
     {
-        m_Threads = std::thread::hardware_concurrency();
+        m_Threads = std::max(1u, std::thread::hardware_concurrency());
     }
 
     // Validate config and load header if exists
@@ -286,33 +286,28 @@ RainbowTable::GenerateBlock(
     size_t blockStartId = m_StartingChains + (m_Blocksize * BlockId);
     auto [block, elapsed_ms] = GenerateBlockData(blockStartId);
 
-    //
-    // Post a task to the main thread
-    // to save this block
-    //
+    // Keep at most one unsaved block per worker. Resume on the same queue
+    // only after main saves this block; never block a worker waiting on main.
+    auto* workerQueue = dispatch::CurrentQueue();
+    const size_t nextblock = BlockId + m_Threads;
     dispatch::PostTaskToDispatcher(
         "main",
-        dispatch::bind(
-            &RainbowTable::SaveBlock,
-            this,
-            ThreadId,
-            BlockId,
-            std::move(block),
-            elapsed_ms
-        )
-    );
+        [this, ThreadId, BlockId, block = std::move(block), elapsed_ms,
+         workerQueue, nextblock]() mutable
+        {
+            SaveBlock(ThreadId, BlockId, std::move(block), elapsed_ms);
 
-    //
-    // Post the next task
-    //
-    const size_t nextblock = BlockId + m_Threads;
-    dispatch::PostTaskFast(
-        dispatch::bind(
-            &RainbowTable::GenerateBlock,
-            this,
-            ThreadId,
-            nextblock
-        )
+            // The pool stays alive until all workers report completion on main.
+            // GenerateBlock observes BuildComplete and posts that notification.
+            workerQueue->PostTask(
+                dispatch::bind(
+                    &RainbowTable::GenerateBlock,
+                    this,
+                    ThreadId,
+                    nextblock
+                )
+            );
+        }
     );
 }
 
@@ -1502,7 +1497,7 @@ RainbowTable::PrepareCrack(
 
     if (m_Threads == 0)
     {
-        m_Threads = std::thread::hardware_concurrency();
+        m_Threads = std::max(1u, std::thread::hardware_concurrency());
     }
 
     if (m_Threads > 1)

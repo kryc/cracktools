@@ -6,11 +6,16 @@
 //  Copyright © 5 Kryc. All rights reserved.
 //
 
+#include <cstdio>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <mutex>
+#include <string>
 #include <string_view>
 #include <optional>
+#include <sys/stat.h>
+#include <utility>
 #include <vector>
 
 #if defined(__AVX512F__) || defined(__AVX2__) || defined(__SSE4_2__) || defined(__SSSE3__) || defined(__SSE2__)
@@ -157,49 +162,68 @@ private:
 class MmapLineReader {
 public:
     MmapLineReader(const std::string_view Filename) {
-        auto mapping = cracktools::MmapFileSpan<const char>(
-            Filename,
-            PROT_READ,
-            MAP_SHARED
-        );
-        if (!mapping.has_value()) {
-            m_Opened = false;
-            return;
-        }
-        m_Span = std::get<std::span<const char>>(mapping.value());
-        m_FileHandle = std::get<FILE*>(mapping.value());
-        m_FileView = cracktools::AsStringView(m_Span);
-        m_Opened = true;
+        SetInputFile(Filename);
     }
     MmapLineReader() = default;
-    const bool SetInputFile(const std::string_view Filename) {
-        if (m_Opened) {
-            cracktools::UnmapFileSpan(m_Span, m_FileHandle);
-            m_Opened = false;
+    MmapLineReader(const MmapLineReader&) = delete;
+    MmapLineReader& operator=(const MmapLineReader&) = delete;
+    MmapLineReader(MmapLineReader&& Other) noexcept {
+        *this = std::move(Other);
+    }
+    MmapLineReader& operator=(MmapLineReader&& Other) noexcept {
+        if (this != &Other) {
+            Close();
+            m_Span = std::exchange(Other.m_Span, {});
+            m_FileHandle = std::exchange(Other.m_FileHandle, nullptr);
+            m_FileView = std::exchange(Other.m_FileView, {});
+            m_Offset = std::exchange(Other.m_Offset, 0);
+            m_Opened = std::exchange(Other.m_Opened, false);
         }
-        auto mapping = cracktools::MmapFileSpan<const char>(
-            Filename,
-            PROT_READ,
-            MAP_SHARED
-        );
-        if (!mapping.has_value()) {
-            m_Opened = false;
+        return *this;
+    }
+    const bool SetInputFile(const std::string_view Filename) {
+        // Copy before releasing the old mapping: Filename may itself reference
+        // that mapping, or be a substring view that is not null-terminated.
+        const std::string Path(Filename);
+        Close();
+        std::error_code Error;
+        // Reject FIFOs before opening, so opening a pipe cannot wait for a writer.
+        if (!std::filesystem::is_regular_file(Path, Error) || Error) return false;
+        m_FileHandle = std::fopen(Path.c_str(), "rb");
+        if (!m_FileHandle) return false;
+        struct stat Info {};
+        if (fstat(fileno(m_FileHandle), &Info) != 0 || !S_ISREG(Info.st_mode)
+            || Info.st_size < 0) {
+            Close();
             return false;
         }
-        m_Span = std::get<std::span<const char>>(mapping.value());
-        m_FileHandle = std::get<FILE*>(mapping.value());
-        m_FileView = cracktools::AsStringView(m_Span);
+        // mmap cannot map an empty file; it is nevertheless a valid, open input.
+        if (Info.st_size != 0) {
+            const size_t Size = static_cast<size_t>(Info.st_size);
+            void* Address = mmap(nullptr, Size, PROT_READ, MAP_SHARED, fileno(m_FileHandle), 0);
+            if (Address == MAP_FAILED) {
+                Close();
+                return false;
+            }
+            m_Span = cracktools::UnsafeSpan(static_cast<const char*>(Address), Size);
+            m_FileView = cracktools::AsStringView(m_Span);
+        }
         m_Opened = true;
-        m_Offset = 0;
         return true;
     }
     ~MmapLineReader() {
-        if (m_Opened) {
-            cracktools::UnmapFileSpan(m_Span, m_FileHandle);
-        }
+        Close();
     }
     const bool Open(void) const {
         return m_Opened;
+    }
+    // The full, read-only mapping, independent of the sequential reader cursor.
+    // Views remain valid until this mapping is reopened or released. Moving the
+    // reader transfers ownership without invalidating its existing views.
+    // Concurrent view reads are safe; do not modify/truncate the input or reopen,
+    // move, or destroy the mapping owner while readers are using its views.
+    std::string_view View(void) const {
+        return m_FileView;
     }
     const bool IsEof() const {
         return m_Offset >= m_Span.size();
@@ -237,6 +261,12 @@ public:
         return ReadLine();
     }
 private:
+    void Close(void) {
+        cracktools::UnmapFileSpan(m_Span, m_FileHandle);
+        m_FileView = {};
+        m_Offset = 0;
+        m_Opened = false;
+    }
     std::span<const char> m_Span;
     FILE* m_FileHandle = nullptr;
     std::string_view m_FileView;

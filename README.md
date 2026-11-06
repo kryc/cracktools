@@ -159,6 +159,53 @@ Target fingerprints already present in the base list are excluded before scoring
 
 Use `--input-sample` with `--seed` for a reproducible faster approximation in either mode. Target fingerprints remain complete and are sorted and deduplicated within each length bucket.
 
+### wordlist
+
+`wordlist` is a multithreaded, ASCII-only C++ counterpart to the Python wordlist
+tool. It supports `union`, `difference`, `intersection`, `symmetric-difference`,
+`lower`, `upper`, `title`, and `clean`. Pass an operation and one or more regular
+input files; output goes to stdout. Use `--threads` (or `-t`) to set a positive
+worker count; the default uses hardware concurrency.
+
+Set membership is based on decoded words, with duplicates within a file ignored.
+Difference subtracts every later file from the first. Intersection requires a
+word in every file. Multi-file symmetric difference retains words appearing in
+an odd number of files. Case transformations combine and deduplicate all files.
+`clean` lowercases words, converts trailing `'s` to `s`, replaces hyphenated words
+with joined and split variants, then does the same for spaces. It drops empty
+words and single characters outside `a`–`z`, preserving the Python script's
+single-character filter rather than filtering every non-letter word.
+
+Lines beginning with `#` are skipped unless `--include-comments` is supplied;
+this option applies consistently to every operation. LF, CRLF, CR, and an
+unterminated final line are supported. Valid nonempty `$HEX[]` payloads are
+decoded before processing. Malformed wrappers and literal `$HEX[]` stay literal.
+Hash prefixes are not stripped. Output uses the project's standard `Util::Hexlify`
+policy: printable UTF-8 is retained unless the word contains a colon, ends in
+whitespace, or begins with `$HEX[`. Those words, control characters, and invalid
+or non-printable UTF-8 are hex-encoded; empty words become blank lines. Literal
+malformed wrappers are therefore escaped on output rather than confused with
+encoded data. Results are sorted **after** output escaping. This uses the
+project's escaping policy rather than the Python script's output policy.
+
+No ICU dependency is added. **TODO: ICU-backed Unicode decoding, casing,
+titlecasing, and transliteration.** For now, non-ASCII bytes are preserved,
+ASCII letters alone change case, and `clean` does not add transliterated variants.
+`--encoding` accepts `ascii`, `utf8`, and `utf-8` as byte-preserving modes, not
+Unicode decoding implementations; other encodings are rejected explicitly.
+Use `--verbose` for summaries on stderr and `--` for dash-prefixed input paths.
+
+Input is memory-mapped and split into newline-aligned tasks, so large individual
+files can use several workers. Worker-local batches feed hash partitions;
+partitions independently reduce distinct-file membership and sort their escaped
+results. One `libdispatchqueue` worker pool is reused across both phases, with
+atomic-index work distribution and explicit idle barriers before mappings are
+released or reduction begins. Workers are drained and joined before output.
+A buffered k-way merge produces deterministic output. Processing is
+in-memory: records, sorted results, and mapped pages consume RAM; no external
+sort or hard memory limit is provided. Do not modify or truncate inputs while
+the command runs, and do not redirect output onto an input file.
+
 ### wordlistsort
 
 `wordlistsort` normalizes and sorts a word list. It decodes valid `$HEX[]` input before sorting by decoded byte value, then applies standard `$HEX[]` encoding to output words where required.

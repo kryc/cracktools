@@ -56,6 +56,13 @@ target_include_directories(unittest
 )
 target_link_libraries(unittest gtest_main gmp gmpxx)
 add_test(NAME unittest COMMAND unittest)
+add_test(NAME util_unittest COMMAND unittest --gtest_filter=Util.*)
+
+# Shared mmap reader tests, independent of the legacy relative-path line fixtures.
+add_executable(mmaplinereader_unittest EXCLUDE_FROM_ALL MmapLineReaderUnittest.cpp)
+target_include_directories(mmaplinereader_unittest PUBLIC ../src/)
+target_link_libraries(mmaplinereader_unittest gtest_main)
+add_test(NAME mmaplinereader_unittest COMMAND mmaplinereader_unittest)
 
 # Hashcat rule engine unittest
 add_executable(rules_unittest EXCLUDE_FROM_ALL
@@ -92,6 +99,31 @@ target_include_directories(wordlistsort_unittest
 )
 target_link_libraries(wordlistsort_unittest gtest_main gmp gmpxx)
 add_test(NAME wordlistsort_unittest COMMAND wordlistsort_unittest)
+
+# ASCII word-list manipulation unittest
+find_package(Threads REQUIRED)
+add_executable(wordlist_unittest EXCLUDE_FROM_ALL
+    WordlistUnittest.cpp
+    ../src/Util.cpp
+    ../src/Wordlist.cpp)
+target_include_directories(wordlist_unittest PUBLIC ../src/)
+target_link_libraries(wordlist_unittest gtest_main dispatchqueue Threads::Threads gmp gmpxx)
+add_test(NAME wordlist_unittest COMMAND wordlist_unittest)
+set_tests_properties(wordlist_unittest PROPERTIES TIMEOUT 60)
+add_test(NAME wordlist_help COMMAND $<TARGET_FILE:wordlist> --help)
+add_test(NAME wordlist_cli
+    COMMAND ${CMAKE_COMMAND}
+        -DWORDLIST=$<TARGET_FILE:wordlist>
+        -DTEST_DIR=${CMAKE_CURRENT_BINARY_DIR}/wordlist_integration
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/WordlistIntegration.cmake)
+
+    add_test(NAME dispatch_application_smoke
+        COMMAND ${CMAKE_COMMAND}
+        -DCRACKLIST=$<TARGET_FILE:cracklist>
+        -DSIMDCRACK=$<TARGET_FILE:simdcrack>
+        -DTEST_DIR=${CMAKE_CURRENT_BINARY_DIR}/dispatch_applications
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/DispatchApplicationsIntegration.cmake)
+    set_tests_properties(dispatch_application_smoke PROPERTIES TIMEOUT 60)
 
 # RainbowTable unittest (needs simdhash, dispatchqueue, crypto)
 add_executable(rainbow_unittest EXCLUDE_FROM_ALL
